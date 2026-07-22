@@ -4,13 +4,22 @@
 \alias{plot_pseudocolor_panels}
 \title{Build pseudocolor panels from a normalized analysis result}
 \usage{
-plot_pseudocolor_panels(analysis, palette = analysis$config$palette)
+plot_pseudocolor_panels(
+  analysis,
+  palette = NULL,
+  appearance = NULL,
+  appearance_file = NULL
+)
 }
 \arguments{
 \item{analysis}{A \code{facs_analysis} object.}
 
 \item{palette}{A named package palette or a custom color vector. Defaults to
 the validated configuration value.}
+
+\item{appearance}{Optional presentation-only overrides.}
+
+\item{appearance_file}{Optional YAML appearance file.}
 }
 \value{
 An object of class \code{facs_plot_set} containing individual panels,

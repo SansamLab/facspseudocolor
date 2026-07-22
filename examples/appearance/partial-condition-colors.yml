@@ -1,0 +1,7 @@
+# Named overrides may be partial. Remaining conditions receive stable colors
+# automatically from the selected palette.
+condition_palette: "colorblind"
+condition_colors:
+  "Untreated": "#808080"
+  "4h Auxin": "#D55E00"
+

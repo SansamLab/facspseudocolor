@@ -1,0 +1,50 @@
+---
+title: "FACS signal quantitation"
+format: { html: { toc: true, embed-resources: true } }
+execute: { warning: false, message: false }
+params:
+  config: null
+  analysis_rds: null
+  appearance_file: null
+  output_analysis_rds: null
+  output_figure_bundle_rds: null
+  overwrite: false
+  signal: "background_subtracted"
+  condition_palette: null
+  condition_colors: null
+  base_font_size: null
+  error_bar: null
+  show_points: null
+  phase_lineplot: null
+  x_limits: null
+  y_limits: null
+  layout_options: null
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
+analysis <- facs_report_input(params$config, params$analysis_rds)
+style <- resolve_facs_appearance(analysis, facs_report_appearance(params), params$appearance_file)
+plots <- plot_facs_quantitation(analysis, appearance = style, signal = params$signal)
+page <- assemble_facs_panels(plots, ncol = min(2L, length(plots)),
+                             layout_options = style$layout_options)
+bundle <- build_facs_figure_bundle(analysis, style, seed = 1)
+facs_report_save_artifacts(analysis, bundle, params$output_analysis_rds,
+                           params$output_figure_bundle_rds, params$overwrite)
+```
+
+## Signal quantitation
+
+```{r}
+page
+```
+
+## Plot-ready tables
+
+```{r}
+analysis$quantitation$by_signal[[params$signal]]
+analysis$quantitation$phase_percentages
+```

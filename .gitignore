@@ -27,3 +27,4 @@ Thumbs.db
 *.Rcheck/
 
 **/*.quarto_ipynb
+.R-library/

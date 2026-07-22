@@ -45,6 +45,9 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
   Set up for the EdU example.
 - `config_poi.yml` — a ready-to-run POI (Total MTBP) example config.
 - `pseudocolor_plots.qmd` — a thin report that calls the installed package.
+- `inst/quarto/` — focused complete, pseudocolor, quantitation, cell-cycle, and
+  diagnostics report templates.
+- `examples/appearance/` — optional presentation-only YAML examples.
 - `R/` — the `facspseudocolor` package implementation.
 - `python/export_flowjo_populations.py` — the unchanged optional FlowKit exporter.
 - `tools/flowjo-orchestration.R` — optional repository-level Python launcher;
@@ -163,6 +166,20 @@ quarto render pseudocolor_plots.qmd
 This reads `config.yml` and produces `results/pseudocolor_panels.pdf` and
 `.png`, plus an HTML report (which echoes the exact settings used).
 
+## Reusable reports and editable artifacts
+
+Every analysis now calculates all supported phase medians, whole-population
+medians, and phase percentages for both background-subtracted and normalized
+signals. Focused Quarto templates decide what to display without recalculating
+or changing the scientific result.
+
+Analysis RDS files are the durable scientific source of truth. Figure-bundle
+RDS files contain editable individual ggplots, plot-ready summaries, and
+Plotgardener layout metadata without duplicating event-level data.
+
+See [`docs/REPORTS.md`](docs/REPORTS.md) for the report catalog, appearance
+overrides, RDS workflow, and examples.
+
 The saving layer refuses to overwrite existing results. To deliberately replace
 the configured PDF and PNG:
 
@@ -232,9 +249,9 @@ replicates:
 | `poi_peak_failure` | `error` | Stop if a per-sample POI DNA peak cannot be detected. `use_background` explicitly enables the legacy fallback. |
 | `show_phase_gates` | `false` | Overlay the G1 / Early S / Mid S / Late S / G2/M gates on every panel. EdU uses 2D gates (DNA × EdU); POI uses DNA-content bands (no S marker on y). |
 | `show_gate_assignment` | `false` | Diagnostic scatter (per sample) coloring each event by the phase gate it falls in. |
-| `quantify_phase_median` | `false` | Calculate and show median signal within each phase. |
-| `quantify_whole_median` | `false` | Calculate and show the whole-population median per sample. |
-| `quantify_phase_percent` | `false` | Calculate and show the percentage of cells within each phase gate. |
+| `quantify_phase_median` | `false` | Legacy switch controlling display in the original report; values are always calculated. |
+| `quantify_whole_median` | `false` | Legacy switch controlling display in the original report; values are always calculated. |
+| `quantify_phase_percent` | `false` | Legacy switch controlling display in the original report; values are always calculated. |
 | `quant_signal` | `background_subtracted` | Signal used for the quantitation medians: `background_subtracted` (raw − fitted baseline, then ratio to reference; matches Figure 1) or `normalized` (the divided signal shown in panels). Percentages unaffected. |
 | `quantify_reference_normalized` | `false` | Also make median bar plots normalized within each replicate to the reference (reference = 1). |
 | `quant_reference_condition` | reference | Condition to normalize to; defaults to the replicate reference (e.g. `siCtrl NT`). |

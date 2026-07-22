@@ -42,6 +42,7 @@ new_facs_analysis <- function(
 ) {
   structure(
     list(
+      artifact_version = 1L,
       config = config,
       sample_manifest = manifest,
       input_report = input_report,
@@ -121,12 +122,18 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
   }
   names(normalized_data) <- manifest$prefix
 
-  new_facs_analysis(
+  analysis <- new_facs_analysis(
     config = config,
     manifest = manifest,
     input_report = input_report,
     normalized_data = normalized_data,
     models = models
+  )
+  quantify_cell_cycle(
+    analysis,
+    include = c("phase_median", "whole_median", "phase_percent"),
+    signal = c("background_subtracted", "normalized"),
+    reference_condition = config$quant_reference_condition
   )
 }
 

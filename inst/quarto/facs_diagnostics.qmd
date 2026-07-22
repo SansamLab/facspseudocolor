@@ -1,0 +1,62 @@
+---
+title: "FACS analysis diagnostics"
+format: { html: { toc: true, embed-resources: true } }
+execute: { warning: false, message: false }
+params:
+  config: null
+  analysis_rds: null
+  appearance_file: null
+  output_analysis_rds: null
+  output_figure_bundle_rds: null
+  overwrite: false
+  target_axis_label: null
+  dna_axis_label: null
+  palette: null
+  x_limits: null
+  y_limits: null
+  y_log10: null
+  point_size: null
+  show_phase_gates: null
+  gate_color: null
+  gate_linetype: null
+  gate_linewidth: null
+  gate_show_labels: null
+  condition_palette: null
+  condition_colors: null
+  layout_options: null
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
+analysis <- facs_report_input(params$config, params$analysis_rds)
+style <- resolve_facs_appearance(analysis, facs_report_appearance(params), params$appearance_file)
+gate_plot <- plot_facs_gate_assignments(analysis, seed = 1, appearance = style)
+pseudocolor <- plot_pseudocolor_panels(analysis, appearance = style)
+bundle <- build_facs_figure_bundle(analysis, style, seed = 1)
+facs_report_save_artifacts(analysis, bundle, params$output_analysis_rds,
+                           params$output_figure_bundle_rds, params$overwrite)
+```
+
+## Gate assignments
+
+```{r}
+gate_plot
+```
+
+## Pseudocolor gate overlay
+
+```{r}
+pseudocolor
+```
+
+## Input and normalization diagnostics
+
+```{r}
+analysis$input_report
+analysis$models
+analysis$warnings
+analysis$provenance
+```

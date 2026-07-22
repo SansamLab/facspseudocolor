@@ -7,7 +7,7 @@
 quantify_cell_cycle(
   analysis,
   include = c("phase_median", "whole_median", "phase_percent"),
-  signal = analysis$config$quant_signal,
+  signal = c("background_subtracted", "normalized"),
   reference_condition = NULL
 )
 }
