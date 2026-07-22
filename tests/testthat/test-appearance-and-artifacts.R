@@ -52,6 +52,7 @@ test_that("analysis and figure bundle artifacts round trip", {
   )
   expect_s3_class(bundle, "facs_figure_bundle")
   expect_s3_class(bundle$quantitation_page, "facs_panel_bundle")
+  expect_equal(bundle$quantitation_page$layout$panel, 3.2)
   expect_true(all(vapply(bundle$quantitation, inherits, logical(1), "ggplot")))
   expect_false("normalized_data" %in% names(bundle))
   expect_true(all(vapply(bundle$pseudocolor$panel_results, function(x) {

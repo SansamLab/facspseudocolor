@@ -90,6 +90,12 @@ assemble_facs_panels <- function(plots, ncol = NULL, layout_options = list()) {
     stop("`ncol` must be one positive integer.", call. = FALSE)
   }
   nrow <- ceiling(length(plots) / ncol)
+  generic_defaults <- list(
+    panel_size = 3.2, panel_gap_x = 0.35, panel_gap_y = 0.35,
+    margin_left = 0.25, margin_top = 0.25,
+    margin_right = 0.25, margin_bottom = 0.25
+  )
+  layout_options <- utils::modifyList(generic_defaults, layout_options)
   layout <- facs_page_layout(ncol, nrow, layout_options)
   structure(list(plots = plots, ncol = as.integer(ncol), nrow = nrow,
                  layout = layout), class = "facs_panel_bundle")
