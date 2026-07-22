@@ -23,11 +23,12 @@ test_that("appearance defaults are dynamic and null overrides are ignored", {
   analysis <- artifact_test_analysis()
   style <- resolve_facs_appearance(
     analysis,
-    list(target_axis_label = NULL, condition_palette = "colorblind")
+    list(target_axis_label = NULL)
   )
   expect_s3_class(style, "facs_appearance")
   expect_match(style$target_axis_label, "background-normalized")
   expect_named(style$condition_colors, c("Reference", "Treatment"))
+  expect_identical(unname(style$condition_colors), c("#440154", "#FDE725"))
 })
 
 test_that("partial condition colors override only known labels", {

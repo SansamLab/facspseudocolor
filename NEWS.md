@@ -17,3 +17,4 @@
   mappings that never require templates to know sample labels in advance.
 - Added focused complete, pseudocolor, quantitation, cell-cycle, and diagnostic
   Quarto templates with Plotgardener multipanel assembly.
+- Changed the automatic condition-color palette from pink to viridis.

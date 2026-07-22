@@ -4,7 +4,7 @@ devtools::load_all(".")
 analysis <- analyze_facs_experiment("config_poi.yml")
 style <- resolve_facs_appearance(
   analysis,
-  list(condition_palette = "colorblind", phase_lineplot = FALSE)
+  list(phase_lineplot = FALSE)
 )
 bundle <- build_facs_figure_bundle(analysis, appearance = style)
 directory <- "docs/gallery"

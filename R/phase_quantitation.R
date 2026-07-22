@@ -260,10 +260,10 @@ add_reference_ratio <- function(df, value_col, reference_condition,
   df
 }
 
-# Default palette: reference (first condition) grey, rest pink->magenta.
+# Default palette: evenly spaced viridis-style colors.
 condition_fill_palette <- function(n) {
-  if (n <= 1) return("#D9D9D9")
-  c("#D9D9D9", grDevices::colorRampPalette(c("#F9E6FA", "#EA55EB"))(n - 1))
+  anchors <- c("#440154", "#414487", "#2A788E", "#22A884", "#7AD151", "#FDE725")
+  grDevices::colorRampPalette(anchors)(n)
 }
 
 # Resolve one fill color per condition level. `fill_colors` may be a named
