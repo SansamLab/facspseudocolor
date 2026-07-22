@@ -61,7 +61,10 @@ bundle$pseudocolor
 ## Quantitation
 
 ```{r}
-bundle$quantitation_page
+#| fig-width: 10
+#| fig-height: 6
+quantitation_names <- setdiff(names(bundle$quantitation), "gate_assignment")
+for (name in quantitation_names) print(bundle$quantitation[[name]])
 ```
 
 ## Quantitation tables
@@ -73,6 +76,11 @@ analysis$quantitation
 ## Diagnostics and provenance
 
 ```{r}
+#| fig-width: 14
+#| fig-height: 8
+if (!is.null(bundle$quantitation$gate_assignment)) {
+  print(bundle$quantitation$gate_assignment)
+}
 analysis$input_report
 analysis$warnings
 analysis$provenance

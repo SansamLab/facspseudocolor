@@ -39,7 +39,10 @@ facs_report_save_artifacts(analysis, bundle, params$output_analysis_rds,
 ## Signal quantitation
 
 ```{r}
-page
+#| fig-width: 10
+#| fig-height: 6
+quantitation_names <- setdiff(names(plots), "gate_assignment")
+for (name in quantitation_names) print(plots[[name]])
 ```
 
 ## Plot-ready tables

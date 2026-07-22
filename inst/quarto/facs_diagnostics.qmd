@@ -43,6 +43,8 @@ facs_report_save_artifacts(analysis, bundle, params$output_analysis_rds,
 ## Gate assignments
 
 ```{r}
+#| fig-width: 14
+#| fig-height: 8
 gate_plot
 ```
 

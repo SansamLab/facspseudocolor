@@ -37,7 +37,9 @@ facs_report_save_artifacts(analysis, bundle, params$output_analysis_rds,
 ## Cell-cycle distribution
 
 ```{r}
-page
+#| fig-width: 10
+#| fig-height: 6
+plot
 ```
 
 ## Cell-cycle values
