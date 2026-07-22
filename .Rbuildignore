@@ -1,0 +1,12 @@
+^facs_pseudocolor_workflow\.Rproj$
+^\.Rproj\.user$
+^\.git$
+^\.github$
+^results$
+^pseudocolor_plots\.html$
+^PROJECT_SUMMARY\.md$
+^.*\.tar\.gz$
+^.*\.Rcheck$
+^tools$
+^pseudocolor_plots\.qmd$
+^docs$

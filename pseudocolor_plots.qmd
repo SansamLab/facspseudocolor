@@ -1,0 +1,119 @@
+---
+title: "Normalized pseudocolor plots: signal vs DNA content"
+format:
+  html:
+    toc: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+params:
+  config: "config.yml"
+  run_flowjo_export: false
+  save_outputs: true
+  overwrite: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(facspseudocolor)
+
+config <- read_facs_config(params$config)
+set.seed(1)
+```
+
+```{r}
+#| label: optional-flowjo-export
+#| message: true
+
+if (isTRUE(params$run_flowjo_export)) {
+  if (is.null(config$flowjo) &&
+      !any(vapply(config$replicates, function(x) !is.null(x$flowjo), logical(1)))) {
+    stop("`run_flowjo_export` was requested, but the config has no FlowJo settings.")
+  }
+  source("tools/flowjo-orchestration.R", local = TRUE)
+  prepare_flowjo_csvs_external(config)
+}
+```
+
+## Analysis
+
+```{r}
+#| label: analyze
+
+analysis <- analyze_facs_experiment(config)
+analysis
+```
+
+```{r}
+#| label: quantitation
+
+requested_quantitation <- c(
+  if (isTRUE(config$quantify_phase_median)) "phase_median",
+  if (isTRUE(config$quantify_whole_median)) "whole_median",
+  if (isTRUE(config$quantify_phase_percent)) "phase_percent"
+)
+
+if (length(requested_quantitation)) {
+  analysis <- quantify_cell_cycle(
+    analysis,
+    include = requested_quantitation,
+    signal = config$quant_signal,
+    reference_condition = config$quant_reference_condition
+  )
+  analysis$quantitation
+}
+```
+
+```{r}
+#| label: quantitation-plots
+
+if (length(requested_quantitation)) {
+  quantitation_plots <- plot_facs_quantitation(analysis, seed = 1)
+  for (plot in quantitation_plots) print(plot)
+}
+```
+
+## Pseudocolor panels
+
+```{r}
+#| label: pseudocolor-panels
+
+plots <- plot_pseudocolor_panels(analysis)
+plots
+```
+
+```{r}
+#| label: save-results
+#| include: false
+
+if (isTRUE(params$save_outputs)) {
+  save_facs_results(
+    analysis,
+    plots = plots,
+    overwrite = isTRUE(params$overwrite)
+  )
+}
+```
+
+## Configuration and provenance
+
+```{r}
+#| label: configuration
+
+config
+```
+
+```{r}
+#| label: provenance
+
+analysis$provenance
+```
+
+```{r}
+#| label: session-info
+
+sessionInfo()
+```

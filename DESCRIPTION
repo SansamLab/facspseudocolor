@@ -1,0 +1,27 @@
+Package: facspseudocolor
+Title: Analyze Signal Versus DNA Flow Cytometry Data
+Version: 0.0.0.9000
+Authors@R:
+    person("Chris", "Sansam", email = "sansamcl@gmail.com",
+           role = c("aut", "cre"))
+Description: Validates, normalizes, quantifies, and plots event-level flow
+    cytometry data for EdU incorporation or a protein of interest versus DNA
+    content. The package begins with event-level comma-separated files or
+    in-memory data frames and does not perform FlowJo workspace processing.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends:
+    R (>= 4.2.0)
+Imports:
+    cowplot,
+    ggplot2,
+    MASS,
+    plotgardener,
+    scales,
+    yaml
+Suggests:
+    testthat (>= 3.0.0),
+    withr
+Config/testthat/edition: 3

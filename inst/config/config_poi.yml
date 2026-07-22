@@ -1,0 +1,63 @@
+# =============================================================================
+# config_poi.yml  —  protein-of-interest (POI) example: Total MTBP vs DNA
+#
+# Render with:
+#     quarto render pseudocolor_plots.qmd -P config:config_poi.yml
+#
+# POI mode reproduces the Figure 1 CB/Total MTBP pipeline. Each replicate has an
+# untagged BACKGROUND control sample (named via `reference:`). The tool finds the
+# 2N DNA density peak in that control, fits a line of background signal vs DNA,
+# and corrects every cell as 1000 * signal / background_fit(DNA). Cells at the
+# autofluorescence background sit at ~1000; a red 95th-percentile cutoff line is
+# drawn on each panel. The background panel itself is hidden by default.
+# =============================================================================
+
+plot_type: "poi"
+
+data_dir: "../extdata/example_poi"
+
+dna_channel: "DNA content"                 # x-axis: DNA content
+target_channel: "Total MTBP (GFP)"         # y-axis: the POI signal
+target_name: "Total MTBP"
+
+# POI mode only needs the all-cells file per sample.
+suffixes:
+  complete: "_single_cells.csv"
+
+dna_2n_value: 1000
+background_quantile: 0.95                   # red cutoff = this pct of corrected bg
+poi_peak_failure: "error"                  # or "use_background" for legacy fallback
+# show_reference_panel: true                # uncomment to also show the control
+# y_limits: [600, 20000]                    # shared y-axis; else derived from data
+
+# Appearance (same options as the EdU config).
+palette: "refined"
+y_log10: true
+x_limits: [650, 2300]
+point_size: 0.4
+density_bandwidth: 0.55
+density_lower_clip: 0.05
+density_upper_clip: 0.90
+density_gamma: 0.35
+pdf_width: 11.5
+pdf_height_per_row: 2.6
+
+output_pdf: "results/poi_pseudocolor_panels.pdf"
+output_png: "results/poi_pseudocolor_panels.png"
+
+# Each replicate: `reference:` names the untagged background control sample.
+replicates:
+  - label: "Biological replicate 1"
+    reference: "Background"
+    samples:
+      - { label: "Background", prefix: "rep1_bg" }
+      - { label: "Untreated",  prefix: "rep1_NT" }
+      - { label: "2h Auxin",   prefix: "rep1_2h" }
+      - { label: "4h Auxin",   prefix: "rep1_4h" }
+  - label: "Biological replicate 2"
+    reference: "Background"
+    samples:
+      - { label: "Background", prefix: "rep2_bg" }
+      - { label: "Untreated",  prefix: "rep2_NT" }
+      - { label: "2h Auxin",   prefix: "rep2_2h" }
+      - { label: "4h Auxin",   prefix: "rep2_4h" }

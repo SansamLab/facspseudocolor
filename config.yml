@@ -1,0 +1,250 @@
+# =============================================================================
+# config.yml  —  all settings for pseudocolor_plots.qmd
+#
+# Edit THIS file, then render with:
+#
+#     quarto render pseudocolor_plots.qmd
+#
+# The document reads every setting below at render time, so you never need to
+# touch the .qmd itself. To keep separate configurations (e.g. one per target
+# or experiment), copy this file and point the document at it:
+#
+#     quarto render pseudocolor_plots.qmd -P config:config_MTBP.yml
+#
+# YAML notes: indent with spaces (never tabs); text with spaces or special
+# characters should be quoted; lines starting with # are comments.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Processing mode
+# -----------------------------------------------------------------------------
+# "edu" = reference EdU-negative regression baseline normalization
+#         (reproduces the main Figure 1 EdU pipeline). Requires, per replicate, a
+#         `reference:` condition and a <prefix>_edu_positive.csv for it.
+# "poi" = protein-of-interest, background-control normalization (reproduces the
+#         Figure 1 CB/Total MTBP pipeline). Requires, per replicate, a
+#         `reference:` condition naming the untagged BACKGROUND control sample.
+#         The signal is corrected as 1000 * signal / background_fit(DNA), where
+#         the background fit is a line through the control sample; a 95th-pct
+#         cutoff line is drawn. No G1 or EdU-positive files are needed.
+# See config_poi.yml for a ready-to-run poi (Total MTBP) example.
+plot_type: "edu"
+
+
+# -----------------------------------------------------------------------------
+# Data location and channel (column) names
+# -----------------------------------------------------------------------------
+# Folder holding the per-sample CSV files (relative to the .qmd, or absolute).
+data_dir: "inst/extdata/example"
+
+# Exact column names inside every CSV.
+dna_channel: "Propidium Iodide PE-A"     # x-axis: DNA content
+target_channel: "Alexa-647 APC-A"        # y-axis: EdU or the POI signal
+
+# Label for the signal channel, shown on the y-axis (e.g. "EdU", "MTBP").
+target_name: "EdU"
+
+# File-name suffixes appended to each sample prefix. These are OPTIONAL and set
+# automatically by plot_type: edu uses complete + g1 + edu_positive; poi uses
+# only complete. You can omit this whole block. Only the keys the mode needs are
+# used, so a poi config copied from an edu config (with g1/edu_positive listed)
+# still works -- the extra entries are ignored. Set it explicitly only to change
+# the file-name suffixes.
+suffixes:
+  complete: "_single_cells.csv"          # all single cells (both modes)
+  g1: "_g1.csv"                          # G1-gated single cells (edu only)
+  edu_positive: "_edu_positive.csv"      # EdU-positive / S gate (edu only)
+
+
+# -----------------------------------------------------------------------------
+# Normalization
+# -----------------------------------------------------------------------------
+dna_2n_value: 1000        # the G1/2N population maps here; 4N falls at 2x this
+
+# poi mode only: divide the target by its own G1 median (true) or plot raw.
+normalize_target: true
+
+# G1 anchor point the baseline is forced through at 2N:
+#   "median" = median of the G1-gated target signal (Figure 1 default)
+#   "mode"   = peak of the kernel density of the G1-gated target signal
+g1_anchor: "median"
+
+# EdU baseline-fit options (edu mode only).
+baseline_fit_x_range: [1000, 2000]        # DNA range used to fit the baseline
+baseline_boundary_bins: 20                # DNA bins for the EdU+ min boundary
+baseline_minimum_events_per_bin: 20       # min EdU+ events to use a bin
+baseline_minimum_negative_events: 100     # min EdU- events for the regression
+
+# EdU apex line (edu mode): horizontal line at the highest-density EdU+ signal
+# (apex of the S-phase arc), located within a mid-S DNA window.
+show_edu_apex_line: false                  # set true to draw the line
+edu_apex_x_range: [1400, 1600]            # DNA window used to find the apex
+edu_apex_density_adjust: 1                # KDE smoothing for the density peak
+
+# POI background-control options (poi mode only).
+background_quantile: 0.95                  # cutoff line = this pct of corrected bg
+# DNA alignment across panels:
+#   "per_sample"       = align each sample by its own 2N/G1 density peak (default)
+#   "shared_background"= scale all samples by the background sample's peak (old)
+poi_dna_align: "per_sample"
+# If per-sample DNA peak detection fails, stop rather than silently substituting
+# the background peak. Set to "use_background" only to request the legacy fallback.
+poi_peak_failure: "error"
+# show_reference_panel: false             # poi hides the control panel by default
+#                                         # (edu shows the reference). Uncomment
+#                                         # to override.
+
+# -----------------------------------------------------------------------------
+# Y-axis range (all panels share one range)
+# -----------------------------------------------------------------------------
+# By default the range is set automatically from the pooled signal of all
+# displayed samples, using the quantiles below (so outliers don't compress the
+# meaningful data). Adjust the quantiles to widen/tighten the range.
+y_limit_lower_quantile: 0.001
+y_limit_upper_quantile: 0.999
+# To override with fixed manual limits instead, uncomment y_limits:
+# y_limits: [600, 20000]
+
+
+# -----------------------------------------------------------------------------
+# Appearance
+# -----------------------------------------------------------------------------
+# Color palette: "refined" (Figure 1 default), "flowjo", or a custom list of
+# hex colors ordered low -> high density, e.g. ["#eeeeee", "#3480FF", "#FF4A51"].
+palette: "refined"
+
+y_log10: true             # log10 y-axis (typical for IF/EdU intensity)
+x_limits: [700, 2250]     # DNA-axis display range (normalized units)
+point_size: 0.3           # point size in the scatter
+
+# Density coloring. Lower gamma = more contrast; the clip quantiles set the
+# density range the palette spreads across (per panel).
+density_bandwidth: 0.5
+density_lower_clip: 0.05
+density_upper_clip: 0.90
+density_gamma: 0.35
+
+
+# -----------------------------------------------------------------------------
+# Cell-cycle phase gates & quantitation (both modes)
+# -----------------------------------------------------------------------------
+# How the gates are defined differs by mode:
+#   edu = 2D gates (DNA x EdU): EdU separates S (high) from G1/G2M (low).
+#   poi = DNA-content bands (full height): phase is set by DNA content alone,
+#         because the POI signal is not a cell-cycle marker. The
+#         negative_y_range / s_phase_y_range below apply to edu only.
+# Overlay the G1 / Early S / Mid S / Late S / G2/M gates on every panel.
+show_phase_gates: false
+
+# Diagnostic: a scatter per sample (replicate x condition) coloring each event
+# by the phase gate it falls in, so you can see/verify the gating.
+show_gate_assignment: false
+# gate_assignment_max_points: 4000   # events plotted per panel (downsampled)
+# gate_show_labels: false
+# gate_color: "black"
+# gate_linetype: "dashed"
+# gate_linewidth: 0.5
+# gate_label_size: 2.2
+
+# Phase geometry. Defaults are derived from dna_2n_value and the y-limits and
+# reproduce Figure 1; uncomment to customize.
+# s_phase_bins:
+#   early: [1000, 1333]
+#   mid:   [1333, 1667]
+#   late:  [1667, 2000]
+# g1_x_range: [775, 1225]           # DNA window for the G1 gate
+# g2m_x_range: [1775, 2225]         # DNA window for the G2/M gate
+# negative_y_range: [500, 2500]     # low-signal band (G1 / G2M gates)
+# s_phase_y_range: [2500, 80000]    # high-signal band (S gates)
+
+# Quantitation outputs (each = a bar plot + a table + a saved PDF in results/).
+quantify_phase_median: false   # median normalized signal within each phase
+quantify_whole_median: false   # whole-population median signal per sample
+quantify_phase_percent: false  # % of cells within each phase gate
+quant_error_bar: "sd"          # error bars: "sd", "sem", or "none"
+
+# Which signal the quantitation medians use:
+#   "background_subtracted" (default) = raw signal minus the fitted baseline
+#       (edu: EdU-negative baseline; poi: autofluorescence fit), then (for the
+#       reference plots) a ratio to the in-replicate reference. Matches Figure 1.
+#   "normalized" = the background-normalized (divided) signal shown in the panels.
+# Percentages are unaffected (they gate on the displayed axes).
+quant_signal: "background_subtracted"
+
+# Also make reference-normalized versions of the median bar plots: within each
+# biological replicate, each condition is divided by the reference sample
+# (reference = 1). Uses the replicate reference by default; override the name.
+quantify_reference_normalized: false
+# quant_reference_condition: "siCtrl NT"   # condition to normalize to
+
+# Bar plot appearance.
+quant_show_points: true        # show the individual replicate points on the bars
+# Also draw a line-plot version of the per-phase quantitation (phase on x, one
+# line per condition) alongside the bar chart.
+quant_phase_lineplot: true
+# Assign a bar color to each sample/condition name. Any name not listed falls
+# back to grey; omit the whole block to use the default palette.
+# bar_colors:
+#   "NT": "#999999"
+#   "2h Auxin": "#3480FF"
+#   "4h Auxin": "#D7301F"
+
+
+# -----------------------------------------------------------------------------
+# Page layout
+# -----------------------------------------------------------------------------
+# "plotgardener" (default): every panel's plotting area is an identical fixed
+#   size (panel_size inches) with standard spacing; the canvas is sized to fit.
+# "cowplot": aligned grid (panel sizes follow the figure dimensions below).
+layout: "plotgardener"
+
+# plotgardener options (inches). Uncomment to change from the defaults shown.
+layout_options:
+  panel_size: 1.0          # each plot AREA is panel_size x panel_size inches
+  panel_gap_x: 0.10        # horizontal gap between panels
+  panel_gap_y: 0.14        # vertical gap between panels
+  y_axis_numbers: false    # false = log tick marks only (no numbers); true = decade labels
+  # margin_left: 1.05      # room for y-axis, y title, row labels
+  # margin_top: 0.34       # room for column titles
+  # margin_right: 0.14
+  # margin_bottom: 0.62    # room for x-axis + x title
+
+# Figure size for the "cowplot" layout only.
+# Total height = pdf_height_per_row * number of replicates.
+pdf_width: 11.5
+pdf_height_per_row: 2.5
+
+
+# -----------------------------------------------------------------------------
+# Output files (written relative to the .qmd)
+# -----------------------------------------------------------------------------
+output_pdf: "results/pseudocolor_panels.pdf"
+output_png: "results/pseudocolor_panels.png"
+
+
+# -----------------------------------------------------------------------------
+# Samples
+# -----------------------------------------------------------------------------
+# Use a `replicates:` list with one entry per biological replicate. A one-
+# replicate experiment still uses one list entry so its normalization reference
+# is explicit. Every replicate must list the SAME conditions in the SAME order.
+#
+#   reference: (edu mode) condition label used to fit that replicate's baseline;
+#              must match one of the sample labels below.
+#   label:     condition name shown above each panel.
+#   prefix:    file-name stem (see `suffixes` above).
+# -----------------------------------------------------------------------------
+replicates:
+  - label: "Biological replicate 1"
+    reference: "NT"
+    samples:
+      - { label: "NT",       prefix: "rep1_NT" }
+      - { label: "2h Auxin", prefix: "rep1_2h" }
+      - { label: "4h Auxin", prefix: "rep1_4h" }
+  - label: "Biological replicate 2"
+    reference: "NT"
+    samples:
+      - { label: "NT",       prefix: "rep2_NT" }
+      - { label: "2h Auxin", prefix: "rep2_2h" }
+      - { label: "4h Auxin", prefix: "rep2_4h" }

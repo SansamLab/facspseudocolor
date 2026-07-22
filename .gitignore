@@ -1,0 +1,29 @@
+# Rendered Quarto output
+*.html
+*_files/
+/.quarto/
+
+# Generated analysis results
+/results/*
+!/results/.gitkeep
+
+# R session files
+.Rhistory
+.RData
+.Rproj.user/
+
+# Python cache and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+
+# R package build/check artifacts
+*.tar.gz
+*.Rcheck/
+
+**/*.quarto_ipynb
