@@ -57,12 +57,6 @@ requested_quantitation <- c(
 )
 
 if (length(requested_quantitation)) {
-  analysis <- quantify_cell_cycle(
-    analysis,
-    include = requested_quantitation,
-    signal = config$quant_signal,
-    reference_condition = config$quant_reference_condition
-  )
   analysis$quantitation
 }
 ```

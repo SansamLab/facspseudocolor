@@ -65,9 +65,9 @@ background-peak fallback. It is never selected silently.
 |---|---:|---|
 | `show_phase_gates` | `false` | Overlay configured gates on panels. |
 | `show_gate_assignment` | `false` | Show deterministic gate-assignment diagnostics. |
-| `quantify_phase_median` | `false` | Calculate phase-specific medians. |
-| `quantify_whole_median` | `false` | Calculate whole-population medians. |
-| `quantify_phase_percent` | `false` | Calculate phase percentages. |
+| `quantify_phase_median` | `false` | Legacy report-display switch; values are always calculated. |
+| `quantify_whole_median` | `false` | Legacy report-display switch; values are always calculated. |
+| `quantify_phase_percent` | `false` | Legacy report-display switch; values are always calculated. |
 | `quant_signal` | `background_subtracted` | Signal used for median quantitation. |
 | `quantify_reference_normalized` | `false` | Add within-replicate reference ratios. |
 | `quant_reference_condition` | none | Explicit displayed ratio reference. |

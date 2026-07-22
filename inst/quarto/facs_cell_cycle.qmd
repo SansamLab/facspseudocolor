@@ -1,0 +1,48 @@
+---
+title: "FACS cell-cycle quantitation"
+format: { html: { toc: true, embed-resources: true } }
+execute: { warning: false, message: false }
+params:
+  config: null
+  analysis_rds: null
+  appearance_file: null
+  output_analysis_rds: null
+  output_figure_bundle_rds: null
+  overwrite: false
+  condition_palette: null
+  condition_colors: null
+  base_font_size: null
+  error_bar: null
+  show_points: null
+  x_limits: null
+  y_limits: null
+  layout_options: null
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
+analysis <- facs_report_input(params$config, params$analysis_rds)
+style <- resolve_facs_appearance(analysis, facs_report_appearance(params), params$appearance_file)
+plot <- plot_facs_phase_percent(analysis, appearance = style)
+page <- assemble_facs_panels(list(phase_percent = plot), ncol = 1,
+                             layout_options = style$layout_options)
+bundle <- build_facs_figure_bundle(analysis, style, seed = 1)
+facs_report_save_artifacts(analysis, bundle, params$output_analysis_rds,
+                           params$output_figure_bundle_rds, params$overwrite)
+```
+
+## Cell-cycle distribution
+
+```{r}
+page
+```
+
+## Cell-cycle values
+
+```{r}
+analysis$quantitation$phase_percentages
+analysis$quantitation$gates
+```

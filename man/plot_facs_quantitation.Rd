@@ -4,13 +4,25 @@
 \alias{plot_facs_quantitation}
 \title{Plot configured cell-cycle quantitation results}
 \usage{
-plot_facs_quantitation(analysis, seed = 1L)
+plot_facs_quantitation(
+  analysis,
+  seed = 1L,
+  appearance = NULL,
+  appearance_file = NULL,
+  signal = analysis$config$quant_signal
+)
 }
 \arguments{
 \item{analysis}{A quantified \code{facs_analysis} object.}
 
 \item{seed}{Explicit seed used only if gate-assignment points must be
 downsampled.}
+
+\item{appearance}{Optional presentation-only overrides.}
+
+\item{appearance_file}{Optional YAML appearance file.}
+
+\item{signal}{Either \code{"background_subtracted"} or \code{"normalized"}.}
 }
 \value{
 A named list of ggplot objects.

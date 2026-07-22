@@ -1,0 +1,6 @@
+# Optional presentation overrides for the public POI example.
+# Omitted settings continue to use package defaults.
+condition_palette: "colorblind"
+target_axis_label: "Total MTBP (background-normalized)"
+show_phase_gates: true
+
