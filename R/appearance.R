@@ -41,6 +41,7 @@ facs_named_palette <- function(name, n) {
   } else {
     c("#440154", "#414487", "#2A788E", "#22A884", "#7AD151", "#FDE725")
   }
+  if (name == "viridis") return(grDevices::colorRampPalette(anchors)(n))
   if (n <= length(anchors)) anchors[seq_len(n)] else
     grDevices::colorRampPalette(anchors)(n)
 }
@@ -73,7 +74,7 @@ resolve_facs_appearance <- function(analysis, overrides = NULL, appearance_file 
       paste0(config$target_name, "\n(baseline-normalized)")
     } else paste0(config$target_name, "\n(background-normalized)"),
     dna_axis_label = "DNA content", palette = config$palette,
-    condition_palette = "default", condition_colors = config$bar_colors,
+    condition_palette = "viridis", condition_colors = config$bar_colors,
     x_limits = as.numeric(unlist(config$x_limits)),
     y_limits = analysis_y_limits(analysis), y_log10 = config$y_log10,
     point_size = config$point_size, density_bandwidth = config$density_bandwidth,

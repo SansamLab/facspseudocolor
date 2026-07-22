@@ -48,6 +48,10 @@ Template appearance parameters default to `null`. Null values are ignored, so
 package defaults remain authoritative. An optional appearance YAML can provide
 report-specific overrides without changing the analysis RDS.
 
+Condition colors use a dynamically sized viridis palette by default. The
+package determines the number and ordering of conditions from the analysis;
+templates never hard-code sample labels.
+
 ```yaml
 condition_palette: "colorblind"
 y_limits: [600, 30000]
