@@ -15,13 +15,15 @@ suffixes:
 dna_2n_value: 1000
 g1_anchor: "median"
 
-# PH3 phase boundaries are required and must be contiguous.
-g1_x_range: [750, 1250]
+# PH3 phase boundaries are required and must be contiguous. These values are
+# example starting points only; inspect the normalized-DNA distributions and
+# explicitly choose appropriate boundaries for each experiment.
+g1_x_range: [900, 1150]
 s_phase_bins:
-  early: [1250, 1450]
-  mid: [1450, 1650]
-  late: [1650, 1800]
-g2m_x_range: [1800, 2400]
+  early: [1150, 1350]
+  mid: [1350, 1600]
+  late: [1600, 1850]
+g2m_x_range: [1850, 2300]
 
 # Diagnostic shifts are +/- this fraction of the normalized 2N value.
 ph3_boundary_sensitivity_fraction: 0.05
@@ -56,4 +58,3 @@ replicates:
     samples:
       - { label: "Untreated", prefix: "rep2_NT", fcs: "rep2_NT.fcs" }
       - { label: "Treatment", prefix: "rep2_treatment", fcs: "rep2_treatment.fcs" }
-

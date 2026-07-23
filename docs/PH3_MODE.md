@@ -40,6 +40,10 @@ PH3 mode requires explicit, contiguous ranges for G1, Early S, Mid S, Late S,
 and G2/M. No scientific phase thresholds are silently defaulted. The final
 G2/M upper boundary is inclusive; other upper boundaries are exclusive.
 
+The ranges shown in the example YAML are starting examples, not package
+defaults. They must be reviewed against the normalized-DNA distributions for
+the experiment.
+
 Events outside the configured ranges or with nonfinite normalized DNA are
 reported as `Unassigned`.
 
@@ -82,4 +86,3 @@ fraction of `dna_2n_value`. At the default `0.05` with 2N at `1000`, the lower
 and upper G2/M boundaries are moved by 50 normalized DNA units. These
 alternative counts are diagnostic only; the configured boundaries remain the
 reported scientific result.
-

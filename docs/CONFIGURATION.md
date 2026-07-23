@@ -27,6 +27,10 @@ PH3 replicates contain `label` and `samples` but no `reference`. PH3 requires
 explicit contiguous `g1_x_range`, Early/Mid/Late `s_phase_bins`, and
 `g2m_x_range` values.
 
+There are no package defaults for these scientific phase boundaries. The
+values in `examples/config_ph3.yml` are visible starting examples only and are
+never inserted into a configuration automatically.
+
 The pH3-positive population must be drawn by the user in FlowJo. The R package
 does not infer a pH3 cutoff. Its primary phase calls use the configured DNA
 ranges, while `ph3_boundary_sensitivity_fraction` produces a diagnostic showing
