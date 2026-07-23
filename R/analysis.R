@@ -6,6 +6,8 @@ analysis_settings <- function(config) {
     target_channel = config$target_channel,
     normalization_method = if (config$plot_type == "edu") {
       "reference_negative_regression"
+    } else if (config$plot_type == "ph3") {
+      "g1_dna_only"
     } else {
       "background_reference_regression"
     },
@@ -69,8 +71,8 @@ new_facs_analysis <- function(
 #'
 #' Validates all required inputs, fits the configured replicate-level reference
 #' models, and normalizes every sample. This function performs no plotting and
-#' writes no files. For direct in-memory calculations, use [normalize_edu()] or
-#' [normalize_poi()].
+#' writes no files. For direct in-memory calculations, use [normalize_edu()],
+#' [normalize_poi()], or [normalize_ph3()].
 #'
 #' @param config A validated `facs_config`, an unvalidated configuration list,
 #'   or an explicit path to a YAML configuration.
@@ -104,7 +106,7 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
         baseline_slope = model$slope
       )
     })
-  } else {
+  } else if (config$plot_type == "poi") {
     models <- fit_replicate_background_models(
       manifest, directory, config$suffixes, settings
     )
@@ -119,6 +121,37 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
         background_model = model
       )
     })
+  } else {
+    normalized_data <- lapply(seq_len(nrow(manifest)), function(i) {
+      prefix <- manifest$prefix[[i]]
+      label <- manifest$condition[[i]]
+      complete_file <- file.path(
+        directory, paste0(prefix, config$suffixes$complete)
+      )
+      g1_file <- file.path(directory, paste0(prefix, config$suffixes$g1))
+      positive_file <- file.path(
+        directory, paste0(prefix, config$suffixes$ph3_positive)
+      )
+      normalize_ph3(
+        events = complete_file,
+        g1_events = g1_file,
+        ph3_positive_events = positive_file,
+        dna_channel = config$dna_channel,
+        target_channel = config$target_channel,
+        dna_2n_value = config$dna_2n_value,
+        g1_anchor = config$g1_anchor,
+        sample_id = label
+      )
+    })
+    models <- lapply(normalized_data, function(x) {
+      list(
+        normalization_method = x$normalization_method,
+        g1_dna_anchor = x$g1_dna_anchor,
+        dna_normalization_factor = x$dna_normalization_factor,
+        g1_anchor_method = x$g1_anchor_method
+      )
+    })
+    names(models) <- manifest$prefix
   }
   names(normalized_data) <- manifest$prefix
 
@@ -129,12 +162,16 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
     normalized_data = normalized_data,
     models = models
   )
-  quantify_cell_cycle(
-    analysis,
-    include = c("phase_median", "whole_median", "phase_percent"),
-    signal = c("background_subtracted", "normalized"),
-    reference_condition = config$quant_reference_condition
-  )
+  if (config$plot_type == "ph3") {
+    quantify_ph3(analysis)
+  } else {
+    quantify_cell_cycle(
+      analysis,
+      include = c("phase_median", "whole_median", "phase_percent"),
+      signal = c("background_subtracted", "normalized"),
+      reference_condition = config$quant_reference_condition
+    )
+  }
 }
 
 #' @export

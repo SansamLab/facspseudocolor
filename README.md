@@ -1,8 +1,8 @@
 # Normalized pseudocolor plots: signal vs DNA content
 
 A reusable R package with a Quarto front end for making publication-style **pseudocolor
-(2D kernel-density) plots** of a single channel (EdU incorporation or a
-protein-of-interest signal) versus DNA content, laid out as a
+(2D kernel-density) plots** of a single channel (EdU incorporation, a
+protein-of-interest signal, or pH3) versus DNA content, laid out as a
 **replicate × condition** panel grid. DNA content is normalized per sample so
 the G1 population sits at **2N** and G2/M at **4N**.
 
@@ -10,7 +10,7 @@ This is a generalized distillation of the pseudocolor-plotting code used to
 build Figure 1 of the MTBP/EdU project, reproducing that figure's EdU
 normalization and default color scheme.
 
-## Two processing modes (`plot_type`)
+## Three processing modes (`plot_type`)
 
 **`edu`** — reproduces the main Figure 1 pipeline. For each replicate, the
 designated **reference** sample is used to (1) fit a positive-minimum boundary
@@ -32,6 +32,13 @@ panels share one y-axis for comparability. The background panel is hidden by
 default. Needs only the `<prefix>_single_cells.csv` file per sample (no G1 or
 EdU-positive files).
 
+**`ph3`** — mitotic-marker analysis using a user-drawn FlowJo pH3-positive
+polygon. Each sample supplies Single Cells, G1, and pH3-positive populations.
+The G1 gate normalizes DNA; the package reports overall pH3 positivity and the
+percentage of all Single Cells that are pH3-positive in G1, Early S, Mid S,
+Late S, G2/M, or Unassigned. PH3 phase boundaries are explicit and required.
+See [`docs/PH3_MODE.md`](docs/PH3_MODE.md).
+
 A ready-to-run POI example (Total MTBP) is included:
 
 ```bash
@@ -44,6 +51,8 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
   every setting: data folder, channel names, mode, palette, replicates, outputs.
   Set up for the EdU example.
 - `config_poi.yml` — a ready-to-run POI (Total MTBP) example config.
+- `examples/config_ph3.yml` — a PH3 configuration template with explicit
+  placeholder paths and phase boundaries.
 - `pseudocolor_plots.qmd` — a thin report that calls the installed package.
 - `inst/quarto/` — focused complete, pseudocolor, quantitation, cell-cycle, and
   diagnostics report templates.
@@ -81,7 +90,7 @@ CSV files.
 
 The unit and integration suite checks configuration and input validation,
 normalization, quantitation, plotting, the Python boundary, and numerical
-regressions for both example modes. Run it from the project directory:
+regressions for all three modes. Run it from the project directory:
 
 ```bash
 Rscript -e 'devtools::test()'
@@ -102,12 +111,17 @@ depends on the mode:
 
 | File | Contents | Needed for |
 |------|----------|-----------|
-| `<prefix>_single_cells.csv` | all single cells | both modes |
-| `<prefix>_g1.csv` | the G1-gated single cells (used to normalize) | `edu` mode |
+| `<prefix>_single_cells.csv` | all single cells | all modes |
+| `<prefix>_g1.csv` | the G1-gated single cells (used to normalize) | `edu` and `ph3` modes |
 | `<prefix>_edu_positive.csv` | the EdU-positive cells | `edu` mode, reference sample only |
+| `<prefix>_ph3_positive.csv` | user-gated pH3-positive cells | `ph3` mode |
 
 `poi` mode needs **only** `<prefix>_single_cells.csv` (no G1 or EdU-positive
 files); it normalizes DNA and the signal using the background control sample.
+
+`ph3` mode needs Single Cells, G1, and pH3-positive files for every sample.
+The pH3 gate is defined in FlowJo; the package never guesses a positivity
+threshold.
 
 Every file must contain a column for the **DNA channel** and a column for the
 **target channel**, named exactly as they appear in your export. For example:
@@ -237,7 +251,7 @@ replicates:
 |-----------|---------|---------|
 | `layout` | `"plotgardener"` | `"plotgardener"` (fixed 1×1-inch panels, identical plot areas, auto-sized canvas) or `"cowplot"` (aligned grid). |
 | `layout_options.panel_size` | `1.0` | (plotgardener) size of each panel's plotting area, in inches. |
-| `plot_type` | `"edu"` | `"edu"` (EdU-negative regression baseline) or `"poi"` (background-control). |
+| `plot_type` | `"edu"` | `"edu"` (EdU-negative regression baseline), `"poi"` (background-control), or `"ph3"` (FlowJo-defined pH3-positive gate). |
 | `palette` | `"refined"` | `"refined"` (Figure 1 default), `"flowjo"`, or a custom hex list. |
 | `g1_anchor` | `"median"` | (edu) G1 anchor the baseline passes through: `"median"` (Figure 1) or `"mode"`. |
 | `background_quantile` | `0.95` | (poi) percentile of corrected background used for the cutoff line. |
@@ -247,7 +261,8 @@ replicates:
 | `y_limit_upper_quantile` | `0.999` | Upper quantile of the pooled signal for the automatic shared y-axis. |
 | `poi_dna_align` | `per_sample` | (poi) align each sample by its own 2N/G1 peak, or `shared_background` for the old behavior. |
 | `poi_peak_failure` | `error` | Stop if a per-sample POI DNA peak cannot be detected. `use_background` explicitly enables the legacy fallback. |
-| `show_phase_gates` | `false` | Overlay the G1 / Early S / Mid S / Late S / G2/M gates on every panel. EdU uses 2D gates (DNA × EdU); POI uses DNA-content bands (no S marker on y). |
+| `show_phase_gates` | `false` | Overlay the G1 / Early S / Mid S / Late S / G2/M gates on every panel. EdU uses 2D gates; POI and pH3 use DNA-content bands. |
+| `ph3_boundary_sensitivity_fraction` | `0.05` | (pH3) Diagnostic displacement of each G2/M DNA boundary, expressed as a fraction of the configured 2N value. The configured gate remains the primary result. |
 | `show_gate_assignment` | `false` | Diagnostic scatter (per sample) coloring each event by the phase gate it falls in. |
 | `quantify_phase_median` | `false` | Legacy switch controlling display in the original report; values are always calculated. |
 | `quantify_whole_median` | `false` | Legacy switch controlling display in the original report; values are always calculated. |
@@ -272,9 +287,11 @@ the G1 target density instead.
 
 - Configuration: `read_facs_config()`, `validate_facs_config()`
 - Inputs: `build_sample_manifest()`, `read_facs_sample()`, `validate_facs_inputs()`
-- Normalization: `normalize_edu()`, `normalize_poi()`
-- Analysis: `analyze_facs_experiment()`, `quantify_cell_cycle()`
-- Plots: `plot_pseudocolor_panels()`, `plot_facs_quantitation()`
+- Normalization: `normalize_edu()`, `normalize_poi()`, `normalize_ph3()`
+- Analysis: `analyze_facs_experiment()`, `quantify_cell_cycle()`, `quantify_ph3()`
+- Plots: `plot_pseudocolor_panels()`, `plot_facs_quantitation()`,
+  `plot_ph3_overall()`, `plot_ph3_phase()`, `plot_ph3_diagnostic()`,
+  `plot_ph3_boundary_sensitivity()`
 - Saving: `save_facs_results()`
 
 Low-level density, regression, gate, and layout helpers remain internal.

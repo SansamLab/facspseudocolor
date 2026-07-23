@@ -23,7 +23,11 @@ analysis_y_limits <- function(analysis, rows = analysis_display_rows(analysis)) 
   }
   values <- unlist(lapply(analysis$normalized_data[rows], function(sample) {
     value <- sample$data$target_norm
-    value[is.finite(value) & value > 0]
+    if (isTRUE(analysis$config$y_log10)) {
+      value[is.finite(value) & value > 0]
+    } else {
+      value[is.finite(value)]
+    }
   }), use.names = FALSE)
   if (length(values) < 2L) {
     stop("Too few positive normalized target values to determine y limits.",
@@ -52,13 +56,20 @@ analysis_gate_rectangles <- function(analysis, y_limits) {
       dna_2n_value = config$dna_2n_value,
       y_limits = y_limits
     )
-  } else {
+  } else if (config$plot_type == "poi") {
     make_dna_phase_gates(
       s_phase_bins = config$s_phase_bins,
       g1_x_range = numeric_or_null(config$g1_x_range),
       g2m_x_range = numeric_or_null(config$g2m_x_range),
       dna_2n_value = config$dna_2n_value,
       y_limits = y_limits
+    )
+  } else {
+    gates <- ph3_gate_table(config)
+    transform(
+      gates,
+      ymin = y_limits[[1]],
+      ymax = y_limits[[2]]
     )
   }
 }
@@ -207,6 +218,18 @@ plot_facs_quantitation <- function(analysis, seed = 1L, appearance = NULL,
                                    appearance_file = NULL,
                                    signal = analysis$config$quant_signal) {
   validate_analysis_object(analysis)
+  if (identical(analysis$config$plot_type, "ph3")) {
+    style <- if (inherits(appearance, "facs_appearance")) appearance else
+      resolve_facs_appearance(analysis, appearance, appearance_file)
+    return(list(
+      ph3_overall = plot_ph3_overall(analysis, style),
+      phase_percent = plot_ph3_phase(analysis, "grouped", style),
+      ph3_phase_stacked = plot_ph3_phase(analysis, "stacked", style),
+      ph3_diagnostic = plot_ph3_diagnostic(analysis, style, seed = seed),
+      ph3_boundary_sensitivity =
+        plot_ph3_boundary_sensitivity(analysis, style)
+    ))
+  }
   quantitation <- analysis$quantitation
   if (!length(quantitation) || is.null(quantitation$gates)) {
     stop("Run `quantify_cell_cycle()` before plotting quantitation.",
@@ -380,6 +403,12 @@ plot_facs_phase_percent <- function(analysis, appearance = NULL, appearance_file
 plot_facs_gate_assignments <- function(
     analysis, seed = 1L, appearance = NULL, appearance_file = NULL
 ) {
+  if (identical(analysis$config$plot_type, "ph3")) {
+    return(plot_ph3_diagnostic(
+      analysis, appearance = appearance, appearance_file = appearance_file,
+      seed = seed
+    ))
+  }
   copy <- analysis
   copy$config$show_gate_assignment <- TRUE
   plot_facs_quantitation(

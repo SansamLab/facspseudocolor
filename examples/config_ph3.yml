@@ -1,0 +1,59 @@
+# PH3 template. Replace every path, channel, population, sample, and boundary
+# with values explicitly chosen for the experiment.
+plot_type: "ph3"
+data_dir: "/explicit/path/to/ph3_csvs"
+
+dna_channel: "DNA content"
+target_channel: "pH3 signal"
+target_name: "pH3"
+
+suffixes:
+  complete: "_single_cells.csv"
+  g1: "_g1.csv"
+  ph3_positive: "_ph3_positive.csv"
+
+dna_2n_value: 1000
+g1_anchor: "median"
+
+# PH3 phase boundaries are required and must be contiguous.
+g1_x_range: [750, 1250]
+s_phase_bins:
+  early: [1250, 1450]
+  mid: [1450, 1650]
+  late: [1650, 1800]
+g2m_x_range: [1800, 2400]
+
+# Diagnostic shifts are +/- this fraction of the normalized 2N value.
+ph3_boundary_sensitivity_fraction: 0.05
+
+y_log10: true
+x_limits: [650, 2500]
+show_phase_gates: true
+
+output_pdf: "results/ph3_pseudocolor_panels.pdf"
+output_png: "results/ph3_pseudocolor_panels.png"
+
+flowjo:
+  source_dir: "/explicit/path/to/fcs_and_workspace"
+  workspace: "experiment.wsp"
+  python: "/explicit/path/to/python"
+  populations:
+    complete: "Single Cells"
+    g1: "G1"
+    ph3_positive: "pH3 Positive"
+  dna_source_channel: "explicit-DNA-detector"
+  target_source_channel: "explicit-pH3-detector"
+  rebuild: true
+
+# PH3 mode has no normalization reference. Every replicate lists the same
+# conditions in the same order, but does not define `reference:`.
+replicates:
+  - label: "Biological replicate 1"
+    samples:
+      - { label: "Untreated", prefix: "rep1_NT", fcs: "rep1_NT.fcs" }
+      - { label: "Treatment", prefix: "rep1_treatment", fcs: "rep1_treatment.fcs" }
+  - label: "Biological replicate 2"
+    samples:
+      - { label: "Untreated", prefix: "rep2_NT", fcs: "rep2_NT.fcs" }
+      - { label: "Treatment", prefix: "rep2_treatment", fcs: "rep2_treatment.fcs" }
+

@@ -45,6 +45,11 @@ plot
 ## Cell-cycle values
 
 ```{r}
-analysis$quantitation$phase_percentages
-analysis$quantitation$gates
+if (analysis$config$plot_type == "ph3") {
+  analysis$quantitation$ph3$phase_percentages
+  analysis$quantitation$ph3$gates
+} else {
+  analysis$quantitation$phase_percentages
+  analysis$quantitation$gates
+}
 ```

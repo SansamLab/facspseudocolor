@@ -26,6 +26,9 @@ For a configured sample prefix such as `rep1_NT`:
 | EdU | G1-gated cells | `rep1_NT_g1.csv` |
 | EdU | EdU-positive cells | `rep1_NT_edu_positive.csv` |
 | POI | All single cells | `rep1_NT_single_cells.csv` |
+| PH3 | All single cells | `rep1_NT_single_cells.csv` |
+| PH3 | G1-gated cells | `rep1_NT_g1.csv` |
+| PH3 | User-gated pH3-positive cells | `rep1_NT_ph3_positive.csv` |
 
 Suffixes may be changed explicitly in YAML. The package never guesses a file
 with a different name.
@@ -46,6 +49,13 @@ Every CSV must contain the exact columns configured as `dna_channel` and
 - Nonfinite values are counted and reported; scientific functions decide
   whether enough finite events remain for their calculation.
 - Additional columns are retained and ignored unless explicitly used.
+- Repository orchestration retains `event_index` when available so population
+  membership can be traced to the original Single Cell event.
+
+For PH3 mode, an empty pH3-positive population is valid and is exported as a
+header-only CSV with the required columns. The resulting percentage is zero.
+The pH3-positive gate must be drawn by the user in FlowJo and nested within the
+Single Cells population; the R package never estimates a positivity threshold.
 
 The Python exporter writes raw detector values selected by
 `dna_source_channel` and `target_source_channel`, renaming them to the configured

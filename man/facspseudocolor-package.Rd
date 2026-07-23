@@ -7,9 +7,9 @@
 \title{facspseudocolor: Analyze signal versus DNA flow cytometry data}
 \description{
 The package validates, normalizes, quantifies, and plots event-level flow
-cytometry data for EdU incorporation or a protein of interest versus DNA
-content. FlowJo workspace processing remains an optional, external Python
-preprocessing step.
+cytometry data for EdU incorporation, a protein of interest, or
+phospho-histone H3 versus DNA content. FlowJo workspace processing remains
+an optional, external Python preprocessing step.
 }
 \author{
 \strong{Maintainer}: Chris Sansam \email{sansamcl@gmail.com}
