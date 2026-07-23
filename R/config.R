@@ -10,6 +10,7 @@ facs_config_keys <- function() {
     "baseline_minimum_events_per_bin", "baseline_minimum_negative_events",
     "show_edu_apex_line", "edu_apex_x_range", "edu_apex_density_adjust",
     "background_quantile", "poi_dna_align", "poi_peak_failure",
+    "ph3_boundary_sensitivity_fraction",
     "show_reference_panel",
     "y_limit_lower_quantile", "y_limit_upper_quantile", "y_limits",
     "palette", "y_log10", "x_limits", "point_size", "density_bandwidth",
@@ -32,6 +33,9 @@ facs_config_defaults <- function(plot_type) {
     suffixes = if (identical(plot_type, "edu")) {
       list(complete = "_single_cells.csv", g1 = "_g1.csv",
            edu_positive = "_edu_positive.csv")
+    } else if (identical(plot_type, "ph3")) {
+      list(complete = "_single_cells.csv", g1 = "_g1.csv",
+           ph3_positive = "_ph3_positive.csv")
     } else {
       list(complete = "_single_cells.csv")
     },
@@ -48,6 +52,7 @@ facs_config_defaults <- function(plot_type) {
     background_quantile = 0.95,
     poi_dna_align = "per_sample",
     poi_peak_failure = "error",
+    ph3_boundary_sensitivity_fraction = 0.05,
     y_limit_lower_quantile = 0.001,
     y_limit_upper_quantile = 0.999,
     palette = "refined",
@@ -138,10 +143,14 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   }
 
   plot_type <- config$plot_type
-  if (config_scalar_string(plot_type) && !plot_type %in% c("edu", "poi")) {
-    errors <- config_add_error(errors, "`plot_type` must be either 'edu' or 'poi'.")
+  if (config_scalar_string(plot_type) &&
+      !plot_type %in% c("edu", "poi", "ph3")) {
+    errors <- config_add_error(
+      errors, "`plot_type` must be 'edu', 'poi', or 'ph3'."
+    )
   }
-  if (!config_scalar_string(plot_type) || !plot_type %in% c("edu", "poi")) {
+  if (!config_scalar_string(plot_type) ||
+      !plot_type %in% c("edu", "poi", "ph3")) {
     plot_type <- "edu"
   }
 
@@ -170,7 +179,10 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
         split(manifest, manifest$replicate_index),
         function(x) sum(x$is_reference), integer(1)
       )
-      if (any(reference_counts != 1L)) {
+      if (plot_type == "ph3" && any(reference_counts != 0L)) {
+        stop("PH3 mode does not use replicate `reference` samples.")
+      }
+      if (plot_type != "ph3" && any(reference_counts != 1L)) {
         stop("Each replicate must name exactly one matching `reference` condition.")
       }
       NULL
@@ -230,7 +242,8 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
 
   probabilities <- c("background_quantile", "density_lower_clip",
                      "density_upper_clip", "y_limit_lower_quantile",
-                     "y_limit_upper_quantile")
+                     "y_limit_upper_quantile",
+                     "ph3_boundary_sensitivity_fraction")
   for (key in probabilities) {
     value <- config[[key]]
     if (!config_scalar_number(value) || value < 0 || value > 1) {
@@ -251,8 +264,60 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
       "`y_limit_lower_quantile` must be less than `y_limit_upper_quantile`.")
   }
 
+  if (plot_type == "ph3") {
+    ph3_ranges <- list(
+      g1 = config$g1_x_range,
+      early = if (is.list(config$s_phase_bins)) config$s_phase_bins$early else NULL,
+      mid = if (is.list(config$s_phase_bins)) config$s_phase_bins$mid else NULL,
+      late = if (is.list(config$s_phase_bins)) config$s_phase_bins$late else NULL,
+      g2m = config$g2m_x_range
+    )
+    invalid_ranges <- names(ph3_ranges)[
+      !vapply(ph3_ranges, config_numeric_range, logical(1))
+    ]
+    if (length(invalid_ranges)) {
+      errors <- config_add_error(
+        errors,
+        paste0(
+          "PH3 mode requires explicit increasing DNA ranges for: ",
+          paste(invalid_ranges, collapse = ", "), "."
+        )
+      )
+    } else {
+      boundaries <- c(
+        as.numeric(unlist(ph3_ranges$g1)),
+        as.numeric(unlist(ph3_ranges$early)),
+        as.numeric(unlist(ph3_ranges$mid)),
+        as.numeric(unlist(ph3_ranges$late)),
+        as.numeric(unlist(ph3_ranges$g2m))
+      )
+      joins <- c(boundaries[2] - boundaries[3],
+                 boundaries[4] - boundaries[5],
+                 boundaries[6] - boundaries[7],
+                 boundaries[8] - boundaries[9])
+      if (any(abs(joins) > sqrt(.Machine$double.eps))) {
+        errors <- config_add_error(
+          errors,
+          "PH3 DNA gates must be contiguous: G1, Early S, Mid S, Late S, and G2/M boundaries must meet exactly."
+        )
+      }
+      sensitivity_delta <- config$ph3_boundary_sensitivity_fraction *
+        config$dna_2n_value
+      g2m_width <- diff(as.numeric(unlist(ph3_ranges$g2m)))
+      if (!is.finite(sensitivity_delta) || sensitivity_delta <= 0 ||
+          sensitivity_delta >= g2m_width) {
+        errors <- config_add_error(
+          errors,
+          "`ph3_boundary_sensitivity_fraction * dna_2n_value` must be positive and smaller than the configured G2/M gate width."
+        )
+      }
+    }
+  }
+
   required_suffixes <- if (plot_type == "edu") {
     c("complete", "g1", "edu_positive")
+  } else if (plot_type == "ph3") {
+    c("complete", "g1", "ph3_positive")
   } else {
     "complete"
   }

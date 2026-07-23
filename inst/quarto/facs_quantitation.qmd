@@ -48,6 +48,10 @@ for (name in quantitation_names) print(plots[[name]])
 ## Plot-ready tables
 
 ```{r}
-analysis$quantitation$by_signal[[params$signal]]
-analysis$quantitation$phase_percentages
+if (analysis$config$plot_type == "ph3") {
+  analysis$quantitation$ph3
+} else {
+  analysis$quantitation$by_signal[[params$signal]]
+  analysis$quantitation$phase_percentages
+}
 ```

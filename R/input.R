@@ -37,6 +37,9 @@ resolve_facs_directory <- function(config, data_dir = NULL) {
 
 required_population_keys <- function(config, manifest) {
   if (identical(config$plot_type, "poi")) return("complete")
+  if (identical(config$plot_type, "ph3")) {
+    return(c("complete", "g1", "ph3_positive"))
+  }
 
   require_all_positive <- isTRUE(config$show_edu_apex_line) ||
     isTRUE(config$quantify_phase_median) ||
@@ -71,6 +74,12 @@ facs_input_files <- function(config, data_dir = NULL) {
 
   if (identical(config$plot_type, "poi")) {
     rows <- lapply(seq_len(nrow(manifest)), add_row, key = "complete")
+  } else if (identical(config$plot_type, "ph3")) {
+    for (i in seq_len(nrow(manifest))) {
+      rows[[length(rows) + 1L]] <- add_row(i, "complete")
+      rows[[length(rows) + 1L]] <- add_row(i, "g1")
+      rows[[length(rows) + 1L]] <- add_row(i, "ph3_positive")
+    }
   } else {
     for (i in seq_len(nrow(manifest))) {
       rows[[length(rows) + 1L]] <- add_row(i, "complete")
@@ -110,8 +119,8 @@ read_facs_sample <- function(
     stop("DNA and target channels must be different columns.", call. = FALSE)
   }
   if (!config_scalar_number(as.numeric(minimum_finite_events)) ||
-      minimum_finite_events < 1 || minimum_finite_events %% 1 != 0) {
-    stop("`minimum_finite_events` must be a positive integer.", call. = FALSE)
+      minimum_finite_events < 0 || minimum_finite_events %% 1 != 0) {
+    stop("`minimum_finite_events` must be a nonnegative integer.", call. = FALSE)
   }
 
   source_path <- NULL
@@ -137,8 +146,12 @@ read_facs_sample <- function(
       paste(names(events), collapse = ", "), call. = FALSE
     )
   }
+  valid_required_type <- function(value) {
+    is.numeric(value) || (nrow(events) == 0L && is.logical(value))
+  }
   nonnumeric <- c(dna_channel, target_channel)[
-    !vapply(events[c(dna_channel, target_channel)], is.numeric, logical(1))
+    !vapply(events[c(dna_channel, target_channel)],
+            valid_required_type, logical(1))
   ]
   if (length(nonnumeric)) {
     stop("Required channel(s) must be numeric for ", sample_id, ": ",
@@ -199,8 +212,15 @@ validate_facs_inputs <- function(config, data_dir = NULL) {
   files$event_n <- NA_integer_
   files$finite_event_n <- NA_integer_
   files$nonfinite_event_n <- NA_integer_
+  files$subset_membership_validated <- NA
   for (i in which(files$exists)) {
-    minimum <- if (files$population[[i]] == "complete") 10L else 2L
+    minimum <- if (files$population[[i]] == "complete") {
+      10L
+    } else if (files$population[[i]] == "ph3_positive") {
+      0L
+    } else {
+      2L
+    }
     events <- read_facs_sample(
       files$path[[i]], config$dna_channel, config$target_channel,
       sample_id = paste(files$replicate[[i]], files$condition[[i]],
@@ -211,6 +231,54 @@ validate_facs_inputs <- function(config, data_dir = NULL) {
     files$event_n[[i]] <- info$event_n
     files$finite_event_n[[i]] <- info$finite_event_n
     files$nonfinite_event_n[[i]] <- info$nonfinite_event_n
+  }
+  if (identical(config$plot_type, "ph3")) {
+    grouped <- split(files, files$prefix)
+    count_errors <- vapply(grouped, function(x) {
+      complete_n <- x$event_n[x$population == "complete"]
+      positive_n <- x$event_n[x$population == "ph3_positive"]
+      length(complete_n) == 1L && length(positive_n) == 1L &&
+        is.finite(complete_n) && is.finite(positive_n) &&
+        positive_n > complete_n
+    }, logical(1))
+    if (any(count_errors)) {
+      stop(
+        "pH3-positive event count exceeds the Single Cell count for: ",
+        paste(names(grouped)[count_errors], collapse = ", "),
+        ". Verify that the exported pH3 gate is nested within Single Cells.",
+        call. = FALSE
+      )
+    }
+    for (prefix in names(grouped)) {
+      group <- grouped[[prefix]]
+      complete_path <- group$path[group$population == "complete"]
+      positive_path <- group$path[group$population == "ph3_positive"]
+      complete <- utils::read.csv(complete_path, check.names = FALSE)
+      positive <- utils::read.csv(positive_path, check.names = FALSE)
+      validated <- FALSE
+      if ("event_index" %in% names(complete) &&
+          "event_index" %in% names(positive)) {
+        if (anyNA(complete$event_index) || anyNA(positive$event_index) ||
+            anyDuplicated(complete$event_index) ||
+            anyDuplicated(positive$event_index)) {
+          stop(
+            "Invalid or duplicate event_index values for PH3 sample ",
+            prefix, ".", call. = FALSE
+          )
+        }
+        outside <- setdiff(positive$event_index, complete$event_index)
+        if (length(outside)) {
+          stop(
+            "The pH3-positive population contains event_index values outside ",
+            "the Single Cell population for ", prefix,
+            ". Verify the FlowJo gate hierarchy.", call. = FALSE
+          )
+        }
+        validated <- TRUE
+      }
+      row <- files$prefix == prefix & files$population == "ph3_positive"
+      files$subset_membership_validated[row] <- validated
+    }
   }
   files
 }

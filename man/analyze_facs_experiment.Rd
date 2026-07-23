@@ -20,6 +20,6 @@ quantitation placeholders, warnings, and provenance.
 \description{
 Validates all required inputs, fits the configured replicate-level reference
 models, and normalizes every sample. This function performs no plotting and
-writes no files. For direct in-memory calculations, use \code{\link[=normalize_edu]{normalize_edu()}} or
-\code{\link[=normalize_poi]{normalize_poi()}}.
+writes no files. For direct in-memory calculations, use \code{\link[=normalize_edu]{normalize_edu()}},
+\code{\link[=normalize_poi]{normalize_poi()}}, or \code{\link[=normalize_ph3]{normalize_ph3()}}.
 }

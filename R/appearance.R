@@ -72,6 +72,8 @@ resolve_facs_appearance <- function(analysis, overrides = NULL, appearance_file 
   defaults <- list(
     target_axis_label = if (config$plot_type == "edu") {
       paste0(config$target_name, "\n(baseline-normalized)")
+    } else if (config$plot_type == "ph3") {
+      config$target_name
     } else paste0(config$target_name, "\n(background-normalized)"),
     dna_axis_label = "DNA content", palette = config$palette,
     condition_palette = "viridis", condition_colors = config$bar_colors,

@@ -143,6 +143,12 @@ prepare_flowjo_csvs_external <- function(
     if (status != 0) {
       stop("FlowJo export failed for ", replicate$label, call. = FALSE)
     }
+    counts_file <- file.path(export_dir, "population_counts.csv")
+    if (!file.exists(counts_file)) {
+      stop("FlowJo population count report was not created: ", counts_file,
+           call. = FALSE)
+    }
+    population_counts <- utils::read.csv(counts_file, check.names = FALSE)
 
     for (key in names(population_map)) {
       population <- population_map[[key]]
@@ -155,25 +161,58 @@ prepare_flowjo_csvs_external <- function(
              call. = FALSE)
       }
       combined <- utils::read.csv(export_csv, check.names = FALSE)
-      if (!"sample_id" %in% names(combined) || !nrow(combined)) {
-        stop("FlowJo export is empty or lacks sample_id: ", export_csv,
+      if (!"sample_id" %in% names(combined)) {
+        stop("FlowJo export lacks sample_id: ", export_csv,
              call. = FALSE)
       }
-      dna_column <- flowjo_export_column(
-        names(combined), flowjo$dna_source_channel
-      )
-      target_column <- flowjo_export_column(
-        names(combined), flowjo$target_source_channel
-      )
-      sample_ids <- unique(combined$sample_id)
+      count_rows <- population_counts[
+        population_counts$gate_name == population, , drop = FALSE
+      ]
+      sample_ids <- unique(c(as.character(count_rows$sample_id),
+                             as.character(combined$sample_id)))
+      sample_ids <- sample_ids[nzchar(sample_ids)]
+      if (!length(sample_ids)) {
+        stop(
+          "FlowJo did not report sample identities for population '",
+          population, "'.", call. = FALSE
+        )
+      }
+      dna_column <- target_column <- NULL
+      if (nrow(combined)) {
+        dna_column <- flowjo_export_column(
+          names(combined), flowjo$dna_source_channel
+        )
+        target_column <- flowjo_export_column(
+          names(combined), flowjo$target_source_channel
+        )
+      }
       for (sample in replicate$samples) {
         index <- flowjo_sample_id(sample_ids, sample$fcs)
         selected <- combined$sample_id == sample_ids[[index]]
-        output <- data.frame(
-          combined[[dna_column]][selected],
-          combined[[target_column]][selected]
-        )
-        names(output) <- c(config$dna_channel, config$target_channel)
+        if (nrow(combined)) {
+          output <- data.frame(
+            event_index = if ("event_index" %in% names(combined)) {
+              combined$event_index[selected]
+            } else {
+              seq_len(sum(selected)) - 1L
+            },
+            combined[[dna_column]][selected],
+            combined[[target_column]][selected],
+            check.names = FALSE
+          )
+          names(output) <- c(
+            "event_index", config$dna_channel, config$target_channel
+          )
+        } else {
+          output <- data.frame(
+            event_index = integer(),
+            dna = numeric(),
+            target = numeric()
+          )
+          names(output) <- c(
+            "event_index", config$dna_channel, config$target_channel
+          )
+        }
         output_file <- file.path(
           data_dir, paste0(sample$prefix, config$suffixes[[key]])
         )

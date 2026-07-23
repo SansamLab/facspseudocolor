@@ -9,19 +9,29 @@ file's directory.
 
 | Setting | Type | Meaning |
 |---|---|---|
-| `plot_type` | `edu` or `poi` | Selects the scientific normalization method. |
+| `plot_type` | `edu`, `poi`, or `ph3` | Selects the scientific analysis method. |
 | `data_dir` | path | Directory containing event-level CSV files. |
 | `dna_channel` | string | Exact numeric DNA column name. |
-| `target_channel` | string | Exact numeric EdU or POI column name. |
+| `target_channel` | string | Exact numeric EdU, POI, or pH3 column name. |
 | `target_name` | string | Human-readable target label. |
 | `output_pdf` | path | Explicit main-figure PDF destination. |
 | `output_png` | path | Explicit main-figure PNG destination. |
 | `replicates` | list | Replicates, references, conditions, and unique prefixes. |
 
-Each replicate must contain `label`, `reference`, and `samples`. Every sample
-must contain `label` and `prefix`; optional FlowJo orchestration also requires
-`fcs`. Replicates must contain the same conditions in the same order, and each
-`reference` must match exactly one condition.
+EdU and POI replicates must contain `label`, `reference`, and `samples`. Every
+sample must contain `label` and `prefix`; optional FlowJo orchestration also
+requires `fcs`. Replicates must contain the same conditions in the same order,
+and each `reference` must match exactly one condition.
+
+PH3 replicates contain `label` and `samples` but no `reference`. PH3 requires
+explicit contiguous `g1_x_range`, Early/Mid/Late `s_phase_bins`, and
+`g2m_x_range` values.
+
+The pH3-positive population must be drawn by the user in FlowJo. The R package
+does not infer a pH3 cutoff. Its primary phase calls use the configured DNA
+ranges, while `ph3_boundary_sensitivity_fraction` produces a diagnostic showing
+how the G2/M percentage changes when both G2/M boundaries move by that fraction
+of the configured 2N value.
 
 ## Input suffixes
 
@@ -37,6 +47,12 @@ suffixes:
 # POI
 suffixes:
   complete: "_single_cells.csv"
+
+# PH3
+suffixes:
+  complete: "_single_cells.csv"
+  g1: "_g1.csv"
+  ph3_positive: "_ph3_positive.csv"
 ```
 
 Changing a suffix changes the exact required filename; the package does not
@@ -46,8 +62,8 @@ search for alternatives.
 
 | Setting | Default | Applies to |
 |---|---:|---|
-| `dna_2n_value` | `1000` | Both modes |
-| `g1_anchor` | `median` | EdU |
+| `dna_2n_value` | `1000` | All modes |
+| `g1_anchor` | `median` | EdU and PH3 |
 | `baseline_fit_x_range` | `[1000, 2000]` | EdU |
 | `baseline_boundary_bins` | `20` | EdU |
 | `baseline_minimum_events_per_bin` | `20` | EdU |
@@ -55,6 +71,7 @@ search for alternatives.
 | `background_quantile` | `0.95` | POI |
 | `poi_dna_align` | `per_sample` | POI |
 | `poi_peak_failure` | `error` | POI |
+| `ph3_boundary_sensitivity_fraction` | `0.05` | PH3 diagnostic only |
 
 `poi_peak_failure: use_background` is an explicit request for the legacy
 background-peak fallback. It is never selected silently.

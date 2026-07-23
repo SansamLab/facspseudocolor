@@ -4,6 +4,11 @@ Every analysis calculates all supported quantitation for both the
 background-subtracted and background-normalized signals. Reports select which
 results to display; they do not change scientific calculations.
 
+For pH3 analyses, the reports instead display all supported pH3 quantities:
+overall pH3-positive percentage, percentages of all Single Cell events that are
+pH3-positive in each DNA phase, unassigned pH3-positive events, the FlowJo gate
+diagnostic, and G2/M boundary sensitivity.
+
 ## Choose one input
 
 Every report requires exactly one of:
@@ -83,3 +88,7 @@ panel + ggplot2::theme_classic(base_size = 8)
 
 Multipanel bundles are assembled with Plotgardener. Individual components stay
 as editable ggplot objects for later publication layouts.
+
+The gallery currently uses the public POI example. A pH3 gallery example will
+require a suitably licensed real pH3 dataset; production examples are not
+silently generated or simulated.
