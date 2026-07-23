@@ -250,8 +250,8 @@ test_that("exact FlowJo gate geometry is validated, normalized, and plotted", {
 
   vertices <- data.frame(
     vertex_index = 1:5,
-    x_raw = c(180, 220, 220, 180, 180),
-    y_raw = c(1000, 1000, 3000, 3000, 1000)
+    x_raw = c(170, 250, 250, 170, 170),
+    y_raw = c(1000, 1000, 5000, 5000, 1000)
   )
   geometry <- do.call(rbind, lapply(manifest$prefix, function(prefix) {
     data.frame(
@@ -278,9 +278,21 @@ test_that("exact FlowJo gate geometry is validated, normalized, and plotted", {
   plots <- plot_ph3_4n_gate_panels(analysis, imported)
   expect_s3_class(plots, "facs_plot_set")
   expect_true(all(vapply(plots$panels, inherits, logical(1), "ggplot")))
+  expect_equal(
+    range(plots$display_gate_geometry$dna_norm),
+    as.numeric(unlist(config$g2m_x_range))
+  )
+  expect_lt(
+    max(plots$display_gate_geometry$target_norm),
+    plots$y_limits[[2]]
+  )
+  expect_identical(
+    plots$gate_intersection$denominator, "all_single_cell_events"
+  )
   bundle <- build_ph3_4n_figure_bundle(analysis, imported)
   expect_s3_class(bundle, "facs_figure_bundle")
   expect_identical(bundle$report_type, "ph3_4n_gate")
+  expect_true(all(bundle$plot_data$gate == "G2/M"))
 
   incomplete <- geometry[geometry$prefix != manifest$prefix[[2]], ]
   utils::write.csv(incomplete, path, row.names = FALSE)
