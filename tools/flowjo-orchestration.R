@@ -223,3 +223,140 @@ prepare_flowjo_csvs_external <- function(
   }
   invisible(TRUE)
 }
+
+# Export exact FlowJo gate vertices to one experiment-level sidecar. This calls
+# a separate geometry extractor and does not alter or replace the population
+# exporter used above.
+prepare_flowjo_gate_geometry_external <- function(
+    config,
+    output_file,
+    population_key = "ph3_positive",
+    extractor = "python/export_flowjo_gate_geometry.py",
+    overwrite = FALSE,
+    verbose = TRUE
+) {
+  if (!inherits(config, "facs_config")) {
+    config <- facspseudocolor::validate_facs_config(config)
+  }
+  if (!is.character(output_file) || length(output_file) != 1L ||
+      !nzchar(output_file)) {
+    stop("`output_file` must be one explicit path.", call. = FALSE)
+  }
+  output_file <- path.expand(output_file)
+  if (!grepl("^(/|[A-Za-z]:[/\\\\])", output_file)) {
+    config_dir <- attr(config, "config_dir")
+    if (is.null(config_dir)) {
+      stop("A relative output path requires a file-backed configuration.",
+           call. = FALSE)
+    }
+    output_file <- file.path(config_dir, output_file)
+  }
+  if (file.exists(output_file) && !isTRUE(overwrite)) {
+    stop("Refusing to overwrite existing geometry file: ", output_file,
+         call. = FALSE)
+  }
+  if (!file.exists(extractor)) {
+    stop("FlowJo geometry extractor not found: ", extractor, call. = FALSE)
+  }
+  if (is.null(config$replicates)) {
+    stop("FlowJo geometry extraction requires configured replicates.",
+         call. = FALSE)
+  }
+
+  all_geometry <- list()
+  for (replicate in config$replicates) {
+    flowjo <- utils::modifyList(
+      flowjo_or(config$flowjo, list()), flowjo_or(replicate$flowjo, list())
+    )
+    population_map <- flowjo$populations
+    population <- population_map[[population_key]]
+    if (!is.character(population) || length(population) != 1L ||
+        !nzchar(population)) {
+      stop("FlowJo population key '", population_key, "' is missing for ",
+           replicate$label, ".", call. = FALSE)
+    }
+    required <- c("source_dir", "workspace", "python")
+    missing <- required[vapply(flowjo[required], function(value) {
+      is.null(value) || !is.character(value) || length(value) != 1L ||
+        !nzchar(value)
+    }, logical(1))]
+    if (length(missing)) {
+      stop("Missing FlowJo geometry setting(s) for ", replicate$label, ": ",
+           paste(missing, collapse = ", "), call. = FALSE)
+    }
+    workspace <- file.path(flowjo$source_dir, flowjo$workspace)
+    if (!file.exists(workspace)) {
+      stop("FlowJo workspace not found: ", workspace, call. = FALSE)
+    }
+    if (!file.exists(flowjo$python)) {
+      stop("Python interpreter not found: ", flowjo$python, call. = FALSE)
+    }
+    temporary <- tempfile(fileext = ".csv")
+    on.exit(unlink(temporary), add = TRUE)
+    if (verbose) {
+      message("Extracting FlowJo gate geometry for ", replicate$label)
+    }
+    status <- system2(flowjo$python, c(
+      shQuote(extractor), shQuote(workspace),
+      "--fcs-dir", shQuote(flowjo$source_dir),
+      "--population", shQuote(population),
+      "--output", shQuote(temporary)
+    ))
+    if (status != 0 || !file.exists(temporary)) {
+      stop("FlowJo gate-geometry extraction failed for ", replicate$label,
+           call. = FALSE)
+    }
+    geometry <- utils::read.csv(temporary, check.names = FALSE)
+    expected_channels <- c(
+      flowjo$dna_source_channel, flowjo$target_source_channel
+    )
+    observed_channels <- unique(c(geometry$x_channel, geometry$y_channel))
+    if (!setequal(observed_channels, expected_channels)) {
+      stop(
+        "Extracted gate dimensions do not match the configured DNA and target ",
+        "channels for ", replicate$label, ". Expected ",
+        paste(expected_channels, collapse = " and "), "; found ",
+        paste(observed_channels, collapse = " and "), ".", call. = FALSE
+      )
+    }
+    reversed <- geometry$x_channel == flowjo$target_source_channel &
+      geometry$y_channel == flowjo$dna_source_channel
+    if (any(reversed)) {
+      for (suffix in c("transformed", "raw")) {
+        x_name <- paste0("x_", suffix)
+        y_name <- paste0("y_", suffix)
+        temporary_value <- geometry[[x_name]][reversed]
+        geometry[[x_name]][reversed] <- geometry[[y_name]][reversed]
+        geometry[[y_name]][reversed] <- temporary_value
+      }
+      temporary_channel <- geometry$x_channel[reversed]
+      geometry$x_channel[reversed] <- geometry$y_channel[reversed]
+      geometry$y_channel[reversed] <- temporary_channel
+    }
+    sample_ids <- unique(geometry$sample_id)
+    geometry$prefix <- NA_character_
+    for (sample in replicate$samples) {
+      index <- flowjo_sample_id(sample_ids, sample$fcs)
+      geometry$prefix[
+        geometry$sample_id == sample_ids[[index]]
+      ] <- sample$prefix
+    }
+    geometry <- geometry[!is.na(geometry$prefix), , drop = FALSE]
+    expected_prefixes <- vapply(
+      replicate$samples, `[[`, character(1), "prefix"
+    )
+    missing_prefixes <- setdiff(expected_prefixes, unique(geometry$prefix))
+    if (length(missing_prefixes)) {
+      stop("Geometry is missing configured samples for ", replicate$label,
+           ": ", paste(missing_prefixes, collapse = ", "), ".",
+           call. = FALSE)
+    }
+    geometry$replicate <- replicate$label
+    all_geometry[[length(all_geometry) + 1L]] <- geometry
+  }
+  result <- do.call(rbind, all_geometry)
+  rownames(result) <- NULL
+  dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
+  utils::write.csv(result, output_file, row.names = FALSE)
+  invisible(normalizePath(output_file, mustWork = TRUE))
+}

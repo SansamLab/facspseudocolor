@@ -16,6 +16,32 @@ The installed R package neither invokes Python nor parses FlowJo workspaces.
 Python, FlowKit, pandas, and lxml are required only for the optional preprocessing
 step in `tools/flowjo-orchestration.R`.
 
+## Exact FlowJo gate geometry
+
+`python/export_flowjo_gate_geometry.py` is a separate optional extractor for
+two-dimensional FlowJo polygon and rectangle coordinates. It does not replace
+or modify `python/export_flowjo_populations.py`.
+
+The repository-level orchestration helper runs the extractor and maps FlowJo
+sample IDs to configured prefixes:
+
+```r
+library(facspseudocolor)
+config <- read_facs_config("config.yml")
+source("tools/flowjo-orchestration.R")
+prepare_flowjo_gate_geometry_external(
+  config,
+  output_file = "csv/ph3_gate_geometry.csv",
+  population_key = "ph3_positive"
+)
+```
+
+The sidecar records the workspace, sample ID, configured prefix, unique gate
+path, gate type, detector channels, ordered vertices, transformed coordinates,
+and inverse-transformed raw coordinates. Extraction stops for ambiguous gates,
+unsupported gate types, complement gates, channel mismatches, or transforms
+that cannot be inverted exactly.
+
 ## Required files
 
 For a configured sample prefix such as `rep1_NT`:

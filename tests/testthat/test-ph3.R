@@ -226,3 +226,63 @@ test_that("high-level PH3 analysis runs from the three explicit CSV populations"
     c(15, 15)
   )
 })
+
+test_that("exact FlowJo gate geometry is validated, normalized, and plotted", {
+  config <- ph3_test_config()
+  manifest <- build_sample_manifest(config)
+  complete <- data.frame(
+    DNA = rep(seq(80, 220, length.out = 20), 2),
+    PH3 = seq(100, 4000, length.out = 40)
+  )
+  g1 <- data.frame(DNA = seq(95, 105, length.out = 10), PH3 = 1:10)
+  positive <- complete[c(5, 12, 18, 25, 32, 38), ]
+  normalized <- lapply(manifest$condition, function(label) {
+    normalize_ph3(complete, g1, positive, "DNA", "PH3", sample_id = label)
+  })
+  names(normalized) <- manifest$prefix
+  models <- lapply(normalized, function(sample) {
+    list(dna_normalization_factor = sample$dna_normalization_factor)
+  })
+  analysis <- quantify_ph3(new_facs_analysis(
+    config, manifest, data.frame(path = character(), exists = logical()),
+    normalized, models
+  ))
+
+  vertices <- data.frame(
+    vertex_index = 1:5,
+    x_raw = c(180, 220, 220, 180, 180),
+    y_raw = c(1000, 1000, 3000, 3000, 1000)
+  )
+  geometry <- do.call(rbind, lapply(manifest$prefix, function(prefix) {
+    data.frame(
+      prefix = prefix,
+      sample_id = paste0(prefix, ".fcs"),
+      gate_name = "pH3 Positive",
+      gate_path = "root/Single Cells",
+      gate_type = "PolygonGate",
+      vertices,
+      x_channel = "DNA",
+      y_channel = "PH3",
+      workspace = "experiment.wsp",
+      stringsAsFactors = FALSE
+    )
+  }))
+  path <- withr::local_tempfile(fileext = ".csv")
+  utils::write.csv(geometry, path, row.names = FALSE)
+  imported <- read_ph3_gate_geometry(path, analysis)
+  expect_s3_class(imported, "ph3_gate_geometry")
+  expect_equal(
+    imported$dna_norm[imported$prefix == manifest$prefix[[1]]],
+    vertices$x_raw * normalized[[1]]$dna_normalization_factor
+  )
+  plots <- plot_ph3_4n_gate_panels(analysis, imported)
+  expect_s3_class(plots, "facs_plot_set")
+  expect_true(all(vapply(plots$panels, inherits, logical(1), "ggplot")))
+  bundle <- build_ph3_4n_figure_bundle(analysis, imported)
+  expect_s3_class(bundle, "facs_figure_bundle")
+  expect_identical(bundle$report_type, "ph3_4n_gate")
+
+  incomplete <- geometry[geometry$prefix != manifest$prefix[[2]], ]
+  utils::write.csv(incomplete, path, row.names = FALSE)
+  expect_error(read_ph3_gate_geometry(path, analysis), "missing configured")
+})
