@@ -3,6 +3,8 @@
 - Added PH3 mode with user-defined FlowJo positivity, G1-based per-sample DNA
   normalization, explicit phase boundaries, all-Single-Cells denominators,
   unassigned-event reporting, and G2/M boundary-sensitivity diagnostics.
+- Added a separate exact FlowJo gate-geometry extractor and a focused pH3
+  Quarto report with editable gate-overlaid pseudocolor panels.
 - Converted reusable EdU and POI analysis into an installable R package.
 - Added strict YAML and input validation with explicit provenance.
 - Added pure in-memory EdU and POI normalization APIs.

@@ -53,12 +53,15 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
 - `config_poi.yml` — a ready-to-run POI (Total MTBP) example config.
 - `examples/config_ph3.yml` — a PH3 configuration template with explicit
   placeholder paths and phase boundaries.
+- `inst/quarto/facs_ph3_4n.qmd` — focused exact-FlowJo-gate pH3 report.
 - `pseudocolor_plots.qmd` — a thin report that calls the installed package.
-- `inst/quarto/` — focused complete, pseudocolor, quantitation, cell-cycle, and
-  diagnostics report templates.
+- `inst/quarto/` — focused complete, pseudocolor, quantitation, cell-cycle,
+  diagnostics, and exact-gate pH3 report templates.
 - `examples/appearance/` — optional presentation-only YAML examples.
 - `R/` — the `facspseudocolor` package implementation.
-- `python/export_flowjo_populations.py` — the unchanged optional FlowKit exporter.
+- `python/export_flowjo_populations.py` — the unchanged optional event exporter.
+- `python/export_flowjo_gate_geometry.py` — separate optional exact gate
+  geometry extractor.
 - `tools/flowjo-orchestration.R` — optional repository-level Python launcher;
   it is not installed with the R package.
 - `inst/extdata/example/` — EdU example data (2 replicates × 3 conditions).
@@ -291,7 +294,8 @@ the G1 target density instead.
 - Analysis: `analyze_facs_experiment()`, `quantify_cell_cycle()`, `quantify_ph3()`
 - Plots: `plot_pseudocolor_panels()`, `plot_facs_quantitation()`,
   `plot_ph3_overall()`, `plot_ph3_phase()`, `plot_ph3_diagnostic()`,
-  `plot_ph3_boundary_sensitivity()`
+  `plot_ph3_boundary_sensitivity()`, `read_ph3_gate_geometry()`,
+  `plot_ph3_4n_gate_panels()`, `build_ph3_4n_figure_bundle()`
 - Saving: `save_facs_results()`
 
 Low-level density, regression, gate, and layout helpers remain internal.

@@ -27,6 +27,7 @@ Supplying both or neither is an error.
 | `facs_quantitation.qmd` | Phase and whole-population signal summaries. |
 | `facs_cell_cycle.qmd` | Cell-cycle phase percentages and gates. |
 | `facs_diagnostics.qmd` | Gate assignments, fits, input checks, and warnings. |
+| `facs_ph3_4n.qmd` | Exact FlowJo pH3 gate, pseudocolor, and gate percentage. |
 
 ## Example gallery
 
@@ -92,3 +93,8 @@ as editable ggplot objects for later publication layouts.
 The gallery currently uses the public POI example. A pH3 gallery example will
 require a suitably licensed real pH3 dataset; production examples are not
 silently generated or simulated.
+
+The focused pH3 report additionally requires exactly one
+`gate_geometry_csv`, created separately from the FlowJo workspace. Its optional
+gate fill, opacity, label color, label size, and label precision parameters
+default to `null`, preserving package presentation defaults until overridden.

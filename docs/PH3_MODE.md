@@ -79,6 +79,27 @@ The analysis object stores:
 Editable plots include overall positivity, grouped and stacked phase
 percentages, pH3/DNA assignment diagnostics, and G2/M boundary sensitivity.
 
+## FlowJo-defined gate report
+
+`facs_ph3_4n.qmd` is a focused report that overlays the exact pH3 polygon or
+rectangle separately extracted from the FlowJo workspace. The annotated
+percentage is the exported pH3-positive event count divided by all Single Cell
+events from the same sample.
+
+The boundary is never reconstructed from the minimum or maximum exported
+events. Run `prepare_flowjo_gate_geometry_external()` to create the sidecar,
+then render the report with both the analysis input and sidecar:
+
+```bash
+quarto render facs_ph3_4n.qmd \
+  -P config:config.yml \
+  -P gate_geometry_csv:csv/ph3_gate_geometry.csv
+```
+
+The report can also save an editable figure-bundle RDS by setting
+`output_figure_bundle_rds`. The bundle contains the individual ggplot objects
+and the exact FlowJo gate vertices.
+
 ## G2/M clearance diagnostic
 
 `ph3_boundary_sensitivity_fraction` defines a diagnostic shift expressed as a
