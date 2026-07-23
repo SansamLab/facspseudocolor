@@ -81,10 +81,16 @@ percentages, pH3/DNA assignment diagnostics, and G2/M boundary sensitivity.
 
 ## FlowJo-defined gate report
 
-`facs_ph3_4n.qmd` is a focused report that overlays the exact pH3 polygon or
-rectangle separately extracted from the FlowJo workspace. The annotated
-percentage is the exported pH3-positive event count divided by all Single Cell
-events from the same sample.
+`facs_ph3_4n.qmd` is a focused report that clips the exact pH3 polygon or
+rectangle separately extracted from the FlowJo workspace to the configured
+`g2m_x_range`. The annotated percentage is the number of exported pH3-positive
+events within that G2/M range divided by all Single Cell events from the same
+sample.
+
+The outline's upper display edge is inset by 2% of the visible y-axis span by
+default so that the complete outline remains visible. For a log y-axis, this
+inset is calculated in log space. `gate_top_inset_fraction` can change this
+presentation-only inset; it does not change event membership or percentages.
 
 The boundary is never reconstructed from the minimum or maximum exported
 events. Run `prepare_flowjo_gate_geometry_external()` to create the sidecar,

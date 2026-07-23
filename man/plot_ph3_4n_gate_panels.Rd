@@ -13,7 +13,8 @@ plot_ph3_4n_gate_panels(
   gate_alpha = 0.08,
   label_color = "#FFFFFF",
   label_size = 3.5,
-  label_digits = 1L
+  label_digits = 1L,
+  gate_top_inset_fraction = 0.02
 )
 }
 \arguments{
@@ -34,11 +35,14 @@ plot_ph3_4n_gate_panels(
 \item{label_size}{Percentage-label size.}
 
 \item{label_digits}{Digits after the decimal point.}
+
+\item{gate_top_inset_fraction}{Fraction of the visible y-axis span reserved
+above the displayed outline.}
 }
 \value{
 An editable \code{facs_plot_set}.
 }
 \description{
-Overlays the exact FlowJo polygon and annotates the percentage of all Single
-Cell events contained in the exported pH3-positive population.
+Clips the exact FlowJo pH3 polygon to the configured G2/M DNA range and
+annotates the percentage of all Single Cell events in that intersection.
 }

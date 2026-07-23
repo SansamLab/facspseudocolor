@@ -29,6 +29,7 @@ params:
   label_color: null
   label_size: null
   label_digits: null
+  gate_top_inset_fraction: null
   layout_options: null
 ---
 
@@ -55,7 +56,8 @@ bundle <- build_ph3_4n_figure_bundle(
   gate_alpha = value_or(params$gate_alpha, 0.08),
   label_color = value_or(params$label_color, "#FFFFFF"),
   label_size = value_or(params$label_size, 3.5),
-  label_digits = value_or(params$label_digits, 1)
+  label_digits = value_or(params$label_digits, 1),
+  gate_top_inset_fraction = value_or(params$gate_top_inset_fraction, 0.02)
 )
 facs_report_save_artifacts(
   analysis, bundle, params$output_analysis_rds,
@@ -65,9 +67,11 @@ facs_report_save_artifacts(
 
 ## 4N pH3-positive populations
 
-The outlined population is the exact polygon or rectangle extracted from the
-FlowJo workspace. Each percentage uses all Single Cell events from the same
-sample as its denominator.
+The outline is the exact FlowJo pH3-positive polygon clipped to the configured
+G2/M DNA range. Its upper display edge is inset slightly from the y-axis
+ceiling so the full outline remains visible. Each annotation is the percentage
+of all Single Cell events that are both FlowJo pH3-positive and within the
+configured G2/M range.
 
 ```{r}
 bundle$pseudocolor

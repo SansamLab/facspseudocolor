@@ -122,10 +122,96 @@ ph3_gate_label_position <- function(gate, y_log10) {
   c(x = x, y = y)
 }
 
+clip_polygon_edge <- function(points, inside, intersection) {
+  if (!nrow(points)) return(points)
+  output <- list()
+  previous <- points[nrow(points), , drop = FALSE]
+  previous_inside <- inside(previous)
+  for (i in seq_len(nrow(points))) {
+    current <- points[i, , drop = FALSE]
+    current_inside <- inside(current)
+    if (current_inside) {
+      if (!previous_inside) {
+        output[[length(output) + 1L]] <- intersection(previous, current)
+      }
+      output[[length(output) + 1L]] <- current
+    } else if (previous_inside) {
+      output[[length(output) + 1L]] <- intersection(previous, current)
+    }
+    previous <- current
+    previous_inside <- current_inside
+  }
+  if (!length(output)) return(points[0, , drop = FALSE])
+  do.call(rbind, output)
+}
+
+clip_ph3_gate_polygon <- function(gate, x_range, y_range) {
+  points <- gate[order(gate$vertex_index), c("dna_norm", "target_norm"),
+                 drop = FALSE]
+  if (nrow(points) > 1L &&
+      isTRUE(all.equal(
+        unname(as.numeric(points[1, ])),
+        unname(as.numeric(points[nrow(points), ])),
+        tolerance = 1e-10
+      ))) {
+    points <- points[-nrow(points), , drop = FALSE]
+  }
+  interpolate_x <- function(a, b, boundary) {
+    fraction <- (boundary - a$dna_norm) / (b$dna_norm - a$dna_norm)
+    data.frame(
+      dna_norm = boundary,
+      target_norm = a$target_norm +
+        fraction * (b$target_norm - a$target_norm)
+    )
+  }
+  interpolate_y <- function(a, b, boundary) {
+    fraction <- (boundary - a$target_norm) /
+      (b$target_norm - a$target_norm)
+    data.frame(
+      dna_norm = a$dna_norm + fraction * (b$dna_norm - a$dna_norm),
+      target_norm = boundary
+    )
+  }
+  points <- clip_polygon_edge(
+    points, function(x) x$dna_norm >= x_range[[1]],
+    function(a, b) interpolate_x(a, b, x_range[[1]])
+  )
+  points <- clip_polygon_edge(
+    points, function(x) x$dna_norm <= x_range[[2]],
+    function(a, b) interpolate_x(a, b, x_range[[2]])
+  )
+  points <- clip_polygon_edge(
+    points, function(x) x$target_norm >= y_range[[1]],
+    function(a, b) interpolate_y(a, b, y_range[[1]])
+  )
+  points <- clip_polygon_edge(
+    points, function(x) x$target_norm <= y_range[[2]],
+    function(a, b) interpolate_y(a, b, y_range[[2]])
+  )
+  if (nrow(points)) {
+    points <- rbind(points, points[1, , drop = FALSE])
+    points$vertex_index <- seq_len(nrow(points))
+  }
+  points
+}
+
+ph3_inset_y_range <- function(y_limits, y_log10, top_inset_fraction) {
+  if (isTRUE(y_log10)) {
+    transformed <- log10(y_limits)
+    top <- 10^(
+      transformed[[1]] +
+        (1 - top_inset_fraction) * diff(transformed)
+    )
+  } else {
+    top <- y_limits[[1]] + (1 - top_inset_fraction) * diff(y_limits)
+  }
+  c(y_limits[[1]], top)
+}
+
 #' Plot focused pH3 gate pseudocolor panels
 #'
-#' Overlays the exact FlowJo polygon and annotates the percentage of all Single
-#' Cell events contained in the exported pH3-positive population.
+#' Clips the exact FlowJo pH3 polygon to the configured G2/M DNA range and
+#' annotates the percentage of all Single Cell events in that intersection.
 #'
 #' @param analysis A completed PH3-mode analysis.
 #' @param geometry A value returned by [read_ph3_gate_geometry()].
@@ -136,13 +222,16 @@ ph3_gate_label_position <- function(gate, y_log10) {
 #' @param label_color Percentage-label color.
 #' @param label_size Percentage-label size.
 #' @param label_digits Digits after the decimal point.
+#' @param gate_top_inset_fraction Fraction of the visible y-axis span reserved
+#'   above the displayed outline.
 #'
 #' @return An editable `facs_plot_set`.
 #' @export
 plot_ph3_4n_gate_panels <- function(
     analysis, geometry, appearance = NULL, appearance_file = NULL,
     gate_fill = "#FFFFFF", gate_alpha = 0.08,
-    label_color = "#FFFFFF", label_size = 3.5, label_digits = 1L
+    label_color = "#FFFFFF", label_size = 3.5, label_digits = 1L,
+    gate_top_inset_fraction = 0.02
 ) {
   validate_analysis_object(analysis)
   if (!inherits(geometry, "ph3_gate_geometry")) {
@@ -159,26 +248,47 @@ plot_ph3_4n_gate_panels <- function(
       label_digits %% 1 != 0) {
     stop("`label_digits` must be a nonnegative integer.", call. = FALSE)
   }
+  if (!config_scalar_number(gate_top_inset_fraction) ||
+      gate_top_inset_fraction < 0 || gate_top_inset_fraction >= 0.5) {
+    stop("`gate_top_inset_fraction` must be at least 0 and less than 0.5.",
+         call. = FALSE)
+  }
   style <- if (inherits(appearance, "facs_appearance")) appearance else
     resolve_facs_appearance(analysis, appearance, appearance_file)
   style$show_phase_gates <- FALSE
   plots <- plot_pseudocolor_panels(analysis, appearance = style)
-  summary <- analysis$quantitation$ph3$sample_summary
+  phase_values <- analysis$quantitation$ph3$phase_percentages
+  g2m_range <- as.numeric(unlist(analysis$config$g2m_x_range))
+  visible_y <- ph3_inset_y_range(
+    style$y_limits, style$y_log10, gate_top_inset_fraction
+  )
+  displayed_geometry <- list()
 
   for (prefix in names(plots$panels)) {
     gate <- geometry[geometry$prefix == prefix, , drop = FALSE]
-    value <- summary$ph3_positive_percent[summary$prefix == prefix]
+    display_gate <- clip_ph3_gate_polygon(gate, g2m_range, visible_y)
+    if (nrow(display_gate) < 4L) {
+      stop(
+        "The FlowJo pH3-positive gate does not overlap the configured G2/M ",
+        "range within the plotting area for ", prefix, ".", call. = FALSE
+      )
+    }
+    display_gate$prefix <- prefix
+    displayed_geometry[[prefix]] <- display_gate
+    value <- phase_values$phase_percent[
+      phase_values$prefix == prefix & phase_values$gate == "G2/M"
+    ]
     if (length(value) != 1L || !is.finite(value)) {
-      stop("Missing pH3-positive percentage for ", prefix, ".",
+      stop("Missing pH3-positive G2/M percentage for ", prefix, ".",
            call. = FALSE)
     }
-    position <- ph3_gate_label_position(gate, style$y_log10)
+    position <- ph3_gate_label_position(display_gate, style$y_log10)
     label <- paste0(
-      "pH3+: ", formatC(value, format = "f", digits = label_digits), "%"
+      "4N pH3+: ", formatC(value, format = "f", digits = label_digits), "%"
     )
     overlay <- list(
       ggplot2::geom_polygon(
-        data = gate,
+        data = display_gate,
         ggplot2::aes(x = dna_norm, y = target_norm),
         inherit.aes = FALSE, fill = gate_fill, alpha = gate_alpha,
         color = style$gate_color, linetype = style$gate_linetype,
@@ -198,6 +308,13 @@ plot_ph3_4n_gate_panels <- function(
     plots$panel_results[[index]]$plot <- plots$decorated_plots[[prefix]]
   }
   plots$flowjo_gate_geometry <- geometry
+  plots$display_gate_geometry <- do.call(rbind, displayed_geometry)
+  rownames(plots$display_gate_geometry) <- NULL
+  plots$gate_intersection <- list(
+    positivity = "FlowJo pH3-positive population",
+    dna = stats::setNames(g2m_range, c("lower", "upper")),
+    denominator = "all_single_cell_events"
+  )
   plots$annotation_denominator <- "all_single_cell_events"
   plots
 }
@@ -208,7 +325,8 @@ plot_ph3_4n_gate_panels <- function(
 build_ph3_4n_figure_bundle <- function(
     analysis, geometry, appearance = NULL, appearance_file = NULL,
     gate_fill = "#FFFFFF", gate_alpha = 0.08,
-    label_color = "#FFFFFF", label_size = 3.5, label_digits = 1L
+    label_color = "#FFFFFF", label_size = 3.5, label_digits = 1L,
+    gate_top_inset_fraction = 0.02
 ) {
   resolved <- resolve_facs_appearance(analysis, appearance, appearance_file)
   layout_analysis <- analysis
@@ -217,7 +335,8 @@ build_ph3_4n_figure_bundle <- function(
     layout_analysis, geometry, resolved,
     gate_fill = gate_fill, gate_alpha = gate_alpha,
     label_color = label_color, label_size = label_size,
-    label_digits = label_digits
+    label_digits = label_digits,
+    gate_top_inset_fraction = gate_top_inset_fraction
   )
   pseudocolor$panel_results <- lapply(
     pseudocolor$panel_results,
@@ -231,7 +350,10 @@ build_ph3_4n_figure_bundle <- function(
     report_type = "ph3_4n_gate",
     pseudocolor = pseudocolor,
     flowjo_gate_geometry = geometry,
-    plot_data = analysis$quantitation$ph3$sample_summary,
+    plot_data = analysis$quantitation$ph3$phase_percentages[
+      analysis$quantitation$ph3$phase_percentages$gate == "G2/M",
+      , drop = FALSE
+    ],
     appearance = resolved,
     sample_manifest = analysis$sample_manifest,
     provenance = analysis$provenance,

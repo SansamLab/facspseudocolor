@@ -13,7 +13,8 @@ build_ph3_4n_figure_bundle(
   gate_alpha = 0.08,
   label_color = "#FFFFFF",
   label_size = 3.5,
-  label_digits = 1L
+  label_digits = 1L,
+  gate_top_inset_fraction = 0.02
 )
 }
 \arguments{
@@ -34,6 +35,9 @@ build_ph3_4n_figure_bundle(
 \item{label_size}{Percentage-label size.}
 
 \item{label_digits}{Digits after the decimal point.}
+
+\item{gate_top_inset_fraction}{Fraction of the visible y-axis span reserved
+above the displayed outline.}
 }
 \description{
 Build an editable pH3 gate-focused figure bundle
