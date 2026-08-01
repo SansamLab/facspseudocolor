@@ -18,10 +18,10 @@ test_that("high-level EdU analysis returns a structured non-saving result", {
       rep2_2h = 1664.84907317370, rep2_4h = 1587.49882678020),
     tolerance = 1e-8
   )
-  expect_true(all(c("background_subtracted", "normalized") %in%
-                    names(result$quantitation$by_signal)))
+  expect_identical(names(result$quantitation$by_signal),
+                   "background_subtracted")
   expect_true(all(c("phase_medians", "whole_medians") %in%
-                    names(result$quantitation$by_signal$normalized)))
+                    names(result$quantitation$by_signal$background_subtracted)))
   expect_true("phase_percentages" %in% names(result$quantitation))
   expect_identical(result$provenance$package, "facspseudocolor")
 })

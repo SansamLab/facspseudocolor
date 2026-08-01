@@ -168,7 +168,7 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
     quantify_cell_cycle(
       analysis,
       include = c("phase_median", "whole_median", "phase_percent"),
-      signal = c("background_subtracted", "normalized"),
+      signal = config$quant_signal,
       reference_condition = config$quant_reference_condition
     )
   }

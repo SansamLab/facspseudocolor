@@ -58,7 +58,7 @@ facs_config_defaults <- function(plot_type) {
     y_limit_upper_quantile = 0.999,
     palette = "refined",
     y_log10 = TRUE,
-    pseudocolor_signal = "normalized",
+    pseudocolor_signal = "background_subtracted",
     background_subtracted_offset = "auto",
     x_limits = c(700, 2250),
     point_size = 0.3,

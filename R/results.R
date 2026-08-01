@@ -94,7 +94,7 @@ analysis_gate_rectangles <- function(analysis, y_limits) {
 quantify_cell_cycle <- function(
     analysis,
     include = c("phase_median", "whole_median", "phase_percent"),
-    signal = c("background_subtracted", "normalized"),
+    signal = "background_subtracted",
     reference_condition = NULL
 ) {
   validate_analysis_object(analysis)
@@ -447,7 +447,7 @@ resolve_background_subtracted_offset <- function(analysis) {
 }
 
 prepare_pseudocolor_signal <- function(analysis) {
-  signal <- analysis$config$pseudocolor_signal %||% "normalized"
+  signal <- analysis$config$pseudocolor_signal %||% "background_subtracted"
   if (identical(signal, "normalized")) {
     return(list(analysis = analysis, signal = signal, offset = 0))
   }

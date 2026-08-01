@@ -1,8 +1,11 @@
 # Reusable reports and RDS artifacts
 
-Every analysis calculates all supported quantitation for both the
-background-subtracted and background-normalized signals. Reports select which
-results to display; they do not change scientific calculations.
+Every analysis calculates all supported quantitation for the configured signal,
+which is background-subtracted by default. The legacy background-divided signal
+is calculated only when explicitly selected with `quant_signal: normalized`.
+Optional reference ratios are calculated afterward from the selected signal;
+with the defaults, this means background subtraction followed by normalization
+to the within-replicate reference sample.
 
 For pH3 analyses, the reports instead display all supported pH3 quantities:
 overall pH3-positive percentage, percentages of all Single Cell events that are
