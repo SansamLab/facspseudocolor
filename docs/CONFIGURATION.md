@@ -106,14 +106,15 @@ See the fully commented `config.yml` for density clipping, point size, layout,
 gate styling, and quantitation styling options.
 
 `pseudocolor_signal` selects the event-level y value used in pseudocolor
-panels. The default, `normalized`, preserves the baseline-divided display.
-Set it to `background_subtracted` to display `target_raw - baseline` plus an
-offset. `background_subtracted_offset` may be a nonnegative number or `auto`
+panels. The default, `background_subtracted`, displays
+`target_raw - baseline` plus an offset. Set it to `normalized` only to request
+the legacy baseline-divided display. `background_subtracted_offset` may be a nonnegative number or `auto`
 (the default). Automatic mode takes the median positive raw G1 target anchor
 across displayed samples and rounds it to the nearest power of ten; for
 example, a typical raw background near 6,000 produces an offset of 10,000.
 The offset is display-only and never changes background-subtracted
-quantitation.
+quantitation. Optional reference normalization is applied afterward to the
+background-subtracted medians, within each biological replicate.
 
 ## Optional FlowJo block
 

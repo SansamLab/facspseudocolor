@@ -1,7 +1,7 @@
 small_analysis_object <- function(plot_type = "poi") {
   config <- validate_facs_config(minimal_config(plot_type))
   config$show_reference_panel <- TRUE
-  config$y_limits <- c(500, 5000)
+  config$y_limits <- c(100, 20000)
   manifest <- build_sample_manifest(config)
   make_sample <- function(offset) list(
     data = data.frame(
@@ -52,6 +52,26 @@ test_that("plotting consumes analysis data and returns plot objects", {
   expect_length(plots$decorated_plots, 2)
   expect_true(all(vapply(plots$decorated_plots, inherits, logical(1), "ggplot")))
   expect_s3_class(plots$grid, "ggplot")
+  expect_identical(plots$pseudocolor_signal, "background_subtracted")
+  expect_equal(plots$background_subtracted_offset, 10000)
+})
+
+test_that("reference normalization uses background-subtracted medians by default", {
+  analysis <- quantify_cell_cycle(
+    small_analysis_object("poi"), reference_condition = "Reference"
+  )
+
+  expect_identical(analysis$quantitation$signal, "background_subtracted")
+  expect_equal(
+    analysis$quantitation$phase_medians_reference,
+    analysis$quantitation$by_signal$background_subtracted$
+      phase_medians_reference
+  )
+  expect_equal(
+    analysis$quantitation$whole_medians_reference,
+    analysis$quantitation$by_signal$background_subtracted$
+      whole_medians_reference
+  )
 })
 
 test_that("background-subtracted pseudocolor uses automatic power-of-ten offset", {

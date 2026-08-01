@@ -1,5 +1,9 @@
 # facspseudocolor 0.0.0.9000
 
+- Changed the default pseudocolor display to background-subtracted signal.
+  High-level quantitation now calculates only the configured signal, which is
+  background-subtracted by default; optional reference normalization is
+  applied afterward to those background-subtracted medians.
 - Added background-subtracted pseudocolor display with an automatic offset
   rounded from the pooled raw G1 target level to the nearest power of ten, plus
   an explicit manual-offset option. Quantitation remains unshifted.

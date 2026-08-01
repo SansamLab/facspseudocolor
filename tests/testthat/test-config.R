@@ -7,7 +7,7 @@ test_that("configuration validation applies centralized mode defaults", {
   expect_identical(poi$suffixes, list(complete = "_single_cells.csv"))
   expect_equal(edu$dna_2n_value, 1000)
   expect_identical(edu$layout, "plotgardener")
-  expect_identical(edu$pseudocolor_signal, "normalized")
+  expect_identical(edu$pseudocolor_signal, "background_subtracted")
   expect_identical(edu$background_subtracted_offset, "auto")
 })
 

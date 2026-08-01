@@ -115,11 +115,11 @@ y_limit_upper_quantile: 0.999
 palette: "refined"
 
 y_log10: true             # log10 y-axis (typical for IF/EdU intensity)
-# Pseudocolor y signal. "normalized" is the historical baseline-divided view.
-# Use "background_subtracted" for raw signal minus fitted baseline plus an
-# offset. The automatic offset is the pooled raw G1 anchor rounded to the
-# nearest power of ten; replace "auto" with a number to set it manually.
-pseudocolor_signal: "normalized"
+# Pseudocolor y signal. The default is raw signal minus the fitted background
+# baseline plus a display-only offset. Set this to "normalized" only to request
+# the legacy baseline-divided view. The automatic offset is the pooled raw G1
+# anchor rounded to the nearest power of ten; replace "auto" with a number.
+pseudocolor_signal: "background_subtracted"
 background_subtracted_offset: "auto"
 x_limits: [700, 2250]     # DNA-axis display range (normalized units)
 point_size: 0.3           # point size in the scatter
@@ -165,8 +165,8 @@ show_gate_assignment: false
 # s_phase_y_range: [2500, 80000]    # high-signal band (S gates)
 
 # Quantitation outputs (each = a bar plot + a table + a saved PDF in results/).
-quantify_phase_median: false   # median normalized signal within each phase
-quantify_whole_median: false   # whole-population median signal per sample
+quantify_phase_median: false   # median background-subtracted signal by phase
+quantify_whole_median: false   # whole-population background-subtracted median
 quantify_phase_percent: false  # % of cells within each phase gate
 quant_error_bar: "sd"          # error bars: "sd", "sem", or "none"
 
@@ -174,13 +174,13 @@ quant_error_bar: "sd"          # error bars: "sd", "sem", or "none"
 #   "background_subtracted" (default) = raw signal minus the fitted baseline
 #       (edu: EdU-negative baseline; poi: autofluorescence fit), then (for the
 #       reference plots) a ratio to the in-replicate reference. Matches Figure 1.
-#   "normalized" = the background-normalized (divided) signal shown in the panels.
+#   "normalized" = the legacy background-divided signal (explicit opt-in).
 # Percentages are unaffected (they gate on the displayed axes).
 quant_signal: "background_subtracted"
 
 # Also make reference-normalized versions of the median bar plots: within each
-# biological replicate, each condition is divided by the reference sample
-# (reference = 1). Uses the replicate reference by default; override the name.
+# biological replicate, each background-subtracted condition median is divided
+# by the background-subtracted reference median (reference = 1).
 quantify_reference_normalized: false
 # quant_reference_condition: "siCtrl NT"   # condition to normalize to
 
