@@ -70,7 +70,15 @@ resolve_facs_appearance <- function(analysis, overrides = NULL, appearance_file 
   overrides <- overrides[!vapply(overrides, is.null, logical(1))]
   config <- analysis$config
   defaults <- list(
-    target_axis_label = if (config$plot_type == "edu") {
+    target_axis_label = if (identical(config$pseudocolor_signal, "background_subtracted")) {
+      paste0(
+        config$target_name,
+        "\n(background-subtracted + ",
+        format(config$background_subtracted_offset, trim = TRUE,
+               scientific = FALSE, big.mark = ","),
+        ")"
+      )
+    } else if (config$plot_type == "edu") {
       paste0(config$target_name, "\n(baseline-normalized)")
     } else if (config$plot_type == "ph3") {
       config$target_name

@@ -416,6 +416,55 @@ plot_facs_gate_assignments <- function(
   )$gate_assignment
 }
 
+resolve_background_subtracted_offset <- function(analysis) {
+  requested <- analysis$config$background_subtracted_offset %||% "auto"
+  if (config_scalar_number(requested)) return(as.numeric(requested))
+
+  anchors <- unlist(lapply(analysis$normalized_data, function(sample) {
+    value <- sample$g1_anchor_target
+    if (config_scalar_number(value) && value > 0) value else numeric()
+  }), use.names = FALSE)
+  if (!length(anchors)) {
+    anchors <- unlist(lapply(analysis$normalized_data, function(sample) {
+      value <- sample$data$baseline
+      value[is.finite(value) & value > 0]
+    }), use.names = FALSE)
+  }
+  if (!length(anchors)) {
+    anchors <- unlist(lapply(analysis$normalized_data, function(sample) {
+      value <- sample$data$target_raw
+      value[is.finite(value) & value > 0]
+    }), use.names = FALSE)
+  }
+  if (!length(anchors)) {
+    stop(
+      "Automatic background-subtracted offset requires positive raw target or baseline values.",
+      call. = FALSE
+    )
+  }
+  center <- stats::median(anchors)
+  10^round(log10(center))
+}
+
+prepare_pseudocolor_signal <- function(analysis) {
+  signal <- analysis$config$pseudocolor_signal %||% "normalized"
+  if (identical(signal, "normalized")) {
+    return(list(analysis = analysis, signal = signal, offset = 0))
+  }
+
+  offset <- resolve_background_subtracted_offset(analysis)
+  display <- analysis
+  display$normalized_data <- lapply(display$normalized_data, function(sample) {
+    sample$data$target_norm <- sample$data$target_bgsub + offset
+    if (!is.null(sample$edu_positive)) {
+      sample$edu_positive$target_norm <- sample$edu_positive$target_bgsub + offset
+    }
+    sample
+  })
+  display$config$background_subtracted_offset <- offset
+  list(analysis = display, signal = signal, offset = offset)
+}
+
 #' Build pseudocolor panels from a normalized analysis result
 #'
 #' Uses normalized event data already stored in `analysis`; input CSV files are
@@ -434,6 +483,8 @@ plot_pseudocolor_panels <- function(
     analysis, palette = NULL, appearance = NULL, appearance_file = NULL
 ) {
   validate_analysis_object(analysis)
+  display_signal <- prepare_pseudocolor_signal(analysis)
+  analysis <- display_signal$analysis
   rows <- analysis_display_rows(analysis)
   manifest <- analysis$sample_manifest[rows, , drop = FALSE]
   samples <- analysis$normalized_data[rows]
@@ -514,7 +565,9 @@ plot_pseudocolor_panels <- function(
     dna_2n_value = settings$dna_2n_value,
     y_axis_title = settings$y_axis_title,
     x_axis_title = style$dna_axis_label,
-    appearance = style
+    appearance = style,
+    pseudocolor_signal = display_signal$signal,
+    background_subtracted_offset = display_signal$offset
   ), class = "facs_plot_set")
 }
 

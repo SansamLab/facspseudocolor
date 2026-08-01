@@ -19,6 +19,7 @@ small_analysis_object <- function(plot_type = "poi") {
     } else {
       "background_reference_regression"
     },
+    g1_anchor_target = 6000 + offset,
     cutoff = if (plot_type == "poi") 1200 else NA_real_
   )
   normalized <- list(reference = make_sample(0), treatment = make_sample(100))
@@ -51,6 +52,36 @@ test_that("plotting consumes analysis data and returns plot objects", {
   expect_length(plots$decorated_plots, 2)
   expect_true(all(vapply(plots$decorated_plots, inherits, logical(1), "ggplot")))
   expect_s3_class(plots$grid, "ggplot")
+})
+
+test_that("background-subtracted pseudocolor uses automatic power-of-ten offset", {
+  analysis <- small_analysis_object("edu")
+  analysis$config$pseudocolor_signal <- "background_subtracted"
+  analysis$config$background_subtracted_offset <- "auto"
+  analysis$config$y_limits <- c(100, 20000)
+  plots <- plot_pseudocolor_panels(analysis)
+
+  expect_identical(plots$pseudocolor_signal, "background_subtracted")
+  expect_equal(plots$background_subtracted_offset, 10000)
+  expect_equal(
+    plots$panel_results[[1]]$sample_data$data$target_norm,
+    analysis$normalized_data[[1]]$data$target_bgsub + 10000
+  )
+  expect_equal(
+    analysis$normalized_data[[1]]$data$target_norm,
+    seq(700, 4000, length.out = 60)
+  )
+})
+
+test_that("background-subtracted pseudocolor accepts a manual offset", {
+  analysis <- small_analysis_object("edu")
+  analysis$config$pseudocolor_signal <- "background_subtracted"
+  analysis$config$background_subtracted_offset <- 2500
+  analysis$config$y_limits <- c(100, 10000)
+  plots <- plot_pseudocolor_panels(analysis)
+
+  expect_equal(plots$background_subtracted_offset, 2500)
+  expect_match(plots$y_axis_title, "2,500", fixed = TRUE)
 })
 
 test_that("quantitation plotting returns reusable ggplots", {
