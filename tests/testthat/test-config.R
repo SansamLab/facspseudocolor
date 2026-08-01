@@ -7,6 +7,21 @@ test_that("configuration validation applies centralized mode defaults", {
   expect_identical(poi$suffixes, list(complete = "_single_cells.csv"))
   expect_equal(edu$dna_2n_value, 1000)
   expect_identical(edu$layout, "plotgardener")
+  expect_identical(edu$pseudocolor_signal, "normalized")
+  expect_identical(edu$background_subtracted_offset, "auto")
+})
+
+test_that("pseudocolor signal and offset settings are validated", {
+  config <- minimal_config("edu")
+  config$pseudocolor_signal <- "background_subtracted"
+  config$background_subtracted_offset <- 10000
+  result <- validate_facs_config(config)
+  expect_equal(result$background_subtracted_offset, 10000)
+
+  config$background_subtracted_offset <- "nearest"
+  expect_error(validate_facs_config(config), "background_subtracted_offset")
+  config$background_subtracted_offset <- -1
+  expect_error(validate_facs_config(config), "background_subtracted_offset")
 })
 
 test_that("unknown and missing settings are reported together", {

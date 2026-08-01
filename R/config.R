@@ -13,7 +13,8 @@ facs_config_keys <- function() {
     "ph3_boundary_sensitivity_fraction",
     "show_reference_panel",
     "y_limit_lower_quantile", "y_limit_upper_quantile", "y_limits",
-    "palette", "y_log10", "x_limits", "point_size", "density_bandwidth",
+    "palette", "y_log10", "pseudocolor_signal",
+    "background_subtracted_offset", "x_limits", "point_size", "density_bandwidth",
     "density_lower_clip", "density_upper_clip", "density_gamma",
     "show_phase_gates", "show_gate_assignment", "gate_assignment_max_points",
     "gate_show_labels", "gate_color", "gate_linetype", "gate_linewidth",
@@ -57,6 +58,8 @@ facs_config_defaults <- function(plot_type) {
     y_limit_upper_quantile = 0.999,
     palette = "refined",
     y_log10 = TRUE,
+    pseudocolor_signal = "normalized",
+    background_subtracted_offset = "auto",
     x_limits = c(700, 2250),
     point_size = 0.3,
     density_bandwidth = 0.5,
@@ -237,6 +240,22 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   if (!config$quant_signal %in% c("background_subtracted", "normalized")) {
     errors <- config_add_error(
       errors, "`quant_signal` must be 'background_subtracted' or 'normalized'."
+    )
+  }
+  if (!config$pseudocolor_signal %in% c("background_subtracted", "normalized")) {
+    errors <- config_add_error(
+      errors,
+      "`pseudocolor_signal` must be 'background_subtracted' or 'normalized'."
+    )
+  }
+  offset_is_auto <- config_scalar_string(config$background_subtracted_offset) &&
+    identical(config$background_subtracted_offset, "auto")
+  offset_is_number <- config_scalar_number(config$background_subtracted_offset) &&
+    config$background_subtracted_offset >= 0
+  if (!offset_is_auto && !offset_is_number) {
+    errors <- config_add_error(
+      errors,
+      "`background_subtracted_offset` must be 'auto' or a nonnegative finite number."
     )
   }
 

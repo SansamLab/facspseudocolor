@@ -115,6 +115,12 @@ y_limit_upper_quantile: 0.999
 palette: "refined"
 
 y_log10: true             # log10 y-axis (typical for IF/EdU intensity)
+# Pseudocolor y signal. "normalized" is the historical baseline-divided view.
+# Use "background_subtracted" for raw signal minus fitted baseline plus an
+# offset. The automatic offset is the pooled raw G1 anchor rounded to the
+# nearest power of ten; replace "auto" with a number to set it manually.
+pseudocolor_signal: "normalized"
+background_subtracted_offset: "auto"
 x_limits: [700, 2250]     # DNA-axis display range (normalized units)
 point_size: 0.3           # point size in the scatter
 

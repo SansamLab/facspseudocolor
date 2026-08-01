@@ -1,5 +1,8 @@
 # facspseudocolor 0.0.0.9000
 
+- Added background-subtracted pseudocolor display with an automatic offset
+  rounded from the pooled raw G1 target level to the nearest power of ten, plus
+  an explicit manual-offset option. Quantitation remains unshifted.
 - Added PH3 mode with user-defined FlowJo positivity, G1-based per-sample DNA
   normalization, explicit phase boundaries, all-Single-Cells denominators,
   unassigned-event reporting, and G2/M boundary-sensitivity diagnostics.
