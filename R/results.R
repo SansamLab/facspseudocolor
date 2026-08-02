@@ -74,6 +74,21 @@ analysis_gate_rectangles <- function(analysis, y_limits) {
   }
 }
 
+# Gate definitions live in the analysis signal's coordinate system. When a
+# positive constant is added only for log-scale pseudocolor display, construct
+# the gates against the corresponding unshifted limits and then apply that same
+# translation to their y coordinates. This keeps the overlay aligned with the
+# displayed events without changing quantitation or population membership.
+analysis_display_gate_rectangles <- function(analysis, y_limits, offset = 0) {
+  if (!config_scalar_number(offset)) {
+    stop("`offset` must be one finite number.", call. = FALSE)
+  }
+  gates <- analysis_gate_rectangles(analysis, y_limits - offset)
+  gates$ymin <- gates$ymin + offset
+  gates$ymax <- gates$ymax + offset
+  gates
+}
+
 #' Quantify cell-cycle phases from an analysis result
 #'
 #' Calculates result tables without drawing or saving plots. The returned
@@ -125,7 +140,7 @@ quantify_cell_cycle <- function(
   )
 
   source_field <- if (analysis$config$plot_type == "edu") {
-    "edu_positive"
+    "computed_edu_positive"
   } else {
     "data"
   }
@@ -140,22 +155,33 @@ quantify_cell_cycle <- function(
     value_column <- if (signal_name == "normalized") "target_norm" else "target_bgsub"
     values <- list()
     if ("phase_median" %in% include) {
-      values$phase_medians <- collect_phase_signal_medians(
+      values$phase_medians_acquisition <- collect_phase_signal_medians(
         result_wrappers, manifest, windows,
         source_field = source_field, y_col = value_column
       )
+      values$phase_medians <- average_technical_replicates(
+        values$phase_medians_acquisition, "median_signal",
+        c("phase", "phase_label", "phase_index")
+      )
     }
     if ("whole_median" %in% include) {
-      values$whole_medians <- collect_whole_population_medians(
+      values$whole_medians_acquisition <- collect_whole_population_medians(
         result_wrappers, manifest, source_field = source_field,
         y_col = value_column
+      )
+      values$whole_medians <- average_technical_replicates(
+        values$whole_medians_acquisition, "median_signal"
       )
     }
     quantitation$by_signal[[signal_name]] <- values
   }
   if ("phase_percent" %in% include) {
-    quantitation$phase_percentages <- collect_phase_counts(
+    quantitation$phase_percentages_acquisition <- collect_phase_counts(
       result_wrappers, manifest, gates
+    )
+    quantitation$phase_percentages <- average_technical_replicates(
+      quantitation$phase_percentages_acquisition, "phase_percent",
+      c("gate", "gate_index")
     )
   }
 
@@ -510,29 +536,45 @@ plot_pseudocolor_panels <- function(
       palette = palette
     )
   })
-  gates <- analysis_gate_rectangles(analysis, settings$y_limits)
+  gates <- analysis_display_gate_rectangles(
+    analysis, settings$y_limits, display_signal$offset
+  )
+  gate_polygons <- NULL
+  has_computed_boundaries <- identical(analysis$config$plot_type, "edu") &&
+    all(vapply(samples, function(sample) {
+      all(c("dna_norm", "edu_boundary_bgsub") %in% names(sample$data))
+    }, logical(1)))
+  if (has_computed_boundaries) {
+    gate_polygons <- lapply(samples, make_computed_edu_gate_polygons,
+      gate_rectangles = gates, y_limits = settings$y_limits,
+      offset = display_signal$offset)
+  }
   if (isTRUE(style$show_phase_gates)) {
-    panel_results <- lapply(panel_results, function(result) {
-      result$panel <- add_phase_gates_to_plot(
-        result$panel, gates,
-        color = style$gate_color, linetype = style$gate_linetype,
-        linewidth = style$gate_linewidth,
-        show_labels = style$gate_show_labels,
-        label_size = style$gate_label_size, y_log10 = style$y_log10
-      )
-      result$plot <- add_phase_gates_to_plot(
-        result$plot, gates,
-        color = style$gate_color, linetype = style$gate_linetype,
-        linewidth = style$gate_linewidth,
-        show_labels = style$gate_show_labels,
-        label_size = style$gate_label_size, y_log10 = style$y_log10
-      )
+    panel_results <- lapply(seq_along(panel_results), function(i) {
+      result <- panel_results[[i]]
+      if (!is.null(gate_polygons)) {
+        result$panel <- add_phase_gate_polygons_to_plot(
+          result$panel, gate_polygons[[i]], style$gate_color,
+          style$gate_linetype, style$gate_linewidth)
+        result$plot <- add_phase_gate_polygons_to_plot(
+          result$plot, gate_polygons[[i]], style$gate_color,
+          style$gate_linetype, style$gate_linewidth)
+      } else {
+        result$panel <- add_phase_gates_to_plot(
+          result$panel, gates, style$gate_color, style$gate_linetype,
+          style$gate_linewidth, style$gate_show_labels,
+          style$gate_label_size, style$y_log10)
+        result$plot <- add_phase_gates_to_plot(
+          result$plot, gates, style$gate_color, style$gate_linetype,
+          style$gate_linewidth, style$gate_show_labels,
+          style$gate_label_size, style$y_log10)
+      }
       result
     })
   }
 
   n_columns <- length(unique(manifest$condition_index))
-  n_rows <- length(unique(manifest$replicate_index))
+  n_rows <- length(unique(manifest$model_group))
   replicate_labels <- unique(manifest$replicate)
   condition_labels <- unique(manifest$condition)
   page_layout <- facs_page_layout(
@@ -566,6 +608,8 @@ plot_pseudocolor_panels <- function(
     y_axis_title = settings$y_axis_title,
     x_axis_title = style$dna_axis_label,
     appearance = style,
+    gate_rectangles = gates,
+    gate_polygons = gate_polygons,
     pseudocolor_signal = display_signal$signal,
     background_subtracted_offset = display_signal$offset
   ), class = "facs_plot_set")

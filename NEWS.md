@@ -1,9 +1,24 @@
 # facspseudocolor 0.0.0.9000
 
+- Added a Shiny-enabled Quarto configurator for RStudio with GUI controls for
+  overall analysis type, per-sample role, order, replicate, condition, channel
+  selection, validation, and YAML download. Its launch helper captures the
+  current RStudio working directory and the GUI now starts from a discovered
+  FlowJo `.wsp`; population CSVs are treated as downstream export artifacts.
+  Sample setup is staged as name creation, multi-file FCS assignment,
+  biological/technical replicate identification, then role/order settings.
+  An alternative Excel entry tab creates a workspace-populated acquisition
+  table, imports the edited workbook, validates it, and writes YAML.
+  Files are processed independently and technical summaries are averaged within
+  biological replicates before reference ratios and across-replicate statistics.
 - Changed the default pseudocolor display to background-subtracted signal.
   High-level quantitation now calculates only the configured signal, which is
   background-subtracted by default; optional reference normalization is
   applied afterward to those background-subtracted medians.
+- EdU background is now fitted independently for every acquisition from its
+  EdU-negative population. POI alone uses a matched background-control role;
+  the optional post-subtraction normalization condition is configured
+  separately from either background method.
 - Added background-subtracted pseudocolor display with an automatic offset
   rounded from the pooled raw G1 target level to the nearest power of ten, plus
   an explicit manual-offset option. Quantitation remains unshifted.

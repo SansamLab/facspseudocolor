@@ -167,7 +167,7 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   if (!is.null(config$samples)) {
     errors <- config_add_error(
       errors,
-      "A flat `samples` list cannot identify the required normalization reference; use a `replicates` list with one entry and an explicit `reference`."
+      "A flat `samples` list cannot express acquisition structure; use a `replicates` list. POI mode also requires an explicit background-control `reference`."
     )
   }
 
@@ -179,14 +179,14 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
         stop("Duplicate sample prefix(es): ", paste(duplicate_prefixes, collapse = ", "))
       }
       reference_counts <- vapply(
-        split(manifest, manifest$replicate_index),
+        split(manifest, manifest$model_group),
         function(x) sum(x$is_reference), integer(1)
       )
-      if (plot_type == "ph3" && any(reference_counts != 0L)) {
-        stop("PH3 mode does not use replicate `reference` samples.")
+      if (plot_type %in% c("edu", "ph3") && any(reference_counts != 0L)) {
+        stop(toupper(plot_type), " mode does not use replicate `reference` samples.")
       }
-      if (plot_type != "ph3" && any(reference_counts != 1L)) {
-        stop("Each replicate must name exactly one matching `reference` condition.")
+      if (plot_type == "poi" && any(reference_counts != 1L)) {
+        stop("Each biological/technical replicate pair must contain exactly one matching `reference` condition.")
       }
       NULL
     }, error = function(e) conditionMessage(e))

@@ -41,16 +41,9 @@ required_population_keys <- function(config, manifest) {
     return(c("complete", "g1", "ph3_positive"))
   }
 
-  require_all_positive <- isTRUE(config$show_edu_apex_line) ||
-    isTRUE(config$quantify_phase_median) ||
-    isTRUE(config$quantify_whole_median)
   list(
     common = c("complete", "g1"),
-    positive_rows = if (require_all_positive) {
-      seq_len(nrow(manifest))
-    } else {
-      which(manifest$is_reference)
-    }
+    positive_rows = seq_len(nrow(manifest))
   )
 }
 

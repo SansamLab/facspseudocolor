@@ -92,12 +92,12 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
   settings <- analysis_settings(config)
 
   if (config$plot_type == "edu") {
-    models <- fit_replicate_reference_models(
+    models <- fit_sample_reference_models(
       manifest, directory, config$suffixes, settings
     )
     normalized_data <- lapply(seq_len(nrow(manifest)), function(i) {
-      model <- models[[as.character(manifest$replicate_index[[i]])]]
-      read_and_normalize_sample(
+      model <- models[[manifest$prefix[[i]]]]
+      sample <- read_and_normalize_sample(
         prefix = manifest$prefix[[i]],
         condition_label = manifest$condition[[i]],
         data_dir = directory,
@@ -105,13 +105,30 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
         settings = settings,
         baseline_slope = model$slope
       )
+      add_boundary <- function(data) {
+        data$edu_boundary_bgsub <- rep(
+          model$positive_boundary_bgsub_cutoff, nrow(data)
+        )
+        data$edu_boundary_raw <- data$baseline + data$edu_boundary_bgsub
+        data$edu_boundary_norm <- data$edu_boundary_raw / data$baseline *
+          config$dna_2n_value
+        data$edu_computed_positive <- is.finite(data$target_raw) &
+          is.finite(data$edu_boundary_raw) &
+          data$target_raw >= data$edu_boundary_raw
+        data
+      }
+      sample$data <- add_boundary(sample$data)
+      if (!is.null(sample$edu_positive)) {
+        sample$edu_positive <- add_boundary(sample$edu_positive)
+      }
+      sample
     })
   } else if (config$plot_type == "poi") {
     models <- fit_replicate_background_models(
       manifest, directory, config$suffixes, settings
     )
     normalized_data <- lapply(seq_len(nrow(manifest)), function(i) {
-      model <- models[[as.character(manifest$replicate_index[[i]])]]
+      model <- models[[manifest$model_group[[i]]]]
       read_and_normalize_sample(
         prefix = manifest$prefix[[i]],
         condition_label = manifest$condition[[i]],

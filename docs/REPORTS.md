@@ -5,7 +5,8 @@ which is background-subtracted by default. The legacy background-divided signal
 is calculated only when explicitly selected with `quant_signal: normalized`.
 Optional reference ratios are calculated afterward from the selected signal;
 with the defaults, this means background subtraction followed by normalization
-to the within-replicate reference sample.
+to the explicitly selected experimental reference condition. This is distinct
+from a POI background control and is optional for EdU.
 
 For pH3 analyses, the reports instead display all supported pH3 quantities:
 overall pH3-positive percentage, percentages of all Single Cell events that are
@@ -25,6 +26,7 @@ Supplying both or neither is an error.
 
 | Template | Purpose |
 |---|---|
+| `facs_configurator.qmd` | Interactive RStudio GUI for discovering, ordering, typing, validating, and saving samples. |
 | `facs_complete.qmd` | Pseudocolor, quantitation, tables, and provenance. |
 | `facs_pseudocolor.qmd` | Editable signal-versus-DNA panels. |
 | `facs_quantitation.qmd` | Phase and whole-population signal summaries. |
