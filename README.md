@@ -4,7 +4,9 @@ A reusable R package with a Quarto front end for making publication-style **pseu
 (2D kernel-density) plots** of a single channel (EdU incorporation, a
 protein-of-interest signal, or pH3) versus DNA content, laid out as a
 **replicate × condition** panel grid. DNA content is normalized per sample so
-the G1 population sits at **2N** and G2/M at **4N**.
+the G1 population sits at **2N**. By default, the observed G2/M signal is
+centered at **1.9× the G1 position** to accommodate typical fluorescence
+compression; this is configurable.
 
 This is a generalized distillation of the pseudocolor-plotting code used to
 build Figure 1 of the MTBP/EdU project, reproducing that figure's EdU
@@ -12,15 +14,12 @@ normalization and default color scheme.
 
 ## Three processing modes (`plot_type`)
 
-**`edu`** — reproduces the main Figure 1 pipeline. For each replicate, the
-designated **reference** sample is used to (1) fit a positive-minimum boundary
-separating EdU+ from EdU− events, (2) linearly regress the EdU-negative signal
-on normalized DNA content to obtain a slope, and (3) build a per-sample baseline
-that shares that slope but is **forced through each sample's own G1 anchor
-point** at 2N. Every sample's signal is divided by this baseline, so
-EdU-negative cells fall onto the 2N baseline and EdU+ cells rise above it. A
-diagnostics panel prints the boundary fit, negative regression, slope, and R²
-per replicate so you can confirm the normalization is behaving.
+**`edu`** — fits background independently for every acquisition. The package
+uses that acquisition's EdU-positive gate to fit a boundary separating EdU+
+from EdU− events, regresses the readily identifiable EdU-negative population
+against normalized DNA content, and anchors the fitted baseline at that
+acquisition's G1 signal. The default plots and quantitation use raw EdU minus
+this fitted baseline. No separate EdU background-control sample is required.
 
 **`poi`** — protein-of-interest, reproducing the Figure 1 CB/Total MTBP
 pipeline. Each replicate has an untagged **background control** sample (named
@@ -56,7 +55,9 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
 - `inst/quarto/facs_ph3_4n.qmd` — focused exact-FlowJo-gate pH3 report.
 - `pseudocolor_plots.qmd` — a thin report that calls the installed package.
 - `inst/quarto/` — focused complete, pseudocolor, quantitation, cell-cycle,
-  diagnostics, and exact-gate pH3 report templates.
+  diagnostics, exact-gate pH3, and interactive configurator templates. The
+  configurator supports guided entry or an Excel table prepopulated from the
+  selected FlowJo workspace.
 - `examples/appearance/` — optional presentation-only YAML examples.
 - `R/` — the `facspseudocolor` package implementation.
 - `python/export_flowjo_populations.py` — the unchanged optional event exporter.
@@ -116,11 +117,11 @@ depends on the mode:
 |------|----------|-----------|
 | `<prefix>_single_cells.csv` | all single cells | all modes |
 | `<prefix>_g1.csv` | the G1-gated single cells (used to normalize) | `edu` and `ph3` modes |
-| `<prefix>_edu_positive.csv` | the EdU-positive cells | `edu` mode, reference sample only |
+| `<prefix>_edu_positive.csv` | the EdU-positive cells | `edu` mode, every acquisition |
 | `<prefix>_ph3_positive.csv` | user-gated pH3-positive cells | `ph3` mode |
 
 `poi` mode needs **only** `<prefix>_single_cells.csv` (no G1 or EdU-positive
-files); it normalizes DNA and the signal using the background control sample.
+files); it subtracts a fitted background from the matched background control.
 
 `ph3` mode needs Single Cells, G1, and pH3-positive files for every sample.
 The pH3 gate is defined in FlowJo; the package never guesses a positivity
@@ -185,10 +186,18 @@ This reads `config.yml` and produces `results/pseudocolor_panels.pdf` and
 
 ## Reusable reports and editable artifacts
 
-Every analysis now calculates all supported phase medians, whole-population
-medians, and phase percentages for both background-subtracted and normalized
-signals. Focused Quarto templates decide what to display without recalculating
-or changing the scientific result.
+Every analysis calculates all supported phase medians, whole-population
+medians, and phase percentages for the configured signal, which is
+background-subtracted by default. Reference normalization, when requested, is
+applied afterward to the background-subtracted medians.
+
+To configure an experiment with a GUI, set RStudio's working directory to the
+folder containing the exported CSVs, run
+`facspseudocolor::set_facs_configurator_directory()`, then open
+`inst/quarto/facs_configurator.qmd` and click **Run Document**. It starts from a
+FlowJo `.wsp`, discovers its FCS samples, populations, and channels, and can set the overall
+analysis type, assign sample roles and replicates, set order, validate the
+configuration, and download the resulting YAML file.
 
 Analysis RDS files are the durable scientific source of truth. Figure-bundle
 RDS files contain editable individual ggplots, plot-ready summaries, and

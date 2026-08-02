@@ -1,8 +1,10 @@
 test_that("default phase windows are ordered and scaled from the 2N value", {
   windows <- make_phase_windows(dna_2n_value = 900)
   expect_identical(windows$phase_label, c("G1", "Early S", "Mid S", "Late S", "G2/M"))
-  expect_equal(windows$x_min[2:4], c(900, 1200, 1500))
-  expect_equal(windows$x_max[2:4], c(1200, 1500, 1800))
+  expect_equal(windows$x_min[2:4], c(819, 1138.5, 1458))
+  expect_equal(windows$x_max[2:4], c(1138.5, 1458, 1777.5))
+  expect_equal(windows$x_min[[5]], 1507.5)
+  expect_equal(windows$x_max[[5]], 1912.5)
   expect_error(validate_s_phase_bins(list(early = 1:2)), "early, mid, and late")
 })
 
@@ -40,4 +42,20 @@ test_that("replicate summaries and reference ratios are computed within groups",
   expect_equal(drug$replicate_n, 2)
   expect_equal(drug$mean, 2.5)
   expect_error(add_reference_ratio(dat, "value", "Missing"), "not among the quantified samples")
+})
+
+test_that("technical acquisitions are averaged after quantitation", {
+  values <- data.frame(
+    replicate = rep(c("Bio 1", "Bio 2"), each = 4),
+    replicate_index = rep(1:2, each = 4),
+    technical_replicate = rep(c("T1", "T2"), 4),
+    condition = rep(c("Control", "Control", "Drug", "Drug"), 2),
+    condition_index = rep(c(1L, 1L, 2L, 2L), 2),
+    median_signal = c(10, 14, 20, 24, 30, 34, 60, 64),
+    n = rep(100L, 8)
+  )
+  averaged <- facspseudocolor:::average_technical_replicates(values, "median_signal")
+  expect_equal(averaged$median_signal, c(12, 22, 32, 62))
+  expect_equal(averaged$technical_n, rep(2L, 4))
+  expect_equal(averaged$n, rep(200, 4))
 })

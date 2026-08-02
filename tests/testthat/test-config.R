@@ -25,7 +25,7 @@ test_that("pseudocolor signal and offset settings are validated", {
 })
 
 test_that("unknown and missing settings are reported together", {
-  config <- minimal_config()
+  config <- minimal_config("poi")
   config$dna_channel <- NULL
   config$misspelled_setting <- TRUE
 
@@ -36,18 +36,18 @@ test_that("unknown and missing settings are reported together", {
 })
 
 test_that("configuration validates references, prefixes, and ranges", {
-  config <- minimal_config()
+  config <- minimal_config("poi")
   config$replicates[[1]]$reference <- "Not present"
   config$x_limits <- c(2000, 1000)
   expect_error(validate_facs_config(config), "exactly one matching.*x_limits")
 
-  config <- minimal_config()
+  config <- minimal_config("poi")
   config$replicates[[1]]$samples[[2]]$prefix <- "reference"
   expect_error(validate_facs_config(config), "Duplicate sample prefix")
 })
 
-test_that("one-replicate configurations must still name a reference", {
-  config <- minimal_config()
+test_that("flat configurations cannot express replicate reference structure", {
+  config <- minimal_config("poi")
   config$samples <- config$replicates[[1]]$samples
   config$replicates <- NULL
   expect_error(validate_facs_config(config), "flat `samples` list.*reference")

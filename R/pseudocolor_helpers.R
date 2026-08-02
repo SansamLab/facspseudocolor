@@ -7,20 +7,14 @@
 #
 # Two processing modes, chosen with `plot_type`:
 #
-#   "edu"  Reference EdU-negative regression baseline normalization
-#          (reproduces the main Figure 1 pipeline). For each replicate, the
-#          designated reference sample is used to (1) fit a positive-minimum
-#          boundary that separates EdU+ from EdU- events, (2) linearly regress
-#          the EdU-negative signal on normalized DNA content to get a slope,
-#          and (3) build a per-sample baseline line that shares that slope but
-#          is forced through the sample's own G1 anchor point. Every sample's
-#          signal is then divided by this baseline (and scaled to dna_2n_value),
-#          so EdU-negative cells sit at the baseline and EdU+ cells rise above.
+#   "edu"  Per-acquisition EdU-negative regression baseline. Each acquisition's
+#          positive gate defines a boundary separating EdU+ from EdU- events;
+#          its own EdU-negative population is regressed against normalized DNA
+#          and anchored at that acquisition's G1 point. The default signal is
+#          raw EdU minus this fitted baseline.
 #
-#   "poi"  Protein-of-interest normalization. DNA content is normalized the
-#          same way, but the target channel is either divided by its own G1
-#          median (normalize_target = TRUE) or plotted raw
-#          (normalize_target = FALSE). No reference sample is required.
+#   "poi"  Protein-of-interest background correction from the explicitly
+#          selected, matched background-control acquisition.
 #
 # Packages are called with explicit namespaces, so sourcing this file does not
 # attach packages or alter the caller's search path. Required packages:
@@ -209,11 +203,16 @@ make_sample_manifest <- function(
       data.frame(
         replicate = replicate_label,
         replicate_index = replicate_index,
+        technical_replicate = as.character(sample$technical_replicate %||% "1"),
+        model_group = paste(replicate_index,
+                            as.character(sample$technical_replicate %||% "1"),
+                            sep = "::"),
         reference_condition = reference_condition,
         is_reference = !is.na(reference_condition) &&
           sample$label == reference_condition,
         condition = sample$label,
-        condition_index = sample_index,
+        condition_index = match(sample$label,
+                                unique(vapply(sample_list, `[[`, character(1), "label"))),
         prefix = sample$prefix,
         stringsAsFactors = FALSE
       )
@@ -555,7 +554,7 @@ fit_background_model <- function(
 # replicate_index. The background sample is the replicate's `is_reference` row.
 fit_replicate_background_models <- function(
     sample_manifest, data_dir, file_suffixes, settings) {
-  replicate_groups <- split(sample_manifest, sample_manifest$replicate_index)
+  replicate_groups <- split(sample_manifest, sample_manifest$model_group)
 
   lapply(replicate_groups, function(replicate_data) {
     background_rows <- replicate_data[replicate_data$is_reference, , drop = FALSE]
@@ -608,7 +607,7 @@ collect_common_y_limits <- function(
 
 
 # ---------------------------------------------------------------------------
-# EdU mode: reference EdU-negative regression baseline
+# EdU mode: per-acquisition EdU-negative regression baseline
 # ---------------------------------------------------------------------------
 
 # Fit a positive-minimum boundary that traces the lower edge of the EdU+ cloud
@@ -620,7 +619,7 @@ fit_positive_minimum_boundary <- function(
     fit_x_range = c(1000, 2000),
     boundary_bins = 20,
     minimum_events_per_bin = 20,
-    condition_label = "reference sample"
+    condition_label = "sample"
 ) {
   missing_columns <- setdiff(c(x_column, y_column), names(edu))
   if (length(missing_columns) > 0) {
@@ -637,7 +636,7 @@ fit_positive_minimum_boundary <- function(
 
   fit_data <- data.frame(boundary_x = x[valid], boundary_y = y[valid])
   if (nrow(fit_data) < 2 * minimum_events_per_bin) {
-    stop(paste("Too few EdU+ reference events for boundary fitting in",
+    stop(paste("Too few EdU+ events for boundary fitting in",
                condition_label))
   }
 
@@ -673,9 +672,9 @@ fit_positive_minimum_boundary <- function(
   list(fit = boundary_fit, points = boundary_points)
 }
 
-# For one replicate's reference sample: fit the positive boundary, classify the
-# EdU-negative events, and regress the negative signal on normalized DNA to get
-# the shared baseline slope. Returns the slope plus a diagnostic plot.
+# For one acquisition: fit the positive boundary, classify its EdU-negative
+# events, and regress their signal on normalized DNA. Returns the acquisition's
+# baseline slope plus a diagnostic plot.
 fit_reference_negative_model <- function(
     prefix,
     condition_label,
@@ -692,7 +691,7 @@ fit_reference_negative_model <- function(
   min_per_bin <- get_setting(settings, "baseline_minimum_events_per_bin", 20)
   min_negative <- get_setting(settings, "baseline_minimum_negative_events", 100)
 
-  # Reference sample DNA-normalized (target not baseline-corrected yet).
+  # Sample DNA-normalized (target not baseline-corrected yet).
   reference_data <- read_and_normalize_sample(
     prefix = prefix, condition_label = condition_label, data_dir = data_dir,
     file_suffixes = file_suffixes, settings = settings,
@@ -733,7 +732,7 @@ fit_reference_negative_model <- function(
 
   negative_events <- complete[is_negative, , drop = FALSE]
   if (nrow(negative_events) < min_negative) {
-    stop(paste("Too few inferred EdU-negative events in reference sample",
+    stop(paste("Too few inferred EdU-negative events in sample",
                condition_label, "for", replicate_label))
   }
 
@@ -751,6 +750,16 @@ fit_reference_negative_model <- function(
   # red points/line = positive-minimum boundary, black line = negative fit
   # forced through the sample's G1 anchor at 2N.
   g1_anchor <- reference_data$g1_anchor_target
+  boundary_baseline <- g1_anchor + reference_slope *
+    (boundary_result$points$boundary_x - dna_2n_value)
+  positive_boundary_bgsub_cutoff <- stats::median(
+    boundary_result$points$boundary_y - boundary_baseline,
+    na.rm = TRUE
+  )
+  if (!is.finite(positive_boundary_bgsub_cutoff)) {
+    stop("Invalid background-subtracted EdU-positive cutoff for ",
+         condition_label, ".", call. = FALSE)
+  }
   line_x <- seq(fit_x_range[[1]], fit_x_range[[2]], length.out = 200)
   boundary_line <- data.frame(
     dna_norm = line_x,
@@ -802,7 +811,7 @@ fit_reference_negative_model <- function(
                                 labels = c("2N", "4N")) +
     ggplot2::scale_y_continuous(labels = scales::label_comma()) +
     ggplot2::labs(
-      title = replicate_label, subtitle = paste("Reference:", condition_label),
+      title = replicate_label, subtitle = paste("Sample:", condition_label),
       x = "Normalized DNA content",
       y = paste("Raw", target_channel)
     ) +
@@ -812,6 +821,9 @@ fit_reference_negative_model <- function(
     replicate = replicate_label,
     reference_condition = condition_label,
     slope = reference_slope,
+    positive_boundary_intercept = unname(stats::coef(boundary_result$fit)[[1]]),
+    positive_boundary_slope = unname(stats::coef(boundary_result$fit)[[2]]),
+    positive_boundary_bgsub_cutoff = positive_boundary_bgsub_cutoff,
     negative_intercept = unname(stats::coef(negative_fit)[[1]]),
     negative_r_squared = summary(negative_fit)$r.squared,
     negative_event_n = nrow(negative_events),
@@ -824,7 +836,7 @@ fit_reference_negative_model <- function(
 # replicate_index.
 fit_replicate_reference_models <- function(
     sample_manifest, data_dir, file_suffixes, settings) {
-  replicate_groups <- split(sample_manifest, sample_manifest$replicate_index)
+  replicate_groups <- split(sample_manifest, sample_manifest$model_group)
 
   lapply(replicate_groups, function(replicate_data) {
     reference_rows <- replicate_data[replicate_data$is_reference, , drop = FALSE]
@@ -842,6 +854,25 @@ fit_replicate_reference_models <- function(
       data_dir = data_dir, file_suffixes = file_suffixes, settings = settings
     )
   })
+}
+
+# Fit an independent EdU-negative model for every acquisition. EdU background
+# is intrinsic to each sample and does not require a separate control sample.
+fit_sample_reference_models <- function(
+    sample_manifest, data_dir, file_suffixes, settings) {
+  models <- lapply(seq_len(nrow(sample_manifest)), function(i) {
+    fit_reference_negative_model(
+      prefix = sample_manifest$prefix[[i]],
+      condition_label = sample_manifest$condition[[i]],
+      replicate_label = paste(
+        sample_manifest$replicate[[i]],
+        sample_manifest$technical_replicate[[i]], sep = " / "
+      ),
+      data_dir = data_dir, file_suffixes = file_suffixes, settings = settings
+    )
+  })
+  names(models) <- sample_manifest$prefix
+  models
 }
 
 

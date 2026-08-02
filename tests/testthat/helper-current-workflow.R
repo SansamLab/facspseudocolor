@@ -45,10 +45,10 @@ minimal_config <- function(plot_type = "edu") {
     target_name = "Target",
     output_pdf = "results/panels.pdf",
     output_png = "results/panels.png",
-    replicates = list(if (plot_type == "ph3") {
-      list(label = "Replicate 1", samples = samples)
-    } else {
+    replicates = list(if (plot_type == "poi") {
       list(label = "Replicate 1", reference = "Reference", samples = samples)
+    } else {
+      list(label = "Replicate 1", samples = samples)
     })
   )
 }

@@ -59,9 +59,10 @@ For a configured sample prefix such as `rep1_NT`:
 Suffixes may be changed explicitly in YAML. The package never guesses a file
 with a different name.
 
-The EdU-positive file is always required for each replicate reference because
-it fits the EdU-negative boundary. It is required for all displayed samples when
-EdU apex or EdU-positive quantitation features are requested.
+The EdU-positive file is required for every EdU acquisition. It supplies the
+positive edge used to identify that acquisition's EdU-negative population;
+the package then fits and subtracts the background independently for that
+acquisition.
 
 ## Required columns and values
 

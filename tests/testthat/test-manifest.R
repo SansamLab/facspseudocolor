@@ -18,6 +18,22 @@ test_that("replicate manifests identify exactly the named reference", {
   expect_identical(manifest$replicate_index, c(1L, 1L, 2L, 2L))
 })
 
+test_that("manifest distinguishes technical acquisitions", {
+  reps <- list(list(
+    label = "Bio 1", reference = "Reference",
+    samples = list(
+      list(label = "Reference", prefix = "ref_t1", technical_replicate = "T1"),
+      list(label = "Treatment", prefix = "trt_t1", technical_replicate = "T1"),
+      list(label = "Reference", prefix = "ref_t2", technical_replicate = "T2"),
+      list(label = "Treatment", prefix = "trt_t2", technical_replicate = "T2")
+    )
+  ))
+  manifest <- make_sample_manifest(replicates = reps)
+  expect_identical(manifest$technical_replicate, c("T1", "T1", "T2", "T2"))
+  expect_identical(manifest$model_group, c("1::T1", "1::T1", "1::T2", "1::T2"))
+  expect_identical(manifest$condition_index, c(1L, 2L, 1L, 2L))
+})
+
 test_that("invalid sample layouts fail with actionable errors", {
   expect_error(make_sample_manifest(), "No samples")
   expect_error(make_sample_manifest(samples = list(list(label = "Control", prefix = ""))), "nonempty label and prefix")

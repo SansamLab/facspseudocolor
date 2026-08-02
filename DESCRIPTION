@@ -23,6 +23,10 @@ Imports:
     scales,
     yaml
 Suggests:
+    openxlsx,
+    readxl,
+    shiny,
     testthat (>= 3.0.0),
-    withr
+    withr,
+    xml2
 Config/testthat/edition: 3

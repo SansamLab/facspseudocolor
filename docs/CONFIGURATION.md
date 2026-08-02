@@ -16,12 +16,13 @@ file's directory.
 | `target_name` | string | Human-readable target label. |
 | `output_pdf` | path | Explicit main-figure PDF destination. |
 | `output_png` | path | Explicit main-figure PNG destination. |
-| `replicates` | list | Replicates, references, conditions, and unique prefixes. |
+| `replicates` | list | Biological/technical acquisitions, conditions, and unique prefixes. |
 
-EdU and POI replicates must contain `label`, `reference`, and `samples`. Every
-sample must contain `label` and `prefix`; optional FlowJo orchestration also
-requires `fcs`. Replicates must contain the same conditions in the same order,
-and each `reference` must match exactly one condition.
+Every sample must contain `label` and `prefix`; optional FlowJo orchestration
+also requires `fcs`. EdU acquisitions do not have a `reference`: their
+background is fitted independently from the EdU-negative cells in each
+acquisition. POI requires one matched background-control `reference` for each
+biological/technical replicate pair.
 
 PH3 replicates contain `label` and `samples` but no `reference`. PH3 requires
 explicit contiguous `g1_x_range`, Early/Mid/Late `s_phase_bins`, and
@@ -97,6 +98,11 @@ background-peak fallback. It is never selected silently.
 Custom geometry may be supplied through `s_phase_bins`, `g1_x_range`,
 `g2m_x_range`, `negative_y_range`, and `s_phase_y_range`. Ranges must contain
 two increasing finite numbers.
+
+`quant_reference_condition` is not a background control. It is an optional
+experimental condition used only after background subtraction, so reported
+medians can be expressed relative to that condition. Technical acquisitions
+are processed separately before their summaries are averaged.
 
 ## Display and density settings
 

@@ -56,9 +56,10 @@ poi_peak_failure: "use_background"
 
 ## One-replicate experiments
 
-Use a `replicates` list containing one entry and name its `reference`. The old
-flat `samples` example could not encode the reference required by EdU or POI
-normalization and has been removed from the recommended workflow.
+Use a `replicates` list containing one entry. In POI mode, name its background
+control with `reference`; EdU mode instead fits background from the EdU-negative
+population of every acquisition. The old flat `samples` example has been
+removed from the recommended workflow.
 
 ## Python preprocessing
 

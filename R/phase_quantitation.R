@@ -24,9 +24,9 @@
 
 default_s_phase_bins <- function(dna_2n_value = 1000) {
   list(
-    early = c(dna_2n_value, dna_2n_value * 4 / 3),
-    mid   = c(dna_2n_value * 4 / 3, dna_2n_value * 5 / 3),
-    late  = c(dna_2n_value * 5 / 3, dna_2n_value * 2)
+    early = c(0.910, 1.265) * dna_2n_value,
+    mid   = c(1.265, 1.620) * dna_2n_value,
+    late  = c(1.620, 1.975) * dna_2n_value
   )
 }
 
@@ -65,7 +65,7 @@ make_phase_windows <- function(
   s <- validate_s_phase_bins(s_phase_bins, dna_2n_value)
   if (include_g1_g2m) {
     if (is.null(g1_x_range))  g1_x_range  <- c(0.775, 1.225) * dna_2n_value
-    if (is.null(g2m_x_range)) g2m_x_range <- c(1.775, 2.225) * dna_2n_value
+    if (is.null(g2m_x_range)) g2m_x_range <- c(1.675, 2.125) * dna_2n_value
     g1_x_range <- as.numeric(unlist(g1_x_range))
     g2m_x_range <- as.numeric(unlist(g2m_x_range))
     out <- data.frame(
@@ -97,7 +97,7 @@ make_rectangular_phase_gates <- function(
     y_limits = c(500, 80000)
 ) {
   if (is.null(g1_x_range))  g1_x_range  <- c(0.775, 1.225) * dna_2n_value
-  if (is.null(g2m_x_range)) g2m_x_range <- c(1.775, 2.225) * dna_2n_value
+  if (is.null(g2m_x_range)) g2m_x_range <- c(1.675, 2.125) * dna_2n_value
   threshold <- 2.5 * dna_2n_value
   if (is.null(negative_y_range)) negative_y_range <- c(y_limits[[1]], threshold)
   if (is.null(s_phase_y_range))  s_phase_y_range  <- c(threshold, y_limits[[2]])
@@ -151,6 +151,47 @@ add_phase_gates_to_plot <- function(
   plot
 }
 
+make_computed_edu_gate_polygons <- function(
+    sample, gate_rectangles, y_limits, offset = 0
+) {
+  required <- c("dna_norm", "edu_boundary_bgsub")
+  if (!all(required %in% names(sample$data))) {
+    stop("Computed EdU boundary columns are unavailable.", call. = FALSE)
+  }
+  x <- sample$data$dna_norm
+  boundary <- sample$data$edu_boundary_bgsub + offset
+  fit <- stats::lm(boundary ~ x)
+  rows <- lapply(seq_len(nrow(gate_rectangles)), function(i) {
+    gate <- gate_rectangles[i, ]
+    bx <- c(gate$xmin, gate$xmax)
+    by <- as.numeric(stats::predict(fit, newdata = data.frame(x = bx)))
+    s_phase <- gate$gate %in% c("Early S", "Mid S", "Late S")
+    if (s_phase) {
+      px <- c(bx[[1]], bx[[1]], bx[[2]], bx[[2]])
+      py <- c(by[[1]], y_limits[[2]], y_limits[[2]], by[[2]])
+    } else {
+      px <- c(bx[[1]], bx[[1]], bx[[2]], bx[[2]])
+      py <- c(y_limits[[1]], by[[1]], by[[2]], y_limits[[1]])
+    }
+    data.frame(
+      gate = gate$gate, gate_index = gate$gate_index,
+      vertex = seq_along(px), x = px, y = py
+    )
+  })
+  do.call(rbind, rows)
+}
+
+add_phase_gate_polygons_to_plot <- function(
+    plot, polygons, color = "black", linetype = "dashed", linewidth = 0.5
+) {
+  plot + ggplot2::geom_polygon(
+    data = polygons,
+    ggplot2::aes(x = x, y = y, group = gate_index),
+    inherit.aes = FALSE, fill = NA, color = color,
+    linetype = linetype, linewidth = linewidth
+  )
+}
+
 
 # ---------------------------------------------------------------------------
 # Per-phase median of the normalized signal
@@ -178,7 +219,15 @@ calculate_phase_signal_medians <- function(
 # Return the per-sample event table used for quantitation. "data" = all cells;
 # "edu_positive" = the EdU+ (S gate) subset (required for edu-mode medians).
 quant_source_data <- function(result, source_field, prefix) {
-  if (source_field == "edu_positive") {
+  if (source_field == "computed_edu_positive") {
+    ev <- result$sample_data$data
+    if (!"edu_computed_positive" %in% names(ev)) {
+      legacy <- result$sample_data$edu_positive
+      if (!is.null(legacy)) return(legacy)
+      stop("Computed EdU boundary is unavailable for ", prefix, ".", call. = FALSE)
+    }
+    ev[ev$edu_computed_positive %in% TRUE, , drop = FALSE]
+  } else if (source_field == "edu_positive") {
     ev <- result$sample_data$edu_positive
     if (is.null(ev)) {
       stop(paste0("EdU-positive events are not available for ", prefix,
@@ -206,12 +255,34 @@ collect_phase_signal_medians <- function(
     data.frame(
       replicate = sample_manifest$replicate[[i]],
       replicate_index = sample_manifest$replicate_index[[i]],
+      technical_replicate = sample_manifest$technical_replicate[[i]],
       condition = sample_manifest$condition[[i]],
       condition_index = sample_manifest$condition_index[[i]],
       med, stringsAsFactors = FALSE
     )
   })
   out <- do.call(rbind, rows); rownames(out) <- NULL; out
+}
+
+# Average independently processed technical acquisitions within each biological
+# replicate. This prevents technical reruns from becoming independent points.
+average_technical_replicates <- function(df, value_col,
+                                         extra_group_cols = character()) {
+  group_cols <- c("replicate", "replicate_index", "condition",
+                  "condition_index", extra_group_cols)
+  key <- do.call(paste, c(df[group_cols], sep = "\r"))
+  rows <- lapply(split(seq_len(nrow(df)), key), function(idx) {
+    values <- df[[value_col]][idx]
+    values <- values[is.finite(values)]
+    out <- df[idx[[1]], group_cols, drop = FALSE]
+    out[[value_col]] <- if (length(values)) mean(values) else NA_real_
+    out$technical_n <- length(values)
+    if ("n" %in% names(df)) out$n <- sum(df$n[idx], na.rm = TRUE)
+    out
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
 }
 
 # Generic across-replicate summary of a per-sample value, grouped by one or two
@@ -395,6 +466,7 @@ collect_whole_population_medians <- function(
     data.frame(
       replicate = sample_manifest$replicate[[i]],
       replicate_index = sample_manifest$replicate_index[[i]],
+      technical_replicate = sample_manifest$technical_replicate[[i]],
       condition = sample_manifest$condition[[i]],
       condition_index = sample_manifest$condition_index[[i]],
       median_signal = if (length(v)) stats::median(v) else NA_real_,
@@ -460,10 +532,21 @@ collect_phase_counts <- function(plot_results, sample_manifest, gate_rectangles)
   rows <- lapply(seq_along(plot_results), function(i) {
     ev <- plot_results[[i]]$sample_data$data
     x <- ev$dna_norm; y <- ev$target_norm
+    computed_edu <- "edu_computed_positive" %in% names(ev)
     counts <- vapply(seq_len(nrow(gate_rectangles)), function(g) {
       gr <- gate_rectangles[g, ]
-      sum(is.finite(x) & is.finite(y) &
-          x >= gr$xmin & x < gr$xmax & y >= gr$ymin & y < gr$ymax)
+      selected <- is.finite(x) & is.finite(y) &
+        x >= gr$xmin & x < gr$xmax
+      if (computed_edu) {
+        if (gr$gate %in% c("Early S", "Mid S", "Late S")) {
+          selected <- selected & ev$edu_computed_positive %in% TRUE
+        } else {
+          selected <- selected & ev$edu_computed_positive %in% FALSE
+        }
+      } else {
+        selected <- selected & y >= gr$ymin & y < gr$ymax
+      }
+      sum(selected)
     }, integer(1))
     denom <- sum(counts)
     if (denom <= 0) {
@@ -473,6 +556,7 @@ collect_phase_counts <- function(plot_results, sample_manifest, gate_rectangles)
     data.frame(
       replicate = sample_manifest$replicate[[i]],
       replicate_index = sample_manifest$replicate_index[[i]],
+      technical_replicate = sample_manifest$technical_replicate[[i]],
       condition = sample_manifest$condition[[i]],
       condition_index = sample_manifest$condition_index[[i]],
       gate = gate_rectangles$gate, gate_index = gate_rectangles$gate_index,
@@ -544,7 +628,7 @@ make_dna_phase_gates <- function(
     dna_2n_value = 1000, y_limits = c(1, 1e5)
 ) {
   if (is.null(g1_x_range))  g1_x_range  <- c(0.775, 1.225) * dna_2n_value
-  if (is.null(g2m_x_range)) g2m_x_range <- c(1.775, 2.225) * dna_2n_value
+  if (is.null(g2m_x_range)) g2m_x_range <- c(1.675, 2.125) * dna_2n_value
   g1_x_range <- as.numeric(unlist(g1_x_range))
   g2m_x_range <- as.numeric(unlist(g2m_x_range))
   s_lo <- g1_x_range[[2]]    # S starts where the G1 gate ends
@@ -598,7 +682,23 @@ collect_gate_assignments <- function(
   rows <- lapply(seq_along(plot_results), function(i) {
     dat <- quant_source_data(plot_results[[i]], source_field,
                              sample_manifest$prefix[[i]])
-    dat <- assign_events_to_gates(dat, gate_rectangles)
+    if ("edu_computed_positive" %in% names(dat)) {
+      assigned <- rep("ungated", nrow(dat))
+      for (g in seq_len(nrow(gate_rectangles))) {
+        gr <- gate_rectangles[g, ]
+        selected <- is.finite(dat$dna_norm) &
+          dat$dna_norm >= gr$xmin & dat$dna_norm < gr$xmax
+        if (gr$gate %in% c("Early S", "Mid S", "Late S")) {
+          selected <- selected & dat$edu_computed_positive %in% TRUE
+        } else {
+          selected <- selected & dat$edu_computed_positive %in% FALSE
+        }
+        assigned[selected & assigned == "ungated"] <- gr$gate
+      }
+      dat$gate <- factor(assigned, levels = c(gate_rectangles$gate, "ungated"))
+    } else {
+      dat <- assign_events_to_gates(dat, gate_rectangles)
+    }
     if (nrow(dat) > max_points) {
       dat <- dat[sample.int(nrow(dat), max_points), , drop = FALSE]
     }
