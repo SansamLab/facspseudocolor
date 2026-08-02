@@ -1,15 +1,18 @@
 artifact_test_analysis <- function() {
   config <- validate_facs_config(minimal_config("poi"))
   config$show_reference_panel <- TRUE
-  config$y_limits <- c(500, 5000)
+  config$y_limits <- c(100, 20000)
   manifest <- build_sample_manifest(config)
   make_sample <- function(offset) list(
     data = data.frame(
       dna_norm = seq(800, 2200, length.out = 60),
+      target_raw = seq(6100, 7000, length.out = 60) + offset,
+      baseline = rep(6000 + offset, 60),
       target_norm = seq(700, 4000, length.out = 60) + offset,
       target_bgsub = seq(100, 1000, length.out = 60) + offset
     ),
     normalization_method = "background_reference_regression",
+    g1_anchor_target = 6000 + offset,
     cutoff = 1200
   )
   facspseudocolor:::new_facs_analysis(
@@ -26,7 +29,7 @@ test_that("appearance defaults are dynamic and null overrides are ignored", {
     list(target_axis_label = NULL)
   )
   expect_s3_class(style, "facs_appearance")
-  expect_match(style$target_axis_label, "background-normalized")
+  expect_match(style$target_axis_label, "background-subtracted")
   expect_named(style$condition_colors, c("Reference", "Treatment"))
   expect_identical(unname(style$condition_colors), c("#440154", "#FDE725"))
 })
@@ -89,4 +92,37 @@ test_that("Quarto templates use exactly-one input setup", {
   sys.source(helper, envir = environment)
   expect_error(environment$facs_report_input(), "exactly one")
   expect_error(environment$facs_report_input("a.yml", "a.rds"), "exactly one")
+})
+
+test_that("interactive configurator retains mode and sample-role controls", {
+  path <- system.file("quarto", "facs_configurator.qmd",
+                      package = "facspseudocolor")
+  expect_true(nzchar(path))
+  document <- paste(readLines(path, warn = FALSE), collapse = "\n")
+
+  expect_match(document, "server: shiny", fixed = TRUE)
+  expect_match(document, "context: server", fixed = TRUE)
+  expect_match(document, 'selectInput("plot_type"', fixed = TRUE)
+  expect_match(document, 'Sys.getenv("FACS_CONFIG_DATA_DIR"', fixed = TRUE)
+  expect_match(document, 'pattern = "\\\\.wsp$"', fixed = TRUE)
+  expect_match(document, 'xml_find_all(document', fixed = TRUE)
+  expect_match(document, 'actionButton("load_workspace"', fixed = TRUE)
+  expect_match(document, 'paste0("role_", i)', fixed = TRUE)
+  expect_match(document, "validate_facs_config(candidate_config())", fixed = TRUE)
+  expect_match(document, "downloadHandler", fixed = TRUE)
+})
+
+test_that("configurator directory captures the current working directory", {
+  old <- Sys.getenv("FACS_CONFIG_DATA_DIR", unset = NA_character_)
+  on.exit({
+    if (is.na(old)) Sys.unsetenv("FACS_CONFIG_DATA_DIR") else
+      Sys.setenv(FACS_CONFIG_DATA_DIR = old)
+  }, add = TRUE)
+  directory <- withr::local_tempdir()
+
+  expect_identical(set_facs_configurator_directory(directory),
+                   normalizePath(directory))
+  expect_identical(Sys.getenv("FACS_CONFIG_DATA_DIR"), normalizePath(directory))
+  expect_error(set_facs_configurator_directory(file.path(directory, "missing")),
+               "existing directory")
 })

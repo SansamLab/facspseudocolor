@@ -34,6 +34,23 @@ Supplying both or neither is an error.
 | `facs_diagnostics.qmd` | Gate assignments, fits, input checks, and warnings. |
 | `facs_ph3_4n.qmd` | Exact FlowJo pH3 gate intersected with configured G2/M DNA, pseudocolor, and percentage. |
 
+## Interactive configuration in RStudio
+
+Set the RStudio working directory to the folder containing the exported CSVs,
+run `facspseudocolor::set_facs_configurator_directory()` in the RStudio Console,
+then open `inst/quarto/facs_configurator.qmd` and click **Run Document**. The
+Shiny-backed document discovers FlowJo `.wsp` files recursively, reads their
+FCS sample names, populations, and detector channels; sets the overall EdU,
+POI, or pH3 analysis type; then uses three explicit stages to create sample
+names, assign one or more workspace FCS acquisitions to each sample, identify
+each file's biological and technical replicate, and define each sample's
+mode-specific role and order. Technical acquisitions are processed independently
+and averaged after quantitation within their biological replicate. It selects channels, validates
+the result; and downloads a standard YAML configuration containing the FlowJo
+export block. Population CSVs are generated later by the repository's external
+FlowJo orchestration step rather than serving as GUI inputs. Save the YAML with
+the analysis to preserve the exact setup.
+
 ## Example gallery
 
 All previews below are generated from the public POI example data by

@@ -6,16 +6,16 @@ test_that("high-level EdU analysis returns a structured non-saving result", {
 
   expect_s3_class(result, "facs_analysis")
   expect_equal(nrow(result$sample_manifest), 6)
-  expect_length(result$models, 2)
+  expect_length(result$models, 6)
   expect_length(result$normalized_data, 6)
   expect_identical(names(result$normalized_data), result$sample_manifest$prefix)
   expect_equal(
     vapply(result$normalized_data, function(x) {
       stats::median(x$data$target_norm, na.rm = TRUE)
     }, numeric(1)),
-    c(rep1_NT = 1752.82011390766, rep1_2h = 1481.56260982336,
-      rep1_4h = 1353.90517673248, rep2_NT = 2349.03387094802,
-      rep2_2h = 1664.84907317370, rep2_4h = 1587.49882678020),
+    c(rep1_NT = 1752.82011390766, rep1_2h = 1504.51043111236,
+      rep1_4h = 1368.51065076182, rep2_NT = 2349.03387094802,
+      rep2_2h = 1643.1981974707, rep2_4h = 1472.14509202877),
     tolerance = 1e-8
   )
   expect_identical(names(result$quantitation$by_signal),

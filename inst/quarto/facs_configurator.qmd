@@ -1,0 +1,764 @@
+---
+title: "FACS analysis configurator"
+format:
+  html:
+    toc: false
+    theme: cosmo
+server: shiny
+execute: { echo: false, warning: false, message: false }
+---
+
+Use this document to inspect a FlowJo workspace, assign sample roles and order, and download a validated YAML configuration. CSV population exports are an internal downstream step. Before running it, set RStudio's working directory to the workspace folder and run `facspseudocolor::set_facs_configurator_directory()` in the Console.
+
+```{r}
+#| context: setup
+library(shiny)
+library(facspseudocolor)
+library(xml2)
+
+initial_data_dir <- Sys.getenv("FACS_CONFIG_DATA_DIR", unset = getwd())
+if (!dir.exists(initial_data_dir)) initial_data_dir <- getwd()
+initial_data_dir <- normalizePath(initial_data_dir, mustWork = TRUE)
+workspace_paths <- list.files(
+  initial_data_dir, pattern = "\\.wsp$", recursive = TRUE,
+  full.names = TRUE, ignore.case = TRUE
+)
+workspace_choices <- stats::setNames(
+  workspace_paths,
+  substring(workspace_paths, nchar(initial_data_dir) + 2L)
+)
+config_paths <- list.files(
+  initial_data_dir, pattern = "\\.ya?ml$", recursive = TRUE,
+  full.names = TRUE, ignore.case = TRUE
+)
+config_choices <- stats::setNames(
+  config_paths,
+  substring(config_paths, nchar(initial_data_dir) + 2L)
+)
+```
+
+```{r}
+#| context: server
+workspace_files <- reactiveVal(character())
+sample_names <- reactiveVal(character())
+loaded_config <- reactiveVal(NULL)
+loaded_analysis <- reactiveVal(NULL)
+spreadsheet_rows <- reactiveVal(NULL)
+spreadsheet_status <- reactiveVal("Load a FlowJo workspace, download the Excel template, edit it, and import it here.")
+loaded_config_status <- reactiveVal("Select a configuration and click Load configuration.")
+analysis_status <- reactiveVal("No analysis has been run in this session.")
+
+inspect_workspace <- function(path) {
+  document <- xml2::read_xml(path)
+  datasets <- xml2::xml_find_all(document, "//*[local-name()='DataSet']")
+  uris <- utils::URLdecode(xml2::xml_attr(datasets, "uri"))
+  fcs <- basename(sub("^file:", "", uris))
+  populations <- unique(xml2::xml_attr(
+    xml2::xml_find_all(document, "//*[local-name()='Population']"), "name"
+  ))
+  channels <- unique(xml2::xml_attr(
+    xml2::xml_find_all(document, "//*[local-name()='parameter']"), "name"
+  ))
+  list(fcs = fcs[nzchar(fcs)], populations = populations[nzchar(populations)],
+       channels = channels[nzchar(channels)])
+}
+
+role_choices <- reactive({
+  switch(input$plot_type,
+    edu = c("Experimental (background fitted from this acquisition)" = "experimental"),
+    poi = c("Experimental" = "experimental",
+            "Autofluorescence background" = "reference"),
+    ph3 = c("Experimental" = "experimental")
+  )
+})
+
+suffixes_for_mode <- function(mode) {
+  switch(mode,
+    edu = list(complete = "_single_cells.csv", g1 = "_g1.csv",
+               edu_positive = "_edu_positive.csv"),
+    poi = list(complete = "_single_cells.csv"),
+    ph3 = list(complete = "_single_cells.csv", g1 = "_g1.csv",
+               ph3_positive = "_ph3_positive.csv")
+  )
+}
+
+safe_value <- function(value, fallback) {
+  if (is.null(value) || !length(value) || is.na(value) || !nzchar(value)) fallback else value
+}
+
+guess_workspace_rows <- function(files) {
+  stems <- tools::file_path_sans_ext(basename(files))
+  conditions <- sub("(?i)[_ -]?rerun[0-9]*$", "", stems, perl = TRUE)
+  conditions[!nzchar(conditions)] <- stems[!nzchar(conditions)]
+  technical <- ave(seq_along(conditions), conditions, FUN = seq_along)
+  data.frame(
+    use = TRUE,
+    order = seq_along(files),
+    sample_name = conditions,
+    fcs_file = basename(files),
+    biological_replicate = "Biological replicate 1",
+    technical_replicate = as.character(technical),
+    role = "experimental",
+    notes = "",
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+  )
+}
+
+rows_from_spreadsheet <- function(tabular) {
+  required <- c("use", "order", "sample_name", "fcs_file",
+                "biological_replicate", "technical_replicate", "role")
+  missing <- setdiff(required, names(tabular))
+  if (length(missing)) stop("Spreadsheet is missing column(s): ", paste(missing, collapse = ", "))
+  use <- tolower(trimws(as.character(tabular$use))) %in% c("true", "yes", "1", "y")
+  tabular <- tabular[use, , drop = FALSE]
+  if (!nrow(tabular)) stop("The spreadsheet has no rows marked for use.")
+  if (any(!nzchar(trimws(tabular$sample_name))) || any(!nzchar(trimws(tabular$fcs_file)))) {
+    stop("Every included row needs a sample_name and fcs_file.")
+  }
+  if (anyDuplicated(tolower(tabular$fcs_file))) stop("Each FCS file may appear only once.")
+  valid_roles <- if (identical(input$plot_type, "poi")) c("experimental", "reference") else "experimental"
+  if (any(!tolower(tabular$role) %in% valid_roles)) {
+    stop("Role must be ", paste(valid_roles, collapse = " or "), " for this analysis type.")
+  }
+  lapply(seq_len(nrow(tabular)), function(i) list(
+    include = TRUE,
+    order = suppressWarnings(as.numeric(tabular$order[[i]])),
+    prefix = tools::file_path_sans_ext(basename(tabular$fcs_file[[i]])),
+    condition = trimws(as.character(tabular$sample_name[[i]])),
+    replicate = trimws(as.character(tabular$biological_replicate[[i]])),
+    technical_replicate = trimws(as.character(tabular$technical_replicate[[i]])),
+    fcs = basename(tabular$fcs_file[[i]]),
+    role = tolower(trimws(as.character(tabular$role[[i]])))
+  ))
+}
+
+config_from_rows <- function(rows) {
+  mode <- input$plot_type
+  config <- list(
+    plot_type = mode,
+    data_dir = file.path(initial_data_dir, "facs_population_exports"),
+    dna_channel = input$dna_channel,
+    target_channel = input$target_channel,
+    target_name = input$target_name,
+    suffixes = suffixes_for_mode(mode),
+    pseudocolor_signal = "background_subtracted",
+    background_subtracted_offset = "auto",
+    quant_signal = "background_subtracted",
+    quantify_reference_normalized = isTRUE(input$reference_normalize),
+    output_pdf = input$output_pdf,
+    output_png = input$output_png,
+    replicates = build_replicates(rows, mode)
+  )
+  positive_key <- if (identical(mode, "edu")) "edu_positive" else "ph3_positive"
+  populations <- list(complete = input$population_complete)
+  if (!identical(mode, "poi")) {
+    populations$g1 <- input$population_g1
+    populations[[positive_key]] <- input$population_positive
+  }
+  config$flowjo <- list(
+    source_dir = dirname(input$workspace), workspace = basename(input$workspace),
+    python = Sys.which("python3"), populations = populations,
+    dna_source_channel = input$dna_channel,
+    target_source_channel = input$target_channel, rebuild = TRUE
+  )
+  if (isTRUE(input$reference_normalize) && !identical(mode, "ph3")) {
+    config$quant_reference_condition <- input$normalization_reference
+  }
+  if (identical(mode, "ph3")) {
+    boundaries <- c(input$ph3_g1_low, input$ph3_g1_high,
+                    input$ph3_early_high, input$ph3_mid_high,
+                    input$ph3_late_high, input$ph3_g2m_high)
+    config$g1_x_range <- boundaries[c(1, 2)]
+    config$s_phase_bins <- list(
+      early = boundaries[c(2, 3)], mid = boundaries[c(3, 4)],
+      late = boundaries[c(4, 5)]
+    )
+    config$g2m_x_range <- boundaries[c(5, 6)]
+  }
+  config
+}
+
+collect_sample_rows <- function() {
+  names <- sample_names()
+  if (!length(names)) stop("Create at least one sample name.")
+  rows <- unlist(lapply(seq_along(names), function(i) {
+    if (!isTRUE(input[[paste0("include_", i)]])) return(list())
+    files <- input[[paste0("file_", i)]]
+    if (is.null(files) || !length(files)) stop("Assign at least one FCS file to every included sample.")
+    lapply(seq_along(files), function(j) list(
+      include = TRUE,
+      order = suppressWarnings(as.numeric(input[[paste0("order_", i)]])),
+      prefix = tools::file_path_sans_ext(files[[j]]),
+      condition = safe_value(input[[paste0("condition_", i)]], names[[i]]),
+      replicate = safe_value(input[[paste0("bio_", i, "_", j)]], "Biological replicate 1"),
+      technical_replicate = safe_value(input[[paste0("tech_", i, "_", j)]], as.character(j)),
+      fcs = files[[j]],
+      role = safe_value(input[[paste0("role_", i)]], "experimental")
+    ))
+  }), recursive = FALSE)
+  if (!length(rows)) stop("Select at least one sample.")
+  assigned <- vapply(rows, `[[`, character(1), "fcs")
+  if (anyDuplicated(assigned)) stop("Each FCS file may be assigned to only one sample.")
+  orders <- vapply(rows, `[[`, numeric(1), "order")
+  orders[!is.finite(orders)] <- seq_along(rows)[!is.finite(orders)]
+  rows[order(orders, seq_along(rows))]
+}
+
+build_replicates <- function(rows, mode) {
+  replicate_names <- unique(vapply(rows, `[[`, character(1), "replicate"))
+  lapply(replicate_names, function(replicate_name) {
+    group <- rows[vapply(rows, function(x) identical(x$replicate, replicate_name), logical(1))]
+    group <- group[order(
+      vapply(group, `[[`, character(1), "technical_replicate"),
+      vapply(group, `[[`, numeric(1), "order")
+    )]
+    out <- list(
+      label = replicate_name,
+      samples = lapply(group, function(x) list(
+        label = x$condition, prefix = x$prefix, fcs = x$fcs,
+        technical_replicate = x$technical_replicate
+      ))
+    )
+    if (identical(mode, "poi")) {
+      references <- vapply(group, function(x) identical(x$role, "reference"), logical(1))
+      reference_conditions <- unique(vapply(group[references], `[[`, character(1), "condition"))
+      if (length(reference_conditions) != 1L) {
+        stop("Each biological replicate must name exactly one reference/background condition.")
+      }
+      out$reference <- reference_conditions[[1]]
+      out <- out[c("label", "reference", "samples")]
+    }
+    out
+  })
+}
+
+candidate_config <- reactive({
+  config_from_rows(collect_sample_rows())
+})
+
+spreadsheet_config <- reactive({
+  req(spreadsheet_rows())
+  config_from_rows(rows_from_spreadsheet(spreadsheet_rows()))
+})
+```
+
+::: {.panel-tabset}
+## Create configuration
+
+::: {.panel-tabset}
+### 1. Experiment
+
+```{r}
+selectInput("plot_type", "Analysis type",
+            choices = c("EdU versus DNA" = "edu",
+                        "Protein of interest versus DNA" = "poi",
+                        "pH3 versus DNA" = "ph3"))
+fluidRow(
+  column(12, textInput("data_dir_display", "RStudio working directory",
+                       value = initial_data_dir, width = "100%"))
+)
+selectInput("workspace", "FlowJo workspace", choices = workspace_choices,
+            width = "100%")
+actionButton("load_workspace", "Load workspace", class = "btn-primary")
+hr()
+fluidRow(
+  column(4, selectInput("dna_channel", "DNA channel", choices = character())),
+  column(4, selectInput("target_channel", "Target channel", choices = character())),
+  column(4, textInput("target_name", "Display name", value = "EdU"))
+)
+fluidRow(
+  column(4, selectInput("population_complete", "All-cell population", choices = character())),
+  column(4, conditionalPanel("input.plot_type != 'poi'",
+    selectInput("population_g1", "G1 population", choices = character()))),
+  column(4, conditionalPanel("input.plot_type != 'poi'",
+    selectInput("population_positive", "Positive population", choices = character())))
+)
+conditionalPanel(
+  condition = "input.plot_type == 'ph3'",
+  h4("Contiguous pH3 DNA phase boundaries"),
+  fluidRow(
+    column(2, numericInput("ph3_g1_low", "G1 lower", 900)),
+    column(2, numericInput("ph3_g1_high", "G1 / Early", 1150)),
+    column(2, numericInput("ph3_early_high", "Early / Mid", 1350)),
+    column(2, numericInput("ph3_mid_high", "Mid / Late", 1600)),
+    column(2, numericInput("ph3_late_high", "Late / G2M", 1850)),
+    column(2, numericInput("ph3_g2m_high", "G2M upper", 2300))
+  )
+)
+```
+
+### 2. Samples
+
+### Step 1: Create sample names
+
+Enter one analysis-sample name per line. Give original acquisitions and reruns separate names so their event data remain independent.
+
+```{r}
+textAreaInput("sample_names_text", "Sample names", rows = 8,
+              placeholder = "NT original\nNT rerun 1\nIAA 2 h original\nIAA 2 h rerun")
+actionButton("create_samples", "Create samples", class = "btn-primary")
+
+h3("Step 2: Assign workspace files to each sample")
+uiOutput("file_editor")
+
+h3("Step 3: Identify biological and technical replicates")
+uiOutput("acquisition_editor")
+
+h3("Step 4: Define sample settings")
+tags$p("Lower order numbers appear first. Only POI mode requires one background-control condition in every biological/technical replicate pair. EdU background is fitted independently for every acquisition.")
+uiOutput("sample_editor")
+```
+
+### 3. Excel entry
+
+This alternative starts from the FlowJo workspace. The workbook contains one
+row per FCS acquisition and guesses sample names and technical-rerun numbers
+from the filenames. Review all inferred values, especially biological
+replicates and condition names, before importing it.
+
+```{r}
+downloadButton("download_excel_template", "Download workspace-filled Excel template")
+br(); br()
+fileInput("excel_config", "Import completed Excel template",
+          accept = c(".xlsx"), width = "100%")
+verbatimTextOutput("spreadsheet_status")
+h4("Imported acquisitions")
+tableOutput("spreadsheet_preview")
+downloadButton("download_spreadsheet_config", "Download validated YAML from Excel")
+```
+
+### 4. Output
+
+```{r}
+checkboxInput("reference_normalize",
+              "Normalize background-subtracted medians to a reference condition",
+              value = FALSE)
+conditionalPanel(
+  condition = "input.reference_normalize && input.plot_type != 'ph3'",
+  selectInput("normalization_reference", "Post-subtraction normalization reference",
+              choices = character())
+)
+fluidRow(
+  column(6, textInput("output_pdf", "Output PDF", "results/pseudocolor_panels.pdf")),
+  column(6, textInput("output_png", "Output PNG", "results/pseudocolor_panels.png"))
+)
+actionButton("validate_config", "Validate configuration", class = "btn-primary")
+downloadButton("download_config", "Download YAML")
+br(); br()
+verbatimTextOutput("validation_status")
+h4("YAML preview")
+verbatimTextOutput("yaml_preview")
+```
+:::
+
+## Load and run
+
+Choose a saved configuration from the current RStudio working directory. Loading
+is read-only: the selected YAML file is not changed.
+
+```{r}
+fluidRow(
+  column(9, selectInput("existing_config", "Saved configuration",
+                        choices = config_choices, width = "100%")),
+  column(3, br(), actionButton("refresh_configs", "Refresh list"))
+)
+actionButton("load_existing_config", "Load configuration", class = "btn-primary")
+actionButton("run_existing_config", "Run analysis", class = "btn-success")
+br(); br()
+verbatimTextOutput("loaded_config_status")
+h4("Configuration summary")
+tableOutput("loaded_config_summary")
+h4("Acquisitions")
+tableOutput("loaded_manifest")
+```
+
+## Results
+
+Results appear after **Run analysis** completes.
+
+::: {.panel-tabset}
+### Pseudocolor plots
+
+```{r}
+plotOutput("result_pseudocolor", height = "900px")
+```
+
+### EdU phase barplots
+
+```{r}
+plotOutput("result_phase_bars", height = "650px")
+```
+
+### Background diagnostics
+
+```{r}
+plotOutput("result_background_diagnostics", height = "900px")
+```
+
+### Quantitation tables
+
+```{r}
+h4("Phase medians")
+tableOutput("result_phase_table")
+h4("Whole-population medians")
+tableOutput("result_whole_table")
+```
+:::
+:::
+
+```{r}
+#| context: server
+observeEvent(input$plot_type, {
+  updateTextInput(session, "target_name", value = switch(
+    input$plot_type, edu = "EdU", poi = "Target", ph3 = "pH3"
+  ))
+})
+
+observeEvent(input$load_workspace, {
+  if (is.null(input$workspace) || !file.exists(input$workspace)) {
+    showNotification("Select an existing FlowJo .wsp file.", type = "error")
+    return()
+  }
+  info <- tryCatch(inspect_workspace(input$workspace), error = identity)
+  if (inherits(info, "error")) {
+    showNotification(conditionMessage(info), type = "error")
+    return()
+  }
+  workspace_files(info$fcs)
+  dna_default <- if ("FL2-A" %in% info$channels) "FL2-A" else info$channels[[1]]
+  target_default <- if ("FL4-A" %in% info$channels) "FL4-A" else
+    info$channels[[min(2L, length(info$channels))]]
+  updateSelectInput(session, "dna_channel", choices = info$channels,
+                    selected = dna_default)
+  updateSelectInput(session, "target_channel", choices = info$channels,
+                    selected = target_default)
+  updateSelectInput(session, "population_complete", choices = info$populations,
+                    selected = if ("Single Cells" %in% info$populations) "Single Cells" else info$populations[[1]])
+  updateSelectInput(session, "population_g1", choices = info$populations,
+                    selected = if ("G1" %in% info$populations) "G1" else character())
+  positive_default <- if (input$plot_type == "edu" && "S" %in% info$populations) "S" else character()
+  updateSelectInput(session, "population_positive", choices = info$populations,
+                    selected = positive_default)
+})
+
+observeEvent(input$create_samples, {
+  names <- trimws(unlist(strsplit(input$sample_names_text, "\\r?\\n")))
+  names <- names[nzchar(names)]
+  if (!length(names)) {
+    showNotification("Enter at least one sample name.", type = "error")
+    return()
+  }
+  if (anyDuplicated(names)) {
+    showNotification("Sample names must be unique.", type = "error")
+    return()
+  }
+  sample_names(names)
+  updateSelectInput(session, "normalization_reference", choices = names,
+                    selected = names[[1]])
+})
+
+output$file_editor <- renderUI({
+  names <- sample_names()
+  files <- workspace_files()
+  if (!length(names)) return(tags$em("Create sample names first."))
+  if (!length(files)) return(tags$em("Load a FlowJo workspace first."))
+  tagList(lapply(seq_along(names), function(i) {
+    selectizeInput(paste0("file_", i), names[[i]], choices = files,
+                   selected = character(), multiple = TRUE,
+                   options = list(plugins = list("remove_button")))
+  }))
+})
+
+output$acquisition_editor <- renderUI({
+  names <- sample_names()
+  if (!length(names)) return(tags$em("Create sample names first."))
+  blocks <- lapply(seq_along(names), function(i) {
+    files <- input[[paste0("file_", i)]]
+    if (is.null(files) || !length(files)) return(NULL)
+    tagList(
+      tags$h5(names[[i]]),
+      lapply(seq_along(files), function(j) fluidRow(
+        column(4, tags$p(basename(files[[j]]))),
+        column(4, textInput(paste0("bio_", i, "_", j),
+                            "Biological replicate", "Biological replicate 1")),
+        column(4, textInput(paste0("tech_", i, "_", j),
+                            "Technical replicate", as.character(j)))
+      ))
+    )
+  })
+  if (!length(Filter(Negate(is.null), blocks))) tags$em("Assign files first.") else tagList(blocks)
+})
+
+output$sample_editor <- renderUI({
+  names <- sample_names()
+  if (!length(names)) return(tags$em("Create sample names first."))
+  tagList(
+    tags$div(class = "row", style = "font-weight:600; margin-bottom:6px;",
+      tags$div(class = "col-sm-1", "Use"), tags$div(class = "col-sm-1", "Order"),
+      tags$div(class = "col-sm-5", "Display name"),
+      tags$div(class = "col-sm-5", "Sample role")
+    ),
+    lapply(seq_along(names), function(i) {
+      fluidRow(
+        column(1, checkboxInput(paste0("include_", i), NULL, TRUE)),
+        column(1, numericInput(paste0("order_", i), NULL, i, min = 1, step = 1)),
+        column(5, textInput(paste0("condition_", i), NULL, names[[i]])),
+        column(5, selectInput(paste0("role_", i), NULL, role_choices()))
+      )
+    })
+  )
+})
+
+validation <- eventReactive(input$validate_config, {
+  tryCatch({
+    validated <- validate_facs_config(candidate_config())
+    list(message = paste("Configuration is valid:",
+      nrow(build_sample_manifest(validated)), "samples across",
+      length(validated$replicates), "replicate(s)."))
+  }, error = function(e) list(message = conditionMessage(e)))
+})
+
+output$validation_status <- renderText(validation()$message)
+output$yaml_preview <- renderText({
+  input$validate_config
+  isolate(tryCatch(yaml::as.yaml(candidate_config()),
+                   error = function(e) conditionMessage(e)))
+})
+output$download_config <- downloadHandler(
+  filename = function() paste0("facs_config_", input$plot_type, ".yml"),
+  content = function(file) {
+    config <- candidate_config()
+    validate_facs_config(config)
+    yaml::write_yaml(config, file)
+  }
+)
+
+output$download_excel_template <- downloadHandler(
+  filename = function() paste0("facs_samples_", input$plot_type, ".xlsx"),
+  content = function(file) {
+    if (!requireNamespace("openxlsx", quietly = TRUE)) {
+      stop("Install the R package 'openxlsx' to create Excel templates.")
+    }
+    files <- workspace_files()
+    if (!length(files)) stop("Load a FlowJo workspace before downloading the template.")
+    rows <- guess_workspace_rows(files)
+    workbook <- openxlsx::createWorkbook()
+    openxlsx::addWorksheet(workbook, "Instructions", gridLines = FALSE)
+    openxlsx::addWorksheet(workbook, "Samples", gridLines = FALSE)
+    instructions <- data.frame(
+      Field = c("Purpose", "Autopopulated", "Review carefully", "EdU role",
+                "POI role", "Technical replicates", "Biological replicates"),
+      Guidance = c(
+        "One Samples row represents one FCS acquisition.",
+        "FCS filenames come from the selected FlowJo workspace. Sample names and technical numbers are filename-based guesses.",
+        "Confirm sample_name, biological_replicate, technical_replicate, role, and order.",
+        "Use experimental for every acquisition; EdU background is fitted within each acquisition.",
+        "Use reference for the matched background-control condition and experimental for other samples.",
+        "Acquisitions sharing sample_name and biological_replicate are processed separately and then averaged.",
+        "Use different biological_replicate labels for independently grown or treated experiments."
+      ), check.names = FALSE
+    )
+    title_style <- openxlsx::createStyle(fontSize = 16, textDecoration = "bold",
+                                          fontColour = "#FFFFFF", fgFill = "#176B87")
+    header_style <- openxlsx::createStyle(textDecoration = "bold",
+                                           fontColour = "#FFFFFF", fgFill = "#2E7D8F")
+    input_style <- openxlsx::createStyle(fgFill = "#EAF4F6")
+    openxlsx::writeData(workbook, "Instructions", "FACS configuration workbook", startRow = 1)
+    openxlsx::addStyle(workbook, "Instructions", title_style, rows = 1, cols = 1:2, gridExpand = TRUE)
+    openxlsx::writeDataTable(workbook, "Instructions", instructions, startRow = 3,
+                             tableStyle = "TableStyleMedium2")
+    openxlsx::setColWidths(workbook, "Instructions", cols = 1, widths = 24)
+    openxlsx::setColWidths(workbook, "Instructions", cols = 2, widths = 80)
+    openxlsx::setRowHeights(workbook, "Instructions", rows = 4:(nrow(instructions) + 3), heights = 32)
+    openxlsx::addStyle(workbook, "Instructions",
+                       openxlsx::createStyle(wrapText = TRUE, valign = "top"),
+                       rows = 3:(nrow(instructions) + 3), cols = 1:2, gridExpand = TRUE)
+    openxlsx::writeDataTable(workbook, "Samples", rows, tableStyle = "TableStyleMedium2")
+    openxlsx::addStyle(workbook, "Samples", header_style, rows = 1,
+                       cols = seq_len(ncol(rows)), gridExpand = TRUE, stack = TRUE)
+    openxlsx::addStyle(workbook, "Samples", input_style, rows = 2:(nrow(rows) + 1),
+                       cols = c(1:3, 5:8), gridExpand = TRUE)
+    openxlsx::freezePane(workbook, "Samples", firstRow = TRUE)
+    openxlsx::setColWidths(workbook, "Samples", cols = 1:8,
+                           widths = c(9, 9, 28, 34, 25, 20, 16, 30))
+    openxlsx::dataValidation(workbook, "Samples", cols = 1, rows = 2:(nrow(rows) + 1),
+                             type = "list", value = "'TRUE,FALSE'")
+    roles <- if (identical(input$plot_type, "poi")) "'experimental,reference'" else "'experimental'"
+    openxlsx::dataValidation(workbook, "Samples", cols = 7, rows = 2:(nrow(rows) + 1),
+                             type = "list", value = roles)
+    openxlsx::saveWorkbook(workbook, file, overwrite = TRUE)
+  }
+)
+
+observeEvent(input$excel_config, {
+  if (!requireNamespace("readxl", quietly = TRUE)) {
+    spreadsheet_rows(NULL)
+    spreadsheet_status("Install the R package 'readxl' to import Excel templates.")
+    return()
+  }
+  result <- tryCatch(
+    as.data.frame(readxl::read_excel(input$excel_config$datapath, sheet = "Samples"),
+                  stringsAsFactors = FALSE),
+    error = identity
+  )
+  if (inherits(result, "error")) {
+    spreadsheet_rows(NULL)
+    spreadsheet_status(paste("Excel import error:", conditionMessage(result)))
+    return()
+  }
+  spreadsheet_rows(result)
+  checked <- tryCatch(validate_facs_config(spreadsheet_config()), error = identity)
+  if (inherits(checked, "error")) {
+    spreadsheet_status(paste("Imported, but configuration needs attention:",
+                             conditionMessage(checked)))
+  } else {
+    spreadsheet_status(paste("Excel configuration is valid:", nrow(result),
+                             "acquisition row(s) imported."))
+  }
+})
+
+output$spreadsheet_status <- renderText(spreadsheet_status())
+output$spreadsheet_preview <- renderTable({
+  rows <- spreadsheet_rows()
+  req(rows)
+  rows
+}, striped = TRUE, bordered = TRUE, spacing = "s")
+
+output$download_spreadsheet_config <- downloadHandler(
+  filename = function() paste0("facs_config_", input$plot_type, "_from_excel.yml"),
+  content = function(file) {
+    config <- validate_facs_config(spreadsheet_config())
+    yaml::write_yaml(config, file)
+  }
+)
+
+discover_configs <- function() {
+  paths <- list.files(
+    initial_data_dir, pattern = "\\.ya?ml$", recursive = TRUE,
+    full.names = TRUE, ignore.case = TRUE
+  )
+  stats::setNames(paths, substring(paths, nchar(initial_data_dir) + 2L))
+}
+
+observeEvent(input$refresh_configs, {
+  choices <- discover_configs()
+  updateSelectInput(session, "existing_config", choices = choices,
+                    selected = if (length(choices)) unname(choices[[1]]) else character())
+  showNotification(paste(length(choices), "configuration file(s) found."),
+                   type = "message")
+})
+
+observeEvent(input$load_existing_config, {
+  path <- input$existing_config
+  if (is.null(path) || !length(path) || !file.exists(path)) {
+    loaded_config(NULL)
+    loaded_config_status("Select an existing YAML configuration.")
+    return()
+  }
+  result <- tryCatch(read_facs_config(path), error = identity)
+  if (inherits(result, "error")) {
+    loaded_config(NULL)
+    loaded_config_status(paste("Configuration error:", conditionMessage(result)))
+    return()
+  }
+  loaded_config(result)
+  loaded_analysis(NULL)
+  manifest <- build_sample_manifest(result)
+  loaded_config_status(paste(
+    "Configuration is valid:", basename(path), "contains", nrow(manifest),
+    "acquisitions across", length(unique(manifest$replicate)),
+    "biological replicate(s)."
+  ))
+})
+
+observeEvent(input$run_existing_config, {
+  config <- loaded_config()
+  if (is.null(config)) {
+    analysis_status("Load a valid configuration before running the analysis.")
+    loaded_config_status(analysis_status())
+    return()
+  }
+  loaded_config_status("Running analysis. This can take a few moments...")
+  result <- tryCatch(
+    withProgress(message = "Running FACS analysis", value = 0.2, {
+      analysis <- analyze_facs_experiment(config)
+      incProgress(0.8, detail = "Preparing plots and tables")
+      analysis
+    }),
+    error = identity
+  )
+  if (inherits(result, "error")) {
+    loaded_analysis(NULL)
+    analysis_status(paste("Analysis error:", conditionMessage(result)))
+  } else {
+    loaded_analysis(result)
+    analysis_status(paste(
+      "Analysis complete:", nrow(result$sample_manifest),
+      "acquisitions processed with", length(result$warnings), "warning(s)."
+    ))
+  }
+  loaded_config_status(analysis_status())
+})
+
+output$loaded_config_status <- renderText(loaded_config_status())
+
+output$loaded_config_summary <- renderTable({
+  config <- loaded_config()
+  req(config)
+  manifest <- build_sample_manifest(config)
+  data.frame(
+    Setting = c("Analysis", "Target", "DNA channel", "Signal channel",
+                "Acquisitions", "Conditions", "Population data folder"),
+    Value = c(config$plot_type, config$target_name, config$dna_channel,
+              config$target_channel, nrow(manifest),
+              length(unique(manifest$condition)), config$data_dir),
+    check.names = FALSE
+  )
+}, striped = TRUE, bordered = TRUE, spacing = "s")
+
+output$loaded_manifest <- renderTable({
+  config <- loaded_config()
+  req(config)
+  manifest <- build_sample_manifest(config)
+  keep <- intersect(c("replicate", "technical_replicate", "condition", "prefix"),
+                    names(manifest))
+  manifest[, keep, drop = FALSE]
+}, striped = TRUE, bordered = TRUE, spacing = "s")
+
+output$result_pseudocolor <- renderPlot({
+  analysis <- loaded_analysis()
+  req(analysis)
+  plot_pseudocolor_panels(analysis)
+}, res = 110)
+
+output$result_phase_bars <- renderPlot({
+  analysis <- loaded_analysis()
+  req(analysis)
+  validate(need(analysis$config$plot_type != "ph3",
+                "EdU/POI phase-signal bars are not available in pH3 mode."))
+  plot_facs_phase_signal(analysis, geometry = "bar",
+                         signal = "background_subtracted")
+}, res = 110)
+
+output$result_background_diagnostics <- renderPlot({
+  analysis <- loaded_analysis()
+  req(analysis)
+  plots <- lapply(analysis$models, function(model) model$diagnostic_plot)
+  plots <- Filter(function(x) inherits(x, "ggplot"), plots)
+  validate(need(length(plots), "No background diagnostic plots are available."))
+  assemble_facs_panels(plots, ncol = min(3L, length(plots)))
+}, res = 110)
+
+output$result_phase_table <- renderTable({
+  analysis <- loaded_analysis()
+  req(analysis)
+  analysis$quantitation$phase_medians
+}, striped = TRUE, bordered = TRUE, spacing = "s")
+
+output$result_whole_table <- renderTable({
+  analysis <- loaded_analysis()
+  req(analysis)
+  analysis$quantitation$whole_medians
+}, striped = TRUE, bordered = TRUE, spacing = "s")
+```

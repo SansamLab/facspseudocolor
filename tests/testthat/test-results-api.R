@@ -104,6 +104,44 @@ test_that("background-subtracted pseudocolor accepts a manual offset", {
   expect_match(plots$y_axis_title, "2,500", fixed = TRUE)
 })
 
+test_that("background-subtracted display offset also translates phase gates", {
+  analysis <- small_analysis_object("edu")
+  analysis$config$pseudocolor_signal <- "background_subtracted"
+  analysis$config$background_subtracted_offset <- 10000
+  analysis$config$show_phase_gates <- TRUE
+  analysis$config$y_limits <- c(100, 20000)
+
+  plots <- plot_pseudocolor_panels(analysis)
+  gates <- plots$gate_rectangles
+
+  expect_equal(unique(gates$ymin[gates$gate %in% c("Early S", "Mid S", "Late S")]), 12500)
+  expect_equal(unique(gates$ymax[gates$gate %in% c("G1", "G2/M")]), 12500)
+  expect_equal(min(gates$ymin), 100)
+  expect_equal(max(gates$ymax), 20000)
+})
+
+test_that("computed EdU boundary drives plot polygons and positive membership", {
+  analysis <- small_analysis_object("edu")
+  analysis$config$background_subtracted_offset <- 10000
+  analysis$config$show_phase_gates <- TRUE
+  for (i in seq_along(analysis$normalized_data)) {
+    dat <- analysis$normalized_data[[i]]$data
+    dat$edu_boundary_bgsub <- 1200 + 0.2 * dat$dna_norm
+    dat$edu_computed_positive <- dat$target_bgsub >= dat$edu_boundary_bgsub
+    analysis$normalized_data[[i]]$data <- dat
+  }
+
+  plots <- plot_pseudocolor_panels(analysis)
+  expect_length(plots$gate_polygons, 2)
+  expect_true(all(vapply(plots$gate_polygons, nrow, integer(1)) == 20L))
+
+  wrapped <- list(sample_data = analysis$normalized_data[[1]])
+  selected <- facspseudocolor:::quant_source_data(
+    wrapped, "computed_edu_positive", "reference"
+  )
+  expect_equal(nrow(selected), sum(analysis$normalized_data[[1]]$data$edu_computed_positive))
+})
+
 test_that("quantitation plotting returns reusable ggplots", {
   analysis <- quantify_cell_cycle(
     small_analysis_object("poi"), reference_condition = "Reference"

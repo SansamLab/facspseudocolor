@@ -19,7 +19,7 @@
 # -----------------------------------------------------------------------------
 # Processing mode
 # -----------------------------------------------------------------------------
-# "edu" = reference EdU-negative regression baseline normalization
+# "edu" = independent EdU-negative baseline subtraction for each acquisition
 #         (reproduces the main Figure 1 EdU pipeline). Requires, per replicate, a
 #         `reference:` condition and a <prefix>_edu_positive.csv for it.
 # "poi" = protein-of-interest, background-control normalization (reproduces the
@@ -156,11 +156,11 @@ show_gate_assignment: false
 # Phase geometry. Defaults are derived from dna_2n_value and the y-limits and
 # reproduce Figure 1; uncomment to customize.
 # s_phase_bins:
-#   early: [1000, 1333]
-#   mid:   [1333, 1667]
-#   late:  [1667, 2000]
+#   early: [910, 1265]
+#   mid:   [1265, 1620]
+#   late:  [1620, 1975]
 # g1_x_range: [775, 1225]           # DNA window for the G1 gate
-# g2m_x_range: [1775, 2225]         # DNA window for the G2/M gate
+# g2m_x_range: [1675, 2125]         # centered at 1.9x the normalized G1 position
 # negative_y_range: [500, 2500]     # low-signal band (G1 / G2M gates)
 # s_phase_y_range: [2500, 80000]    # high-signal band (S gates)
 
@@ -233,23 +233,19 @@ output_png: "results/pseudocolor_panels.png"
 # Samples
 # -----------------------------------------------------------------------------
 # Use a `replicates:` list with one entry per biological replicate. A one-
-# replicate experiment still uses one list entry so its normalization reference
-# is explicit. Every replicate must list the SAME conditions in the SAME order.
-#
-#   reference: (edu mode) condition label used to fit that replicate's baseline;
-#              must match one of the sample labels below.
+# replicate experiment still uses one list entry. EdU background is fitted
+# independently from each acquisition's EdU-negative population; no background
+# reference sample is used. Every replicate must list the same conditions.
 #   label:     condition name shown above each panel.
 #   prefix:    file-name stem (see `suffixes` above).
 # -----------------------------------------------------------------------------
 replicates:
   - label: "Biological replicate 1"
-    reference: "NT"
     samples:
       - { label: "NT",       prefix: "rep1_NT" }
       - { label: "2h Auxin", prefix: "rep1_2h" }
       - { label: "4h Auxin", prefix: "rep1_4h" }
   - label: "Biological replicate 2"
-    reference: "NT"
     samples:
       - { label: "NT",       prefix: "rep2_NT" }
       - { label: "2h Auxin", prefix: "rep2_2h" }
