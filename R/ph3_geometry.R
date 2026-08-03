@@ -328,6 +328,7 @@ build_ph3_4n_figure_bundle <- function(
     label_color = "#FFFFFF", label_size = 3.5, label_digits = 1L,
     gate_top_inset_fraction = 0.02
 ) {
+  require_plotgardener()
   resolved <- resolve_facs_appearance(analysis, appearance, appearance_file)
   layout_analysis <- analysis
   layout_analysis$config$layout <- "plotgardener"

@@ -82,7 +82,7 @@ facs_config_defaults <- function(plot_type) {
     quantify_reference_normalized = FALSE,
     quant_show_points = TRUE,
     quant_phase_lineplot = TRUE,
-    layout = "plotgardener",
+    layout = "cowplot",
     layout_options = list(),
     pdf_width = 11.5,
     pdf_height_per_row = 2.5

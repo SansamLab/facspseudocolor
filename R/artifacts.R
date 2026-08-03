@@ -1,5 +1,18 @@
 # Durable analysis and figure artifacts -------------------------------------
 
+require_plotgardener <- function(
+    available = requireNamespace("plotgardener", quietly = TRUE)
+) {
+  if (!isTRUE(available)) {
+    stop(
+      "This figure layout requires the optional plotgardener package. ",
+      "Install it with BiocManager::install('plotgardener').",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
 artifact_write <- function(object, path, overwrite = FALSE) {
   if (!config_scalar_string(path)) stop("`path` must be explicit.", call. = FALSE)
   path <- normalizePath(path.expand(path), mustWork = FALSE)
@@ -45,6 +58,7 @@ read_facs_analysis <- function(path) {
 build_facs_figure_bundle <- function(
     analysis, appearance = NULL, appearance_file = NULL, seed = 1L
 ) {
+  require_plotgardener()
   validate_analysis_object(analysis)
   resolved <- resolve_facs_appearance(analysis, appearance, appearance_file)
   layout_analysis <- analysis
@@ -80,6 +94,7 @@ build_facs_figure_bundle <- function(
 #' @param layout_options Optional Plotgardener sizing settings.
 #' @export
 assemble_facs_panels <- function(plots, ncol = NULL, layout_options = list()) {
+  require_plotgardener()
   if (inherits(plots, "ggplot")) plots <- list(plots)
   if (!is.list(plots) || !length(plots) ||
       any(!vapply(plots, inherits, logical(1), "ggplot"))) {
@@ -103,6 +118,7 @@ assemble_facs_panels <- function(plots, ncol = NULL, layout_options = list()) {
 
 #' @export
 print.facs_panel_bundle <- function(x, ...) {
+  require_plotgardener()
   plotgardener::pageCreate(width = x$layout$width, height = x$layout$height,
                            default.units = "inches", showGuides = FALSE,
                            xgrid = 0, ygrid = 0)
