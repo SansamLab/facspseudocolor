@@ -200,10 +200,10 @@ quant_phase_lineplot: true
 # -----------------------------------------------------------------------------
 # Page layout
 # -----------------------------------------------------------------------------
-# "plotgardener" (default): every panel's plotting area is an identical fixed
-#   size (panel_size inches) with standard spacing; the canvas is sized to fit.
-# "cowplot": aligned grid (panel sizes follow the figure dimensions below).
-layout: "plotgardener"
+# "cowplot" (default): aligned grid with no optional Bioconductor dependencies.
+# "plotgardener" (optional): every panel's plotting area is an identical fixed
+#   size (panel_size inches); requires BiocManager::install("plotgardener").
+layout: "cowplot"
 
 # plotgardener options (inches). Uncomment to change from the defaults shown.
 layout_options:

@@ -72,13 +72,19 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
 ## Installation
 
 - [Quarto](https://quarto.org)
-- R with these packages: `ggplot2`, `MASS`, `scales`, `cowplot`, `yaml`, and
-  `plotgardener` (the default page layout).
+- R with these required packages: `ggplot2`, `MASS`, `scales`, `cowplot`, and
+  `yaml`. The default `cowplot` layout does not require Bioconductor packages.
 
 ```r
 install.packages(c("ggplot2", "MASS", "scales", "cowplot", "yaml"))
-# plotgardener is on Bioconductor:
-# install.packages("BiocManager"); BiocManager::install("plotgardener")
+```
+
+`plotgardener` is optional. Install it only when fixed-size publication panels
+or Plotgardener-backed figure bundles are needed:
+
+```r
+install.packages("BiocManager")
+BiocManager::install("plotgardener")
 ```
 
 Install the package from the project directory:
@@ -261,7 +267,7 @@ replicates:
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `layout` | `"plotgardener"` | `"plotgardener"` (fixed 1×1-inch panels, identical plot areas, auto-sized canvas) or `"cowplot"` (aligned grid). |
+| `layout` | `"cowplot"` | `"cowplot"` (installation-safe aligned grid) or optional `"plotgardener"` (fixed 1×1-inch panels, identical plot areas, auto-sized canvas). |
 | `layout_options.panel_size` | `1.0` | (plotgardener) size of each panel's plotting area, in inches. |
 | `plot_type` | `"edu"` | `"edu"` (EdU-negative regression baseline), `"poi"` (background-control), or `"ph3"` (FlowJo-defined pH3-positive gate). |
 | `palette` | `"refined"` | `"refined"` (Figure 1 default), `"flowjo"`, or a custom hex list. |

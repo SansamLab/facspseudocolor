@@ -1253,9 +1253,7 @@ assemble_facs_plotgardener <- function(
     y_breaks = 10^(0:6), y_axis_title = "Signal",
     x_axis_title = "DNA content", layout = NULL
 ) {
-  if (!requireNamespace("plotgardener", quietly = TRUE)) {
-    stop("The plotgardener package is required for layout: plotgardener.")
-  }
+  require_plotgardener()
   if (is.null(layout)) layout <- facs_page_layout(n_cols, n_rows)
   L <- layout
   panel <- L$panel

@@ -99,6 +99,18 @@ prepare_flowjo_csvs_external <- function(
       stop("No configured FlowJo populations match the required file suffixes.",
            call. = FALSE)
     }
+
+    prefixes <- vapply(replicate$samples, `[[`, character(1), "prefix")
+    expected <- unlist(lapply(names(population_map), function(key) {
+      file.path(data_dir, paste0(prefixes, config$suffixes[[key]]))
+    }))
+    if (!rebuild && all(file.exists(expected))) {
+      if (verbose) message("FlowJo CSVs already exist for ", replicate$label)
+      next
+    }
+
+    # Python, its packages, the workspace, and the original FCS directory are
+    # required only when an export will actually be rebuilt.
     if (!nzchar(python) || !file.exists(python)) {
       stop("Python interpreter not found: ", python, call. = FALSE)
     }
@@ -117,15 +129,6 @@ prepare_flowjo_csvs_external <- function(
         "The selected Python environment is missing flowkit, pandas, or lxml: ",
         python, call. = FALSE
       )
-    }
-
-    prefixes <- vapply(replicate$samples, `[[`, character(1), "prefix")
-    expected <- unlist(lapply(names(population_map), function(key) {
-      file.path(data_dir, paste0(prefixes, config$suffixes[[key]]))
-    }))
-    if (!rebuild && all(file.exists(expected))) {
-      if (verbose) message("FlowJo CSVs already exist for ", replicate$label)
-      next
     }
 
     export_dir <- file.path(

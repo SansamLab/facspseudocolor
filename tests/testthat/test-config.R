@@ -6,7 +6,7 @@ test_that("configuration validation applies centralized mode defaults", {
   expect_identical(edu$suffixes$edu_positive, "_edu_positive.csv")
   expect_identical(poi$suffixes, list(complete = "_single_cells.csv"))
   expect_equal(edu$dna_2n_value, 1000)
-  expect_identical(edu$layout, "plotgardener")
+  expect_identical(edu$layout, "cowplot")
   expect_identical(edu$pseudocolor_signal, "background_subtracted")
   expect_identical(edu$background_subtracted_offset, "auto")
 })
@@ -73,4 +73,12 @@ test_that("included EdU and POI configurations validate", {
   ))
   expect_identical(edu$plot_type, "edu")
   expect_identical(poi$plot_type, "poi")
+})
+
+test_that("plotgardener is optional and reports actionable installation help", {
+  expect_invisible(require_plotgardener(TRUE))
+  expect_error(
+    require_plotgardener(FALSE),
+    "BiocManager::install\\('plotgardener'\\)"
+  )
 })

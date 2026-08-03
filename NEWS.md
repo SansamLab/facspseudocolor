@@ -1,5 +1,9 @@
 # facspseudocolor 0.0.0.9000
 
+- Made `cowplot` the installation-safe default layout and moved
+  `plotgardener` from a required dependency to an optional suggested package.
+  Plotgardener-only figure-bundle functions now report explicit installation
+  instructions when that optional package is unavailable.
 - Added a Shiny-enabled Quarto configurator for RStudio with GUI controls for
   overall analysis type, per-sample role, order, replicate, condition, channel
   selection, validation, and YAML download. Its launch helper captures the
