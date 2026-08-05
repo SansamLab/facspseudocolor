@@ -69,6 +69,8 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
   it is not installed with the R package.
 - `inst/extdata/example/` — EdU example data (2 replicates × 3 conditions).
 - `inst/extdata/example_poi/` — Total MTBP example data (2 replicates, background + 3).
+- `inst/DATA_LICENSE.md` — separate CC BY-NC 4.0 terms for the bundled
+  reference-fixture data; the package code remains MIT-licensed.
 - `results/` — where rendered figures are written.
 
 ## Installation
