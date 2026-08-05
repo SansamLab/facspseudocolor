@@ -526,6 +526,8 @@ plot_pseudocolor_panels <- function(
   settings$density_upper_clip <- style$density_upper_clip
   settings$density_gamma <- style$density_gamma
   settings$y_axis_title <- style$target_axis_label
+  settings$pseudocolor_signal <- display_signal$signal
+  settings$background_subtracted_offset <- display_signal$offset
   palette <- resolve_palette(palette %||% style$palette)
 
   panel_results <- lapply(seq_along(samples), function(i) {

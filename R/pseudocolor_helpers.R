@@ -1044,8 +1044,12 @@ make_pseudocolor_plot_from_data <- function(
   if (isTRUE(get_setting(settings, "show_cutoff_line", TRUE)) &&
       sample_data$normalization_method == "background_reference_regression" &&
       is.finite(sample_data$cutoff)) {
+    cutoff_offset <- if (identical(
+      get_setting(settings, "pseudocolor_signal", "background_subtracted"),
+      "background_subtracted"
+    )) get_setting(settings, "background_subtracted_offset", 0) else 0
     hlines[[length(hlines) + 1]] <- list(
-      y = sample_data$cutoff,
+      y = sample_data$cutoff + cutoff_offset,
       color = get_setting(settings, "cutoff_color", "#C00000"),
       linewidth = get_setting(settings, "cutoff_linewidth", 0.65),
       linetype = "solid")

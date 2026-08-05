@@ -1,5 +1,7 @@
 # Normalized pseudocolor plots: signal vs DNA content
 
+[![R package checks](https://github.com/SansamLab/facspseudocolor/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/SansamLab/facspseudocolor/actions/workflows/R-CMD-check.yaml)
+
 A reusable R package with a Quarto front end for making publication-style **pseudocolor
 (2D kernel-density) plots** of a single channel (EdU incorporation, a
 protein-of-interest signal, or pH3) versus DNA content, laid out as a
@@ -74,6 +76,24 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
 - [Quarto](https://quarto.org)
 - R with these required packages: `ggplot2`, `MASS`, `scales`, `cowplot`, and
   `yaml`. The default `cowplot` layout does not require Bioconductor packages.
+
+For normal lab use, install the current approved `main` version directly from
+GitHub. This installs the declared R dependencies as well:
+
+```r
+install.packages("pak")
+pak::pak("SansamLab/facspseudocolor")
+```
+
+Restart R after installation, then confirm the installed version:
+
+```r
+library(facspseudocolor)
+packageVersion("facspseudocolor")
+```
+
+The remaining commands in this section are for development checkouts or manual
+dependency management.
 
 ```r
 install.packages(c("ggplot2", "MASS", "scales", "cowplot", "yaml"))

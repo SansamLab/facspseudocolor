@@ -104,6 +104,28 @@ test_that("background-subtracted pseudocolor accepts a manual offset", {
   expect_match(plots$y_axis_title, "2,500", fixed = TRUE)
 })
 
+test_that("background-subtracted display offset also translates POI cutoff line", {
+  analysis <- small_analysis_object("poi")
+  analysis$config$pseudocolor_signal <- "background_subtracted"
+  analysis$config$background_subtracted_offset <- 10000
+  analysis$config$y_limits <- c(100, 20000)
+
+  plots <- plot_pseudocolor_panels(analysis)
+
+  expect_equal(plots$panel_results[[1]]$hlines[[1]]$y, 11200)
+  expect_equal(plots$panel_results[[2]]$hlines[[1]]$y, 11200)
+})
+
+test_that("normalized pseudocolor leaves POI cutoff line unchanged", {
+  analysis <- small_analysis_object("poi")
+  analysis$config$pseudocolor_signal <- "normalized"
+  analysis$config$y_limits <- c(100, 20000)
+
+  plots <- plot_pseudocolor_panels(analysis)
+
+  expect_equal(plots$panel_results[[1]]$hlines[[1]]$y, 1200)
+})
+
 test_that("background-subtracted display offset also translates phase gates", {
   analysis <- small_analysis_object("edu")
   analysis$config$pseudocolor_signal <- "background_subtracted"
