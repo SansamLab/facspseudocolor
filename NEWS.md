@@ -1,51 +1,49 @@
-# facspseudocolor 0.0.0.9000
+# facspseudocolor 0.1.0
 
-- Made `cowplot` the installation-safe default layout and moved
-  `plotgardener` from a required dependency to an optional suggested package.
-  Plotgardener-only figure-bundle functions now report explicit installation
-  instructions when that optional package is unavailable.
-- Added a Shiny-enabled Quarto configurator for RStudio with GUI controls for
-  overall analysis type, per-sample role, order, replicate, condition, channel
-  selection, validation, and YAML download. Its launch helper captures the
-  current RStudio working directory and the GUI now starts from a discovered
-  FlowJo `.wsp`; population CSVs are treated as downstream export artifacts.
-  Sample setup is staged as name creation, multi-file FCS assignment,
-  biological/technical replicate identification, then role/order settings.
-  An alternative Excel entry tab creates a workspace-populated acquisition
-  table, imports the edited workbook, validates it, and writes YAML.
-  Files are processed independently and technical summaries are averaged within
-  biological replicates before reference ratios and across-replicate statistics.
-- Changed the default pseudocolor display to background-subtracted signal.
-  High-level quantitation now calculates only the configured signal, which is
-  background-subtracted by default; optional reference normalization is
-  applied afterward to those background-subtracted medians.
-- EdU background is now fitted independently for every acquisition from its
-  EdU-negative population. POI alone uses a matched background-control role;
-  the optional post-subtraction normalization condition is configured
-  separately from either background method.
-- Added background-subtracted pseudocolor display with an automatic offset
-  rounded from the pooled raw G1 target level to the nearest power of ten, plus
-  an explicit manual-offset option. Quantitation remains unshifted.
-- Added PH3 mode with user-defined FlowJo positivity, G1-based per-sample DNA
-  normalization, explicit phase boundaries, all-Single-Cells denominators,
-  unassigned-event reporting, and G2/M boundary-sensitivity diagnostics.
-- Added a separate exact FlowJo gate-geometry extractor and a focused pH3
-  Quarto report with editable gate-overlaid pseudocolor panels.
-- Converted reusable EdU and POI analysis into an installable R package.
-- Added strict YAML and input validation with explicit provenance.
-- Added pure in-memory EdU and POI normalization APIs.
-- Added structured analysis, quantitation, plotting, and safe saving APIs.
-- Made failed POI peak detection an error unless the legacy fallback is
-  explicitly selected.
-- Replaced the active Quarto workflow with a thin package client.
-- Isolated optional Python orchestration outside the installed package while
-  preserving the Python exporter unchanged.
-- Added unit, integration, regression, package-check, and Quarto smoke tests.
-- Analyses now retain all supported quantitation for background-subtracted and
-  normalized signal representations.
-- Added durable analysis and editable figure-bundle RDS APIs.
-- Added dynamic, validated presentation overrides and partial condition-color
-  mappings that never require templates to know sample labels in advance.
-- Added focused complete, pseudocolor, quantitation, cell-cycle, and diagnostic
-  Quarto templates with Plotgardener multipanel assembly.
-- Changed the automatic condition-color palette from pink to viridis.
+## First lab-ready release
+
+`facspseudocolor` is now an installable R package for validating, normalizing, quantifying, and plotting event-level signal-versus-DNA flow-cytometry data. It supports EdU incorporation, protein-of-interest measurements, and phospho-histone H3 analysis.
+
+## Analysis modes
+
+- Added EdU analysis with an independently fitted background model for every acquisition. EdU-negative events determine the signal baseline without requiring a separate background-control sample.
+- Added protein-of-interest analysis using matched background-control samples and DNA-dependent background correction.
+- Added pH3 analysis using user-defined FlowJo positivity gates, per-sample G1 DNA normalization, explicit cell-cycle boundaries, unassigned-event reporting, and G2/M boundary-sensitivity diagnostics.
+- Added exact FlowJo gate-geometry extraction and gate-overlay plots for pH3 analyses.
+- Added whole-population and cell-cycle-phase quantitation for background-subtracted and normalized signal representations.
+- Added optional within-replicate reference normalization after background subtraction.
+
+## Plotting and reports
+
+- Added publication-style pseudocolor plots with consistent axes across samples and replicates.
+- Made background-subtracted signal the default pseudocolor and quantitation representation.
+- Added automatic and manually configurable display offsets for background-subtracted pseudocolor plots. Display offsets do not affect quantitation.
+- Corrected POI cutoff-line placement when a background-subtracted display offset is used.
+- Added complete, pseudocolor, quantitation, cell-cycle, diagnostic, and pH3 Quarto report templates.
+- Added validated presentation overrides, partial condition-color mappings, and colorblind-friendly palette options.
+- Made `cowplot` the default layout. `plotgardener` remains available as an optional dependency for fixed-size publication layouts and editable figure bundles.
+
+## Configuration and reproducibility
+
+- Added strict YAML configuration and input validation with explicit provenance.
+- Added a Shiny-enabled Quarto configurator for assigning files, samples, conditions, biological and technical replicates, analysis roles, channels, and output settings.
+- Added optional Excel-based configuration for larger experiments.
+- Added structured analysis, quantitation, plotting, and safe-saving APIs.
+- Added durable analysis and editable figure-bundle RDS artifacts.
+- Added pure in-memory EdU, POI, and pH3 normalization APIs.
+- Refused accidental overwriting of analysis results unless explicitly requested.
+
+## Installation and portability
+
+- Converted the workflow into an installable R package requiring R 4.2 or newer.
+- Made Python optional and limited it to rebuilding population exports from FlowJo files. Python is not required to install, load, test, or use the R package with existing CSV exports.
+- Made `plotgardener` optional so the standard package installation does not require Bioconductor.
+- Added direct installation instructions for lab users through `pak`.
+- Added automated package checks on Linux, macOS, and Windows using current and previous R releases.
+
+## Quality assurance
+
+- Added unit, integration, numerical-regression, artifact, plotting, and Python-boundary tests.
+- Added cross-platform artifact-path tests.
+- Added automated GitHub pull-request checks.
+- Added contributing and security policies.
