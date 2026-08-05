@@ -11,3 +11,10 @@
 ^tools$
 ^pseudocolor_plots\.qmd$
 ^docs$
+^python$
+^examples$
+^config\.yml$
+^config_poi\.yml$
+^LICENSE\.md$
+^inst/quarto/facs_configurator\.html$
+^inst/quarto/facs_configurator_files$
