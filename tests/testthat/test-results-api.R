@@ -186,7 +186,10 @@ test_that("saving is explicit and refuses accidental overwrite", {
     output_rds = rds
   )
   expect_true(file.exists(rds))
-  expect_identical(unname(written), rds)
+  expect_identical(
+    normalizePath(unname(written), mustWork = TRUE),
+    normalizePath(rds, mustWork = TRUE)
+  )
   expect_error(
     save_facs_results(analysis, plots, NULL, NULL, rds),
     "Refusing to overwrite"
