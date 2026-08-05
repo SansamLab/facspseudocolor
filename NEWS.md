@@ -1,3 +1,9 @@
+# facspseudocolor 0.1.0.9000
+
+## Quality assurance
+
+- Corrected the Python-boundary test so source-checkout testing verifies the package-build exclusion rule while installed-package testing directly verifies that repository-only Python tools are absent.
+
 # facspseudocolor 0.1.0
 
 ## First lab-ready release
