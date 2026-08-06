@@ -33,6 +33,33 @@ test_that("normalize_poi performs calculation without file I/O", {
   expect_false("dna_norm" %in% names(events))
 })
 
+test_that("normalize_poi floors a nonpositive fitted background before division", {
+  SYNTHETIC_events <- data.frame(
+    DNA = c(100, 200),
+    Target = c(5, 10)
+  )
+  SYNTHETIC_model <- list(
+    dna_peak = 100,
+    intercept = -10,
+    slope = 0,
+    floor = 5
+  )
+
+  result <- normalize_poi(
+    SYNTHETIC_events,
+    SYNTHETIC_model,
+    "DNA",
+    "Target",
+    dna_align = "shared_background",
+    sample_id = "SYNTHETIC floor example"
+  )
+
+  expect_equal(result$data$dna_norm, c(1000, 2000))
+  expect_equal(result$data$baseline, c(5, 5))
+  expect_equal(result$data$target_norm, c(1000, 2000))
+  expect_equal(result$data$target_bgsub, c(0, 5))
+})
+
 test_that("POI peak failure stops unless legacy fallback is explicit", {
   events <- data.frame(DNA = rep(100, 10), Target = seq_len(10) + 10)
   model <- list(dna_peak = 80, intercept = 10, slope = 0.01, floor = 1)

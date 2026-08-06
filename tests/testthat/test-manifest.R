@@ -50,3 +50,9 @@ test_that("G1 anchors support median and mode with validation", {
   expect_error(g1_target_anchor(1, "median"), "Too few")
   expect_error(g1_target_anchor(1:3, "mean"), "Unknown g1_anchor")
 })
+
+test_that("G1 median averages the middle finite SYNTHETIC values", {
+  SYNTHETIC_g1_target <- c(NA_real_, -Inf, 10, 20, Inf, NaN)
+
+  expect_equal(g1_target_anchor(SYNTHETIC_g1_target, "median"), 15)
+})
