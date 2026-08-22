@@ -115,15 +115,40 @@ class ReadOnlyTools:
                 continue
             uri = data_set.get("uri", "") if data_set is not None else ""
             file_name = Path(unquote(urlparse(uri).path)).name if uri else node.get("name", "")
-            gates: list[str] = []
-            for population in node.findall(".//Population"):
-                name = population.get("name")
-                if name and name not in gates:
-                    gates.append(name)
-                if len(gates) > MAX_GATES_PER_SAMPLE:
-                    raise IntakeError("workspace sample exceeds safe gate-count limit")
+            gates: list[dict[str, Any]] = []
+            terminal_paths: dict[str, tuple[str, ...]] = {}
+
+            def walk_populations(element: ET.Element, parent_path: tuple[str, ...]) -> None:
+                for child in list(element):
+                    tag = child.tag.rsplit("}", 1)[-1]
+                    if tag == "Population":
+                        name = child.get("name")
+                        if not name:
+                            raise IntakeError(f"workspace sample {file_name!r} contains an unnamed Population")
+                        gate_path = parent_path + (name,)
+                        if name in terminal_paths:
+                            raise IntakeError(
+                                f"workspace sample {file_name!r} contains duplicate/ambiguous "
+                                f"terminal gate name {name!r} at paths "
+                                f"{'/'.join(terminal_paths[name])!r} and {'/'.join(gate_path)!r}"
+                            )
+                        terminal_paths[name] = gate_path
+                        gates.append({"name": name, "path": list(gate_path)})
+                        if len(gates) > MAX_GATES_PER_SAMPLE:
+                            raise IntakeError("workspace sample exceeds safe gate-count limit")
+                        walk_populations(child, gate_path)
+                    else:
+                        walk_populations(child, parent_path)
+
+            walk_populations(node, ())
             workspace_sample_id = sample.get("sampleID") or (data_set.get("sampleID") if data_set is not None else None)
-            samples.append({"workspace_sample_id": workspace_sample_id, "file": file_name, "sample_name": node.get("name"), "gate_names": gates})
+            samples.append({
+                "workspace_sample_id": workspace_sample_id,
+                "file": file_name,
+                "sample_name": node.get("name"),
+                "gate_names": [gate["name"] for gate in gates],
+                "gates": gates,
+            })
             if len(samples) > MAX_WORKSPACE_SAMPLES:
                 raise IntakeError("workspace exceeds safe sample-count limit")
         if not samples:

@@ -4,9 +4,9 @@
   "title": "Proposed FACS experiment configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "experiment", "inputs", "sample_mapping", "channels", "recorded_details", "authorization", "uncertainties", "evidence"],
+  "required": ["schema_version", "experiment", "inputs", "sample_mapping", "channels", "analyses", "recorded_details", "model_review", "authorization", "uncertainties", "evidence"],
   "properties": {
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"const": "2.0"},
     "experiment": {
       "type": "object", "additionalProperties": false,
       "required": ["directory", "title", "biological_replicates"],
@@ -28,12 +28,14 @@
       "type": "array",
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["file", "condition", "time", "role", "confirmed", "evidence"],
+        "required": ["file", "condition", "time", "role", "biological_replicate", "provenance", "confirmed", "evidence"],
         "properties": {
           "file": {"type": "string", "minLength": 1},
-          "condition": {"const": null},
-          "time": {"const": null},
-          "role": {"const": null},
+          "condition": {"type": "string", "minLength": 1},
+          "time": {"type": "string", "minLength": 1},
+          "role": {"enum": ["matched_background_control", "experimental_sample", "untreated_control", "vehicle_control", "no_antibody_control", "positive_control", "other_control"]},
+          "biological_replicate": {"type": "integer", "minimum": 1},
+          "provenance": {"const": "user_supplied"},
           "confirmed": {"const": false},
           "evidence": {"type": "array", "items": {"type": "string"}}
         }
@@ -43,14 +45,31 @@
       "type": "array",
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["category", "feature", "detector", "label", "confirmed", "evidence"],
+        "required": ["category", "feature", "detector", "label", "provenance", "confirmed", "evidence"],
         "properties": {
           "category": {"enum": ["POI", "EdU", "DNA", "other"]},
           "feature": {"type": "string", "minLength": 1},
           "detector": {"type": ["string", "null"]},
           "label": {"type": ["string", "null"]},
+          "provenance": {"const": "user_supplied"},
           "confirmed": {"const": false},
           "evidence": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "analyses": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "analysis_type", "target_feature", "dna_feature", "population", "provenance", "confirmed"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "analysis_type": {"enum": ["poi_vs_dna", "edu_vs_dna", "feature_vs_dna", "dna_only", "other"]},
+          "target_feature": {"type": "string", "minLength": 1},
+          "dna_feature": {"type": ["string", "null"]},
+          "population": {"type": ["string", "null"]},
+          "provenance": {"const": "user_supplied"},
+          "confirmed": {"const": false}
         }
       }
     },
@@ -66,12 +85,29 @@
         }
       }
     },
+    "model_review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provenance", "status", "flags"],
+      "properties": {
+        "provenance": {"const": "model_advisory"},
+        "status": {"enum": ["no_additional_uncertainty", "review_required"]},
+        "flags": {
+          "type": "array", "maxItems": 7, "uniqueItems": true,
+          "items": {"enum": ["workspace_uncertain", "no_fcs_inputs", "channels_unspecified", "samples_unspecified", "analyses_unspecified", "recorded_details_missing", "human_review_requested"]}
+        }
+      },
+      "oneOf": [
+        {"properties": {"status": {"const": "no_additional_uncertainty"}, "flags": {"maxItems": 0}}},
+        {"properties": {"status": {"const": "review_required"}, "flags": {"minItems": 1}}}
+      ]
+    },
     "authorization": {
       "type": "object", "additionalProperties": false,
-      "required": ["sample_mapping_confirmed", "channel_mapping_confirmed", "analysis_authorized"],
+      "required": ["sample_mapping_confirmed", "channel_mapping_confirmed", "analysis_selection_confirmed", "analysis_authorized"],
       "properties": {
         "sample_mapping_confirmed": {"const": false},
         "channel_mapping_confirmed": {"const": false},
+        "analysis_selection_confirmed": {"const": false},
         "analysis_authorized": {"const": false}
       }
     },
