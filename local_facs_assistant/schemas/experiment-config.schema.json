@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/facs/experiment-config.schema.json",
+  "title": "Proposed FACS experiment configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "experiment", "inputs", "sample_mapping", "channels", "recorded_details", "authorization", "uncertainties", "evidence"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "experiment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["directory", "title", "biological_replicates"],
+      "properties": {
+        "directory": {"type": "string", "minLength": 1},
+        "title": {"const": null},
+        "biological_replicates": {"const": null}
+      }
+    },
+    "inputs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fcs_files", "workspace"],
+      "properties": {
+        "fcs_files": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "workspace": {"type": ["string", "null"]}
+      }
+    },
+    "sample_mapping": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["file", "condition", "time", "role", "confirmed", "evidence"],
+        "properties": {
+          "file": {"type": "string", "minLength": 1},
+          "condition": {"const": null},
+          "time": {"const": null},
+          "role": {"const": null},
+          "confirmed": {"const": false},
+          "evidence": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "channels": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["category", "feature", "detector", "label", "confirmed", "evidence"],
+        "properties": {
+          "category": {"enum": ["POI", "EdU", "DNA", "other"]},
+          "feature": {"type": "string", "minLength": 1},
+          "detector": {"type": ["string", "null"]},
+          "label": {"type": ["string", "null"]},
+          "confirmed": {"const": false},
+          "evidence": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "recorded_details": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["workspace", "layout", "text"],
+        "properties": {
+          "workspace": {"type": "string"},
+          "layout": {"type": "string"},
+          "text": {"type": "string"}
+        }
+      }
+    },
+    "authorization": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sample_mapping_confirmed", "channel_mapping_confirmed", "analysis_authorized"],
+      "properties": {
+        "sample_mapping_confirmed": {"const": false},
+        "channel_mapping_confirmed": {"const": false},
+        "analysis_authorized": {"const": false}
+      }
+    },
+    "uncertainties": {"type": "array", "items": {"type": "string"}},
+    "evidence": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  }
+}
