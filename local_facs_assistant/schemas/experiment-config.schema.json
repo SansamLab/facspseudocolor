@@ -89,7 +89,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["provenance", "status", "flags"],
       "properties": {
-        "provenance": {"const": "model_advisory"},
+        "provenance": {"enum": ["model_advisory", "host_advisory"]},
         "status": {"enum": ["no_additional_uncertainty", "review_required"]},
         "flags": {
           "type": "array", "maxItems": 7, "uniqueItems": true,

@@ -1,0 +1,61 @@
+---
+title: __TITLE_JSON__
+format:
+  html:
+    toc: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+params:
+  reviewed_config: __REVIEWED_CONFIG_JSON__
+  analysis_configs: __ANALYSIS_CONFIGS_JSON__
+  reviewed_content_sha256: __REVIEWED_DIGEST_JSON__
+  input_provenance_sha256: __INPUT_PROVENANCE_DIGEST_JSON__
+  trusted_template_sha256: __TEMPLATE_DIGEST_JSON__
+  threshold_specification: null
+  normalization_method: null
+  background_quantile: null
+  dna_alignment_method: null
+  thresholds_confirmed: false
+  normalization_confirmed: false
+  background_quantile_confirmed: false
+  dna_alignment_confirmed: false
+  flowjo_export_authorized: false
+  render_authorized: false
+  analysis_output_write_authorized: false
+  overwrite_authorized: false
+  rebuild_authorized: false
+---
+
+```{r}
+#| label: authorization-barrier
+#| include: false
+required_authorizations <- c(
+  "thresholds_confirmed", "normalization_confirmed",
+  "background_quantile_confirmed", "dna_alignment_confirmed",
+  "flowjo_export_authorized", "render_authorized",
+  "analysis_output_write_authorized", "overwrite_authorized",
+  "rebuild_authorized"
+)
+if (!all(vapply(params[required_authorizations], identical, logical(1), TRUE))) {
+  stop(
+    paste0(
+      "Analysis is not authorized. This generated scaffold confirms identities only. ",
+      "Explicitly review thresholds, normalization, background quantile, DNA alignment, ",
+      "FlowJo export, rendering, output writing, overwrite, and rebuild authorization before analysis."
+    ),
+    call. = FALSE
+  )
+}
+stop("Method execution is intentionally unavailable in milestone 3.", call. = FALSE)
+```
+
+This source was generated from an operator-attested identity configuration. The
+attestation is not authenticated proof of human identity. This source does not
+authorize analysis, FlowJo export, rendering, output creation, overwrite, or
+rebuild. After a future explicit method review, execution should delegate to the
+repository-owned `facspseudocolor` workflow rather than duplicating algorithms.
+Any future execution layer must first verify that the reviewed configuration,
+all identity files, experimental-input provenance, and trusted-template hashes
+exactly match the digests recorded above. Mixed or stale identities must stop.

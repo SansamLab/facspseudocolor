@@ -596,8 +596,8 @@ def validate_proposal(value: Any, *, schema: dict[str, Any] | None = None,
     review = value.get("model_review")
     if (not isinstance(review, dict)
             or set(review) != {"provenance", "status", "flags"}
-            or review.get("provenance") != "model_advisory"):
-        raise IntakeError("model_review must be a structurally complete model_advisory object")
+            or review.get("provenance") not in {"model_advisory", "host_advisory"}):
+        raise IntakeError("model_review must be a structurally complete advisory object")
     for row in value["sample_mapping"]:
         expected = {"file", "condition", "time", "role", "biological_replicate", "provenance", "confirmed", "evidence"}
         if (not isinstance(row, dict) or set(row) != expected

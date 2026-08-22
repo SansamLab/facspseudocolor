@@ -210,3 +210,63 @@ mocked Ollama messages. They contain no production observations:
   path. Analyses still reference terminal population names, which are accepted
   only when that terminal name is unambiguous within every sample and resolves
   to one identical full path across samples.
+
+## Milestone 3: explicit review and source generation
+
+Milestone 3 keeps human confirmation separate from the advisory proposal. Save
+the complete schema-v2 proposal inside its experiment directory, review every
+row, then provide its exact SHA-256 digest, every explicit control relationship,
+and the required statement exactly. Control scope is never inferred.
+Across one or more relationship rows, every POI-analysis/non-background-sample
+pair must appear exactly once. This permits replicate-specific controls with
+disjoint scopes while rejecting gaps and overlaps.
+
+```bash
+../.venv/bin/python local_facs_assistant/reviewed.py confirm EXPERIMENT_DIR \
+  --proposal facs_intake_proposal.v2.json \
+  --proposal-sha256 EXACT_SHA256_OF_PROPOSAL_BYTES \
+  --control-relationship '{"control_file":"flow_data/1_NoAbCtrl.fcs","relationship":"matched_background_control","applies_to_samples":["flow_data/2_NT.fcs","flow_data/3_V1_1hr.fcs","flow_data/4_Tpl_1hr.fcs","flow_data/5_V1_Tpl_1hr.fcs","flow_data/6_V1_4hrs.fcs","flow_data/7_Tpl_4hrs.fcs","flow_data/8_V1_Tpl_4hrs.fcs"],"applies_to_analyses":["pFOXM1 vs DNA","Total CCNB1 vs DNA"],"applies_to_features":["phospho-FOXM1","Total CCNB1"]}' \
+  --statement 'I confirm all sample mappings, channel mappings, replicate assignments, control relationships, and analysis selections listed above.'
+```
+
+Before creating `facs_reviewed_config.v1.json`, this action reinspects every FCS
+and WSP and reconciles the proposal with the fresh metadata ledger. It preserves
+FCS/WSP evidence and FlowJo layout notes verbatim. It does not use QMD content as
+evidence. Confirmation is refused for incomplete claims, a mismatched statement,
+proposal digest, missing/extra/unknown control scope, tampering, ambiguous
+workspace/sample identity, or an existing target. Every FCS and WSP is streamed
+through SHA-256 before and after inspection; size and digest are stored in the
+reviewed config. Generation rehashes them and stops on any same-path change.
+
+This is an **unauthenticated operator attestation**, not proof of human identity
+or cryptographic signing. The record says `operator_attestation_unverified`;
+the local shell user and repository source tree remain within the trust boundary.
+A conversation-conveyed attestation is labeled separately from a direct local
+CLI action. The digest challenge binds the statement to exact proposal bytes but
+does not authenticate who typed or conveyed it.
+
+Generate an identity-only source scaffold with:
+
+```bash
+../.venv/bin/python local_facs_assistant/reviewed.py generate EXPERIMENT_DIR
+```
+
+This creates one `facs_analysis_*.identity.v1.json` per confirmed analysis and
+`facs_reviewed_analysis_scaffold.v1.qmd`, using only the reviewed configuration
+and the repository-owned template. All names are distinctive; existing targets,
+symlinks, and paths outside the experiment are refused, and there is no overwrite
+option. Generation does not invoke Quarto, FlowJo export, R, or analysis code.
+Each identity follows its own versioned schema and records reviewed-content,
+input-provenance, and trusted-template SHA-256 digests. Arbitrary template paths
+are not accepted. Future execution must reject stale or mixed identities before
+doing any scientific work.
+
+The scaffold deliberately cannot analyze or render successfully. Its first setup
+chunk requires explicit future review of thresholds, normalization, background
+quantile, DNA alignment, FlowJo export, rendering, output writing, overwrite, and
+rebuild; every authorization is initially false and every method choice is null.
+Confirmed sample identities, channel roles, replicate assignments, background
+control identity, analysis type, and FlowJo population do **not** confirm those
+scientific methods or output operations. A future reviewed method layer must
+delegate to the canonical repository-owned `facspseudocolor` workflow rather
+than copy its algorithms.

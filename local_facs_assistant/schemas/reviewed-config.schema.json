@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/facs/reviewed-config.schema.json",
+  "title": "Human-reviewed FACS intake configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_proposal_schema", "experiment", "inputs", "input_provenance", "sample_mapping", "channels", "analyses", "control_relationships", "recorded_details", "confirmation", "method_authorization", "uncertainties", "evidence"],
+  "properties": {
+    "schema_version": {"const": "reviewed-1.0"},
+    "source_proposal_schema": {"const": "2.0"},
+    "experiment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["directory", "title", "biological_replicates"],
+      "properties": {
+        "directory": {"type": "string", "minLength": 1, "maxLength": 256},
+        "title": {"type": ["string", "null"], "maxLength": 512},
+        "biological_replicates": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "inputs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fcs_files", "workspace"],
+      "properties": {
+        "fcs_files": {"type": "array", "minItems": 1, "maxItems": 500, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "workspace": {"type": "string", "minLength": 1}
+      }
+    },
+    "input_provenance": {
+      "type": "object", "minProperties": 2, "maxProperties": 501,
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$": {
+          "type": "object", "additionalProperties": false,
+          "required": ["size_bytes", "sha256"],
+          "properties": {
+            "size_bytes": {"type": "integer", "minimum": 0},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        }
+      }
+    },
+    "sample_mapping": {
+      "type": "array", "minItems": 1, "maxItems": 500,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["file", "condition", "time", "role", "biological_replicate", "provenance", "confirmed", "evidence"],
+        "properties": {
+          "file": {"type": "string", "minLength": 1}, "condition": {"type": "string", "minLength": 1},
+          "time": {"type": "string", "minLength": 1},
+          "role": {"enum": ["matched_background_control", "experimental_sample", "untreated_control", "vehicle_control", "no_antibody_control", "positive_control", "other_control"]},
+          "biological_replicate": {"type": "integer", "minimum": 1},
+          "provenance": {"const": "user_supplied"}, "confirmed": {"const": true},
+          "evidence": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+        }
+      }
+    },
+    "channels": {
+      "type": "array", "minItems": 1, "maxItems": 32,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["category", "feature", "detector", "label", "provenance", "confirmed", "evidence"],
+        "properties": {
+          "category": {"enum": ["POI", "EdU", "DNA", "other"]}, "feature": {"type": "string", "minLength": 1},
+          "detector": {"type": "string", "minLength": 1}, "label": {"type": "string", "minLength": 1},
+          "provenance": {"const": "user_supplied"}, "confirmed": {"const": true},
+          "evidence": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+        }
+      }
+    },
+    "analyses": {
+      "type": "array", "minItems": 1, "maxItems": 32,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "analysis_type", "target_feature", "dna_feature", "population", "provenance", "confirmed"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "analysis_type": {"enum": ["poi_vs_dna", "edu_vs_dna", "feature_vs_dna", "dna_only", "other"]},
+          "target_feature": {"type": "string", "minLength": 1}, "dna_feature": {"type": ["string", "null"]},
+          "population": {"type": ["string", "null"]}, "provenance": {"const": "user_supplied"}, "confirmed": {"const": true}
+        }
+      }
+    },
+    "control_relationships": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["control_file", "relationship", "applies_to_samples", "applies_to_analyses", "applies_to_features", "provenance", "confirmed"],
+        "properties": {
+          "control_file": {"type": "string", "minLength": 1},
+          "relationship": {"const": "matched_background_control"},
+          "applies_to_samples": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "applies_to_analyses": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "applies_to_features": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "provenance": {"const": "operator_supplied"}, "confirmed": {"const": true}
+        }
+      }
+    },
+    "recorded_details": {"type": "array", "maxItems": 256, "items": {"type": "object", "additionalProperties": false, "required": ["workspace", "layout", "text"], "properties": {"workspace": {"type": "string"}, "layout": {"type": "string"}, "text": {"type": "string"}}}},
+    "confirmation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provenance", "attestation_context", "statement", "proposal_sha256", "content_sha256", "sample_mapping_confirmed", "channel_mapping_confirmed", "replicate_assignments_confirmed", "control_relationships_confirmed", "analysis_selection_confirmed"],
+      "properties": {
+        "provenance": {"const": "operator_attestation_unverified"},
+        "attestation_context": {"enum": ["local_cli_operator", "conversation_conveyed_operator_attestation"]},
+        "statement": {"const": "I confirm all sample mappings, channel mappings, replicate assignments, control relationships, and analysis selections listed above."},
+        "proposal_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "sample_mapping_confirmed": {"const": true}, "channel_mapping_confirmed": {"const": true},
+        "replicate_assignments_confirmed": {"const": true}, "control_relationships_confirmed": {"const": true},
+        "analysis_selection_confirmed": {"const": true}
+      }
+    },
+    "method_authorization": {
+      "type": "object", "additionalProperties": false,
+      "required": ["thresholds_confirmed", "normalization_confirmed", "background_quantile_confirmed", "dna_alignment_confirmed", "flowjo_export_authorized", "render_authorized", "analysis_output_write_authorized", "overwrite_authorized", "rebuild_authorized"],
+      "properties": {
+        "thresholds_confirmed": {"const": false}, "normalization_confirmed": {"const": false},
+        "background_quantile_confirmed": {"const": false}, "dna_alignment_confirmed": {"const": false},
+        "flowjo_export_authorized": {"const": false}, "render_authorized": {"const": false},
+        "analysis_output_write_authorized": {"const": false}, "overwrite_authorized": {"const": false},
+        "rebuild_authorized": {"const": false}
+      }
+    },
+    "uncertainties": {"type": "array", "items": {"type": "string"}},
+    "evidence": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+  }
+}

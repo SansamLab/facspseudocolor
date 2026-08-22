@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/facs/analysis-identity.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "reviewed_config", "reviewed_content_sha256", "input_provenance_sha256", "template_sha256", "analysis", "channels", "sample_mapping", "control_relationships", "method_choices", "method_authorization"],
+  "properties": {
+    "schema_version": {"const": "analysis-identity-1.0"},
+    "reviewed_config": {"type": "string", "pattern": "^[^/]+$"},
+    "reviewed_content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "input_provenance_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "template_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "analysis": {"type": "object"}, "channels": {"type": "array"}, "sample_mapping": {"type": "array"},
+    "control_relationships": {"type": "array", "minItems": 1},
+    "method_choices": {
+      "type": "object", "additionalProperties": false,
+      "required": ["threshold_specification", "normalization_method", "background_quantile", "dna_alignment_method"],
+      "properties": {"threshold_specification":{"const":null},"normalization_method":{"const":null},"background_quantile":{"const":null},"dna_alignment_method":{"const":null}}
+    },
+    "method_authorization": {"type": "object"}
+  }
+}
