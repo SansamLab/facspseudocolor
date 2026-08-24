@@ -94,7 +94,8 @@ analysis_display_gate_rectangles <- function(analysis, y_limits, offset = 0) {
 #' Calculates result tables without drawing or saving plots. The returned
 #' `facs_analysis` contains the original normalized data plus phase medians,
 #' whole-population medians, phase percentages, gate definitions, and optional
-#' within-replicate reference ratios.
+#' within-replicate reference ratios. EdU analyses also contain the seven
+#' canonical output-contract tables and their acquisition-level forms.
 #'
 #' @param analysis A `facs_analysis` object.
 #' @param include Any of `"phase_median"`, `"whole_median"`, and
@@ -126,9 +127,41 @@ quantify_cell_cycle <- function(
          call. = FALSE)
   }
 
-  rows <- analysis_display_rows(analysis)
+  is_edu <- identical(analysis$config$plot_type, "edu")
+  # EDU-D13a: calculation availability is independent of panel visibility.
+  rows <- if (is_edu) rep(TRUE, nrow(analysis$sample_manifest)) else
+    analysis_display_rows(analysis)
   manifest <- analysis$sample_manifest[rows, , drop = FALSE]
   samples <- analysis$normalized_data[rows]
+  display_offset <- NULL
+  classifications <- NULL
+  if (is_edu) {
+    display_offset <- if (identical(
+      analysis$config$pseudocolor_signal, "background_subtracted"
+    )) {
+      resolve_background_subtracted_offset(analysis)
+    } else {
+      0
+    }
+    classifications <- lapply(
+      samples,
+      function(sample) classify_edu_events(
+        sample$data, analysis$config, display_offset
+      )
+    )
+    selected_indices <- which(rows)
+    for (i in seq_along(selected_indices)) {
+      analysis$normalized_data[[selected_indices[[i]]]]$
+        edu_event_classification <- classifications[[i]]
+      samples[[i]]$edu_event_classification <- classifications[[i]]
+    }
+    # Canonical intensity outputs are always background-subtracted. The
+    # divided/normalized representation remains available only when explicitly
+    # requested as the legacy compatibility signal.
+    signals <- unique(c(
+      "background_subtracted", analysis$config$quant_signal, signals
+    ))
+  }
   result_wrappers <- lapply(samples, function(sample) list(sample_data = sample))
   y_limits <- analysis_y_limits(analysis, rows)
   gates <- analysis_gate_rectangles(analysis, y_limits)
@@ -175,6 +208,10 @@ quantify_cell_cycle <- function(
     }
     quantitation$by_signal[[signal_name]] <- values
   }
+  if (is_edu && "normalized" %in% names(quantitation$by_signal)) {
+    quantitation$legacy_background_divided <-
+      quantitation$by_signal$normalized
+  }
   if ("phase_percent" %in% include) {
     quantitation$phase_percentages_acquisition <- collect_phase_counts(
       result_wrappers, manifest, gates
@@ -183,6 +220,89 @@ quantify_cell_cycle <- function(
       quantitation$phase_percentages_acquisition, "phase_percent",
       c("gate", "gate_index")
     )
+  }
+
+  if (is_edu) {
+    five_categories <- c("g1", "early", "mid", "late", "g2m")
+    six_categories <- c(
+      "g1", "early", "mid", "late", "negative_s", "g2m"
+    )
+    quantitation$edu_assigned_phase_composition_acquisition <-
+      collect_edu_composition(
+        classifications, manifest,
+        "historical_five_gate_assignment", five_categories,
+        "assigned_phase_composition_pct",
+        "historical_five_gate_assigned_cells", display_offset,
+        denominator = "assigned"
+      )
+    quantitation$edu_assigned_phase_composition <- average_edu_metric_table(
+      quantitation$edu_assigned_phase_composition_acquisition,
+      "assigned_phase_composition_pct", c("gate", "gate_index")
+    )
+
+    quantitation$edu_single_cells_phase_composition_acquisition <-
+      collect_edu_composition(
+        classifications, manifest, "six_gate_assignment", six_categories,
+        "single_cells_phase_composition_pct", "eligible_single_cells",
+        display_offset, denominator = "eligible"
+      )
+    quantitation$edu_single_cells_phase_composition <- average_edu_metric_table(
+      quantitation$edu_single_cells_phase_composition_acquisition,
+      "single_cells_phase_composition_pct", c("gate", "gate_index")
+    )
+
+    quantitation$edu_six_gate_phase_composition_acquisition <-
+      collect_edu_composition(
+        classifications, manifest, "six_gate_assignment", six_categories,
+        "six_gate_phase_composition_pct", "six_gate_assigned_cells",
+        display_offset, denominator = "assigned"
+      )
+    quantitation$edu_six_gate_phase_composition <- average_edu_metric_table(
+      quantitation$edu_six_gate_phase_composition_acquisition,
+      "six_gate_phase_composition_pct", c("gate", "gate_index")
+    )
+
+    quantitation$edu_regional_positivity_acquisition <-
+      collect_edu_regional_positivity(
+        classifications, manifest, analysis$config, display_offset
+      )
+    quantitation$edu_regional_positivity <- average_edu_metric_table(
+      quantitation$edu_regional_positivity_acquisition,
+      "regional_edu_positive_pct",
+      c("region", "region_label", "region_index")
+    )
+
+    quantitation$edu_overall_positivity_acquisition <-
+      collect_edu_overall_positivity(
+        classifications, manifest, analysis$config, display_offset
+      )
+    quantitation$edu_overall_positivity <- average_edu_metric_table(
+      quantitation$edu_overall_positivity_acquisition,
+      "overall_edu_positive_pct", c("region", "region_label")
+    )
+
+    quantitation$edu_positive_cell_regional_intensity_acquisition <-
+      collect_edu_positive_intensity(
+        classifications, manifest, analysis$config, display_offset,
+        regional = TRUE
+      )
+    quantitation$edu_positive_cell_regional_intensity <-
+      average_edu_metric_table(
+        quantitation$edu_positive_cell_regional_intensity_acquisition,
+        "positive_cell_regional_edu_bgsub_median",
+        c("phase", "phase_label", "phase_index")
+      )
+
+    quantitation$edu_positive_population_intensity_acquisition <-
+      collect_edu_positive_intensity(
+        classifications, manifest, analysis$config, display_offset,
+        regional = FALSE
+      )
+    quantitation$edu_positive_population_intensity <-
+      average_edu_metric_table(
+        quantitation$edu_positive_population_intensity_acquisition,
+        "positive_population_edu_bgsub_median"
+      )
   }
 
   ratio_requested <- !is.null(reference_condition) ||
@@ -223,6 +343,59 @@ quantify_cell_cycle <- function(
   quantitation[names(selected)] <- selected
 
   analysis$quantitation <- quantitation
+  if (is_edu) {
+    analysis$provenance$output_schema_version <- edu_output_schema_version()
+    analysis$provenance$edu_output_contract <- list(
+      decision_record = "edu_output_contract_approved_2026-08-23.md",
+      decision_ids = c(
+        "Eligibility", "EDU-D05a", "EDU-D05b", "EDU-D05c", "EDU-D05d",
+        "EDU-D06a", "EDU-D06c", "EDU-D06d", "EDU-D13a", "EDU-D13b"
+      ),
+      signal_transform = "background_subtracted",
+      display_transform = if (identical(
+        analysis$config$pseudocolor_signal, "background_subtracted"
+      )) {
+        "background_subtracted_plus_offset"
+      } else {
+        "legacy_background_divided"
+      },
+      display_offset = if (identical(
+        analysis$config$pseudocolor_signal, "background_subtracted"
+      )) display_offset else 0,
+      display_offset_applied = identical(
+        analysis$config$pseudocolor_signal, "background_subtracted"
+      ),
+      display_offset_calculation = if (!identical(
+        analysis$config$pseudocolor_signal, "background_subtracted"
+      )) {
+        "not_applied_to_legacy_background_divided_display"
+      } else if (
+        config_scalar_number(analysis$config$background_subtracted_offset)
+      ) {
+        "configured_nonnegative_constant"
+      } else {
+        paste0(
+          "10^round(log10(median(positive G1 target anchors; ",
+          "fallback positive baselines; fallback positive raw targets)))"
+        )
+      },
+      quantitative_values_include_display_offset = FALSE,
+      reference_normalization_status = if (ratio_requested) {
+        "reported_separately"
+      } else {
+        "not_applied"
+      }
+    )
+    deprecation <- paste0(
+      "EdU aliases `phase_percentages`, `phase_medians`, and `whole_medians` ",
+      "are deprecated for one major-release compatibility window; use the ",
+      "canonical `edu_*` tables. Alias meanings are unchanged."
+    )
+    if (!deprecation %in% analysis$warnings) {
+      analysis$warnings <- c(analysis$warnings, deprecation)
+      warning(deprecation, call. = FALSE)
+    }
+  }
   analysis
 }
 
@@ -267,6 +440,7 @@ plot_facs_quantitation <- function(analysis, seed = 1L, appearance = NULL,
     quantitation[names(selected)] <- selected
   }
   config <- analysis$config
+  is_edu <- identical(config$plot_type, "edu")
   style <- if (inherits(appearance, "facs_appearance")) appearance else
     resolve_facs_appearance(analysis, appearance, appearance_file)
   error_bar <- style$error_bar
@@ -280,7 +454,17 @@ plot_facs_quantitation <- function(analysis, seed = 1L, appearance = NULL,
   plots <- list()
 
   if (!is.null(quantitation$phase_medians)) {
-    y_title <- paste("Median", signal_label, config$target_name)
+    y_title <- if (is_edu && signal == "background_subtracted") {
+      paste0(
+        "Median background-subtracted ", config$target_name,
+        " among computed-positive cells\n(display offset excluded)"
+      )
+    } else if (is_edu) {
+      paste("Legacy baseline-divided", config$target_name,
+            "among computed-positive cells")
+    } else {
+      paste("Median", signal_label, config$target_name)
+    }
     plots$phase_median <- make_phase_signal_barplot(
       quantitation$phase_medians, error_bar = error_bar, y_title = y_title,
       show_points = show_points, fill_colors = colors,
@@ -295,9 +479,21 @@ plot_facs_quantitation <- function(analysis, seed = 1L, appearance = NULL,
     }
   }
   if (!is.null(quantitation$whole_medians)) {
+    whole_y_title <- if (is_edu && signal == "background_subtracted") {
+      paste0(
+        "Median background-subtracted ", config$target_name,
+        " among the whole computed-positive population\n",
+        "(display offset excluded)"
+      )
+    } else if (is_edu) {
+      paste("Legacy baseline-divided", config$target_name,
+            "among the whole computed-positive population")
+    } else {
+      paste("Median", signal_label, config$target_name)
+    }
     plots$whole_median <- make_whole_population_barplot(
       quantitation$whole_medians, error_bar = error_bar,
-      y_title = paste("Median", signal_label, config$target_name),
+      y_title = whole_y_title,
       show_points = show_points, fill_colors = colors,
       base_font_size = style$base_font_size
     )
@@ -306,7 +502,20 @@ plot_facs_quantitation <- function(analysis, seed = 1L, appearance = NULL,
     plots$phase_percent <- make_phase_percentage_plot(
       quantitation$phase_percentages, error_bar = error_bar,
       show_points = show_points, fill_colors = colors,
-      base_font_size = style$base_font_size
+      base_font_size = style$base_font_size,
+      y_title = if (is_edu) {
+        "Historical five-gate assigned composition (%)"
+      } else {
+        "Cells within phase gate\n(% of five-gate total)"
+      },
+      caption = if (is_edu) {
+        paste0(
+          "Denominator: G1 + Early S + Mid S + Late S + G2/M assigned ",
+          "events; legacy meaning preserved."
+        )
+      } else {
+        NULL
+      }
     )
   }
   if (!is.null(quantitation$phase_medians_reference)) {
@@ -660,6 +869,43 @@ resolve_analysis_output <- function(analysis, path) {
   normalizePath(path, mustWork = FALSE)
 }
 
+edu_canonical_table_names <- function() {
+  c(
+    "edu_assigned_phase_composition",
+    "edu_single_cells_phase_composition",
+    "edu_six_gate_phase_composition",
+    "edu_regional_positivity",
+    "edu_overall_positivity",
+    "edu_positive_cell_regional_intensity",
+    "edu_positive_population_intensity"
+  )
+}
+
+edu_csv_tables <- function(analysis, include_deprecated = FALSE) {
+  if (!identical(analysis$config$plot_type, "edu")) {
+    stop("Canonical EdU CSV tables require an EdU analysis.", call. = FALSE)
+  }
+  canonical <- edu_canonical_table_names()
+  names_requested <- c(canonical, paste0(canonical, "_acquisition"))
+  if (isTRUE(include_deprecated)) {
+    deprecated <- c(
+      "phase_percentages", "phase_percentages_acquisition",
+      "phase_medians", "phase_medians_acquisition",
+      "whole_medians", "whole_medians_acquisition"
+    )
+    names_requested <- c(names_requested, deprecated)
+  }
+  missing <- setdiff(names_requested, names(analysis$quantitation))
+  if (length(missing)) {
+    stop(
+      "EdU analysis is missing requested table(s): ",
+      paste(missing, collapse = ", "), ". Re-run complete quantitation first.",
+      call. = FALSE
+    )
+  }
+  analysis$quantitation[names_requested]
+}
+
 #' Save explicitly requested analysis outputs
 #'
 #' This is the package's file-writing layer. Existing files are never
@@ -674,6 +920,12 @@ resolve_analysis_output <- function(analysis, path) {
 #'   configured path.
 #' @param output_rds Explicit path for the complete analysis object, or `NULL`
 #'   to skip serialization.
+#' @param output_csv_dir Explicit directory for canonical EdU CSV tables, or
+#'   `NULL` to skip CSV export. Aggregate and acquisition-level tables are
+#'   written with their canonical object names.
+#' @param include_deprecated_csv Whether to additionally export the deprecated
+#'   `phase_percentages`, `phase_medians`, and `whole_medians` aliases. The
+#'   default is `FALSE`; legacy fields are never exported implicitly.
 #' @param overwrite Whether existing requested outputs may be replaced.
 #' @param dpi PNG resolution.
 #'
@@ -685,7 +937,9 @@ save_facs_results <- function(
     output_png = analysis$config$output_png,
     output_rds = NULL,
     overwrite = FALSE,
-    dpi = 300
+    dpi = 300,
+    output_csv_dir = NULL,
+    include_deprecated_csv = FALSE
 ) {
   validate_analysis_object(analysis)
   paths <- c(
@@ -694,6 +948,16 @@ save_facs_results <- function(
     rds = resolve_analysis_output(analysis, output_rds)
   )
   paths <- paths[nzchar(paths)]
+  csv_tables <- NULL
+  if (!is.null(output_csv_dir)) {
+    csv_directory <- resolve_analysis_output(analysis, output_csv_dir)
+    csv_tables <- edu_csv_tables(
+      analysis, include_deprecated = include_deprecated_csv
+    )
+    csv_paths <- file.path(csv_directory, paste0(names(csv_tables), ".csv"))
+    names(csv_paths) <- paste0("csv_", names(csv_tables))
+    paths <- c(paths, csv_paths)
+  }
   if (!length(paths)) {
     stop("At least one explicit output path must be requested.", call. = FALSE)
   }
@@ -740,5 +1004,12 @@ save_facs_results <- function(
     tryCatch(draw_facs_plot_set(plots), finally = grDevices::dev.off())
   }
   if ("rds" %in% names(paths)) saveRDS(analysis, paths[["rds"]])
+  if (length(csv_tables)) {
+    for (name in names(csv_tables)) {
+      utils::write.csv(
+        csv_tables[[name]], paths[[paste0("csv_", name)]], row.names = FALSE
+      )
+    }
+  }
   invisible(paths)
 }

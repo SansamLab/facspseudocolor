@@ -2,7 +2,10 @@ test_that("high-level EdU analysis returns a structured non-saving result", {
   config <- read_facs_config(system.file(
     "config", "config_edu.yml", package = "facspseudocolor"
   ))
-  result <- analyze_facs_experiment(config)
+  expect_warning(
+    result <- analyze_facs_experiment(config),
+    "aliases.*deprecated"
+  )
 
   expect_s3_class(result, "facs_analysis")
   expect_equal(nrow(result$sample_manifest), 6)

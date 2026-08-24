@@ -52,6 +52,16 @@ if (analysis$config$plot_type == "ph3") {
   analysis$quantitation$ph3
 } else {
   analysis$quantitation$by_signal[[params$signal]]
-  analysis$quantitation$phase_percentages
+  canonical_edu_tables <- c(
+    "edu_assigned_phase_composition",
+    "edu_single_cells_phase_composition",
+    "edu_six_gate_phase_composition",
+    "edu_regional_positivity",
+    "edu_overall_positivity",
+    "edu_positive_cell_regional_intensity",
+    "edu_positive_population_intensity"
+  )
+  analysis$quantitation[canonical_edu_tables]
+  analysis$quantitation[paste0(canonical_edu_tables, "_acquisition")]
 }
 ```

@@ -72,14 +72,14 @@ resolve_facs_appearance <- function(analysis, overrides = NULL, appearance_file 
   defaults <- list(
     target_axis_label = if (identical(config$pseudocolor_signal, "background_subtracted")) {
       paste0(
-        config$target_name,
-        "\n(background-subtracted + ",
+        "background-subtracted ", config$target_name,
+        " with display offset\n(offset = ",
         format(config$background_subtracted_offset, trim = TRUE,
                scientific = FALSE, big.mark = ","),
         ")"
       )
     } else if (config$plot_type == "edu") {
-      paste0(config$target_name, "\n(baseline-normalized)")
+      paste0("Legacy background-divided ", config$target_name)
     } else if (config$plot_type == "ph3") {
       config$target_name
     } else paste0(config$target_name, "\n(background-normalized)"),

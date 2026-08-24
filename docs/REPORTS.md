@@ -1,7 +1,16 @@
 # Reusable reports and RDS artifacts
 
-Every analysis calculates all supported quantitation for the configured signal,
-which is background-subtracted by default. The legacy background-divided signal
+Every EdU analysis automatically calculates the seven approved canonical tables:
+historical five-gate assigned composition, whole-Single-Cells composition,
+six-gate assigned composition, Early/Mid/Late-S regional positivity, overall
+G1-through-G2/M positivity, computed-positive regional intensity, and whole
+computed-positive-population intensity. Acquisition-level versions are retained
+before the unchanged unweighted technical-acquisition aggregation.
+
+Canonical intensities use unoffset background-subtracted EdU. Event-level
+pseudocolor axes explicitly identify background-subtracted EdU with the display
+offset; the offset is recorded in table and analysis provenance and is not used
+for classification or quantitative medians. The legacy background-divided signal
 is calculated only when explicitly selected with `quant_signal: normalized`.
 Optional reference ratios are calculated afterward from the selected signal;
 with the defaults, this means background subtraction followed by normalization
@@ -90,6 +99,14 @@ condition_colors:
 The package discovers condition labels and panel counts from the analysis.
 Named condition colors may be partial; unmatched conditions receive stable
 automatic colors. Unknown labels are rejected.
+
+## EdU CSV tables
+
+`save_facs_results(..., output_csv_dir = "results/tables")` writes the seven
+canonical aggregate tables and their acquisition-level forms. Deprecated
+`phase_percentages`, `phase_medians`, and `whole_medians` aliases are omitted
+unless `include_deprecated_csv = TRUE` is explicitly requested. Background-
+divided and legacy Figure 1 populations are not part of this automatic export.
 
 ## Durable artifacts
 

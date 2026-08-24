@@ -567,11 +567,439 @@ collect_phase_counts <- function(plot_results, sample_manifest, gate_rectangles)
   out <- do.call(rbind, rows); rownames(out) <- NULL; out
 }
 
+# EdU output-contract classification and tables -----------------------------
+
+edu_output_schema_version <- function() 2L
+
+edu_contract_ranges <- function(config) {
+  windows <- make_phase_windows(
+    s_phase_bins = config$s_phase_bins,
+    g1_x_range = config$g1_x_range,
+    g2m_x_range = config$g2m_x_range,
+    dna_2n_value = config$dna_2n_value,
+    include_g1_g2m = TRUE
+  )
+  list(
+    windows = windows,
+    g1 = unname(c(windows$x_min[[1]], windows$x_max[[1]])),
+    g2m = unname(c(windows$x_min[[5]], windows$x_max[[5]])),
+    s = windows[2:4, , drop = FALSE]
+  )
+}
+
+classify_edu_events <- function(data, config, display_offset) {
+  required <- c(
+    "dna_norm", "target_norm", "target_bgsub", "edu_computed_positive"
+  )
+  missing <- setdiff(required, names(data))
+  if (length(missing)) {
+    stop(
+      "EdU output classification requires event field(s): ",
+      paste(missing, collapse = ", "), ".",
+      call. = FALSE
+    )
+  }
+  if (!config_scalar_number(display_offset) || display_offset < 0) {
+    stop("`display_offset` must be one nonnegative finite number.",
+         call. = FALSE)
+  }
+
+  ranges <- edu_contract_ranges(config)
+  x <- data$dna_norm
+  quantitative_signal <- data$target_bgsub
+  computed_positive <- data$edu_computed_positive
+  positivity_known <- !is.na(computed_positive) &
+    computed_positive %in% c(TRUE, FALSE)
+  dna_eligible <- is.finite(x) & positivity_known
+  composition_eligible <- dna_eligible
+  # The historical implementation also required a finite target_norm even
+  # though that display/divided coordinate does not define the new metrics.
+  historical_composition_eligible <- dna_eligible & is.finite(data$target_norm)
+  quantitative_eligible <- dna_eligible & is.finite(quantitative_signal)
+  positive_population_intensity_eligible <- positivity_known &
+    computed_positive %in% TRUE & is.finite(quantitative_signal)
+
+  region <- rep(NA_character_, nrow(data))
+  for (i in seq_len(nrow(ranges$s))) {
+    selected <- is.finite(x) & x >= ranges$s$x_min[[i]] &
+      x < ranges$s$x_max[[i]]
+    region[selected] <- ranges$s$phase[[i]]
+  }
+
+  historical_assignment <- rep(NA_character_, nrow(data))
+  biological_assignment <- rep(NA_character_, nrow(data))
+  negative <- positivity_known & computed_positive %in% FALSE
+  positive <- positivity_known & computed_positive %in% TRUE
+  historical_assignment[historical_composition_eligible & negative &
+    x >= ranges$g1[[1]] & x < ranges$g1[[2]]] <- "g1"
+  historical_assignment[historical_composition_eligible & positive &
+    region %in% c("early", "mid", "late")] <- region[
+      historical_composition_eligible & positive &
+        region %in% c("early", "mid", "late")
+    ]
+  historical_assignment[historical_composition_eligible & negative &
+    x >= ranges$g2m[[1]] & x < ranges$g2m[[2]]] <- "g2m"
+
+  biological_assignment[composition_eligible & negative &
+    x >= ranges$g1[[1]] & x < ranges$g1[[2]]] <- "g1"
+  biological_assignment[composition_eligible & positive &
+    region %in% c("early", "mid", "late")] <- region[
+      composition_eligible & positive & region %in% c("early", "mid", "late")
+    ]
+  biological_assignment[composition_eligible & negative &
+    x >= ranges$g2m[[1]] & x < ranges$g2m[[2]]] <- "g2m"
+
+  negative_s <- composition_eligible & negative &
+    x >= ranges$g1[[2]] & x < ranges$g2m[[1]]
+  six_gate_assignment <- biological_assignment
+  six_gate_assignment[negative_s] <- "negative_s"
+  display_offset_applied <- identical(
+    config$pseudocolor_signal, "background_subtracted"
+  )
+  actual_display_offset <- if (display_offset_applied) display_offset else 0
+  display_signal <- if (display_offset_applied) {
+    quantitative_signal + actual_display_offset
+  } else {
+    data$target_norm
+  }
+  display_transform <- if (display_offset_applied) {
+    "background_subtracted_plus_offset"
+  } else {
+    "legacy_background_divided"
+  }
+
+  data.frame(
+    event_row = seq_len(nrow(data)),
+    composition_eligible = composition_eligible,
+    historical_composition_eligible = historical_composition_eligible,
+    positivity_eligible = dna_eligible,
+    regional_intensity_eligible = quantitative_eligible & positive,
+    positive_population_intensity_eligible =
+      positive_population_intensity_eligible,
+    computed_positive = computed_positive,
+    s_region = region,
+    historical_five_gate_assignment = historical_assignment,
+    negative_s = negative_s,
+    six_gate_assignment = six_gate_assignment,
+    unassigned = composition_eligible & is.na(six_gate_assignment),
+    positivity_unassigned = dna_eligible & is.na(six_gate_assignment),
+    quantitative_signal = quantitative_signal,
+    display_signal = display_signal,
+    display_transform = rep(display_transform, nrow(data)),
+    display_offset = rep(actual_display_offset, nrow(data)),
+    display_offset_applied = rep(display_offset_applied, nrow(data)),
+    dna_norm = x,
+    stringsAsFactors = FALSE
+  )
+}
+
+edu_sample_metadata <- function(manifest, i) {
+  data.frame(
+    replicate = manifest$replicate[[i]],
+    replicate_index = manifest$replicate_index[[i]],
+    technical_replicate = manifest$technical_replicate[[i]],
+    condition = manifest$condition[[i]],
+    condition_index = manifest$condition_index[[i]],
+    stringsAsFactors = FALSE
+  )
+}
+
+edu_metric_metadata <- function(
+    source_population, display_offset, display_offset_applied,
+    dna_interval_min = NA_real_, dna_interval_max = NA_real_,
+    display_transform = if (display_offset_applied) {
+      "background_subtracted_plus_offset"
+    } else {
+      "legacy_background_divided"
+    }
+) {
+  data.frame(
+    source_population = source_population,
+    dna_interval_min = dna_interval_min,
+    dna_interval_max = dna_interval_max,
+    dna_interval_lower_inclusive = !is.na(dna_interval_min),
+    dna_interval_upper_inclusive = FALSE,
+    signal_transform = "background_subtracted",
+    display_transform = display_transform,
+    display_offset = display_offset,
+    display_offset_applied = display_offset_applied,
+    reference_normalization_status = "not_applied",
+    aggregation_level = "acquisition",
+    aggregation_method = "none",
+    output_schema_version = edu_output_schema_version(),
+    stringsAsFactors = FALSE
+  )
+}
+
+collect_edu_composition <- function(
+    classifications, manifest, assignment_col, categories, value_col,
+    source_population, display_offset, denominator = c("assigned", "eligible")
+) {
+  denominator <- match.arg(denominator)
+  labels <- c(
+    g1 = "G1", early = "Early S", mid = "Mid S", late = "Late S",
+    negative_s = "Negative S", g2m = "G2/M"
+  )
+  rows <- lapply(seq_along(classifications), function(i) {
+    dat <- classifications[[i]]
+    counts <- vapply(
+      categories,
+      function(category) sum(dat[[assignment_col]] %in% category, na.rm = TRUE),
+      integer(1)
+    )
+    denominator_n <- if (denominator == "eligible") {
+      sum(dat$composition_eligible)
+    } else {
+      sum(counts)
+    }
+    metric_unassigned <- dat$composition_eligible &
+      is.na(dat[[assignment_col]])
+    unassigned_n <- sum(metric_unassigned)
+    value <- if (denominator_n > 0) 100 * counts / denominator_n else
+      rep(NA_real_, length(counts))
+    metric_status <- if (denominator_n > 0) "ok" else "zero_denominator"
+    value_frame <- data.frame(value, stringsAsFactors = FALSE)
+    names(value_frame) <- value_col
+    cbind(
+      edu_sample_metadata(manifest, i),
+      data.frame(
+        gate = unname(labels[categories]),
+        gate_index = seq_along(categories),
+        numerator_n = counts,
+        denominator_n = rep(denominator_n, length(counts)),
+        unassigned_n = rep(unassigned_n, length(counts)),
+        unassigned_pct_of_eligible_single_cells = rep(
+          if (sum(dat$composition_eligible) > 0) {
+            100 * unassigned_n / sum(dat$composition_eligible)
+          } else {
+            NA_real_
+          },
+          length(counts)
+        ),
+        stringsAsFactors = FALSE
+      ),
+      value_frame,
+      edu_metric_metadata(
+        source_population, dat$display_offset[[1]],
+        dat$display_offset_applied[[1]] %in% TRUE,
+        display_transform = dat$display_transform[[1]]
+      )[rep(1, length(counts)), , drop = FALSE],
+      data.frame(
+        metric_status = rep(metric_status, length(counts)),
+        stringsAsFactors = FALSE
+      )
+    )
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
+
+collect_edu_regional_positivity <- function(
+    classifications, manifest, config, display_offset
+) {
+  ranges <- edu_contract_ranges(config)$s
+  rows <- lapply(seq_along(classifications), function(i) {
+    dat <- classifications[[i]]
+    values <- lapply(seq_len(nrow(ranges)), function(j) {
+      in_region <- dat$positivity_eligible &
+        dat$dna_norm >= ranges$x_min[[j]] & dat$dna_norm < ranges$x_max[[j]]
+      denominator_n <- sum(in_region)
+      numerator_n <- sum(in_region & dat$computed_positive %in% TRUE)
+      data.frame(
+        region = ranges$phase[[j]],
+        region_label = ranges$phase_label[[j]],
+        region_index = ranges$phase_index[[j]] - 1L,
+        numerator_n = numerator_n,
+        denominator_n = denominator_n,
+        regional_edu_positive_pct = if (denominator_n > 0) {
+          100 * numerator_n / denominator_n
+        } else {
+          NA_real_
+        },
+        edu_metric_metadata(
+          "eligible_single_cells_in_dna_region", dat$display_offset[[1]],
+          dat$display_offset_applied[[1]] %in% TRUE,
+          ranges$x_min[[j]], ranges$x_max[[j]],
+          display_transform = dat$display_transform[[1]]
+        ),
+        metric_status = if (denominator_n > 0) "ok" else "zero_denominator",
+        stringsAsFactors = FALSE
+      )
+    })
+    cbind(edu_sample_metadata(manifest, i), do.call(rbind, values))
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
+
+collect_edu_overall_positivity <- function(
+    classifications, manifest, config, display_offset
+) {
+  ranges <- edu_contract_ranges(config)
+  lower <- ranges$g1[[1]]
+  upper <- ranges$g2m[[2]]
+  rows <- lapply(seq_along(classifications), function(i) {
+    dat <- classifications[[i]]
+    in_span <- dat$positivity_eligible & dat$dna_norm >= lower &
+      dat$dna_norm < upper
+    denominator_n <- sum(in_span)
+    numerator_n <- sum(in_span & dat$computed_positive %in% TRUE)
+    unassigned_n <- sum(in_span & dat$positivity_unassigned)
+    cbind(
+      edu_sample_metadata(manifest, i),
+      data.frame(
+        region = "g1_through_g2m",
+        region_label = "G1 through G2/M",
+        numerator_n = numerator_n,
+        denominator_n = denominator_n,
+        phase_unassigned_n = unassigned_n,
+        overall_edu_positive_pct = if (denominator_n > 0) {
+          100 * numerator_n / denominator_n
+        } else {
+          NA_real_
+        },
+        edu_metric_metadata(
+          "eligible_single_cells_in_g1_through_g2m_span",
+          dat$display_offset[[1]],
+          dat$display_offset_applied[[1]] %in% TRUE, lower, upper,
+          display_transform = dat$display_transform[[1]]
+        ),
+        metric_status = if (denominator_n > 0) "ok" else "zero_denominator",
+        stringsAsFactors = FALSE
+      )
+    )
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
+
+collect_edu_positive_intensity <- function(
+    classifications, manifest, config, display_offset,
+    regional = TRUE, minimum_events = 10L
+) {
+  ranges <- edu_contract_ranges(config)$s
+  rows <- lapply(seq_along(classifications), function(i) {
+    dat <- classifications[[i]]
+    display_applied <- dat$display_offset_applied[[1]] %in% TRUE
+    if (isTRUE(regional)) {
+      values <- lapply(seq_len(nrow(ranges)), function(j) {
+        selected <- dat$regional_intensity_eligible &
+          dat$dna_norm >= ranges$x_min[[j]] & dat$dna_norm < ranges$x_max[[j]]
+        signal <- dat$quantitative_signal[selected]
+        n <- length(signal)
+        data.frame(
+          phase = ranges$phase[[j]],
+          phase_label = ranges$phase_label[[j]],
+          phase_index = ranges$phase_index[[j]] - 1L,
+          source_population_n = n,
+          positive_cell_regional_edu_bgsub_median = if (n >= minimum_events) {
+            stats::median(signal)
+          } else {
+            NA_real_
+          },
+          edu_metric_metadata(
+            "computed_positive_eligible_cells_in_dna_region",
+            dat$display_offset[[1]], display_applied,
+            ranges$x_min[[j]], ranges$x_max[[j]],
+            display_transform = dat$display_transform[[1]]
+          ),
+          metric_status = if (n >= minimum_events) "ok" else
+            "insufficient_events",
+          stringsAsFactors = FALSE
+        )
+      })
+      value <- do.call(rbind, values)
+    } else {
+      selected <- dat$positive_population_intensity_eligible
+      signal <- dat$quantitative_signal[selected]
+      n <- length(signal)
+      value <- data.frame(
+        source_population_n = n,
+        positive_population_edu_bgsub_median = if (n > 0) {
+          stats::median(signal)
+        } else {
+          NA_real_
+        },
+        edu_metric_metadata(
+          "whole_computed_positive_eligible_population",
+          dat$display_offset[[1]], display_applied,
+          display_transform = dat$display_transform[[1]]
+        ),
+        metric_status = if (n > 0) "ok" else "insufficient_events",
+        stringsAsFactors = FALSE
+      )
+    }
+    cbind(edu_sample_metadata(manifest, i), value)
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
+
+average_edu_metric_table <- function(df, value_col, extra_group_cols = character()) {
+  group_cols <- c(
+    "replicate", "replicate_index", "condition", "condition_index",
+    extra_group_cols
+  )
+  key <- do.call(paste, c(df[group_cols], sep = "\r"))
+  count_cols <- names(df)[grepl("(_n|^numerator_n$|^denominator_n$)$", names(df))]
+  count_cols <- setdiff(count_cols, c("replicate_index", "condition_index"))
+  averaged_metadata_cols <- intersect(
+    "unassigned_pct_of_eligible_single_cells", names(df)
+  )
+  rows <- lapply(split(seq_len(nrow(df)), key), function(idx) {
+    values <- df[[value_col]][idx]
+    finite <- is.finite(values)
+    keep <- setdiff(
+      names(df),
+      c(
+        "technical_replicate", value_col, count_cols, averaged_metadata_cols,
+        "metric_status"
+      )
+    )
+    out <- df[idx[[1]], keep, drop = FALSE]
+    out[[value_col]] <- if (any(finite)) mean(values[finite]) else NA_real_
+    for (name in count_cols) out[[name]] <- sum(df[[name]][idx], na.rm = TRUE)
+    for (name in averaged_metadata_cols) {
+      metadata_values <- df[[name]][idx]
+      metadata_values <- metadata_values[is.finite(metadata_values)]
+      out[[name]] <- if (length(metadata_values)) mean(metadata_values) else
+        NA_real_
+    }
+    out$technical_n <- sum(finite)
+    statuses <- unique(df$metric_status[idx])
+    out$technical_acquisition_n <- length(idx)
+    out$non_ok_technical_n <- sum(df$metric_status[idx] != "ok")
+    out$technical_metric_statuses <- paste(sort(statuses), collapse = ";")
+    out$aggregation_level <- "biological_replicate_condition"
+    out$aggregation_method <-
+      "unweighted_mean_of_technical_acquisition_values"
+    out$metric_status <- if (all(df$metric_status[idx] == "ok")) {
+      "ok"
+    } else if (any(finite)) {
+      "partial"
+    } else if (length(statuses) == 1L) {
+      statuses[[1]]
+    } else {
+      "mixed"
+    }
+    out
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
+
 # Grouped bar plot: x = gate, fill = condition. `show_points` toggles replicate
 # points; `fill_colors` is an optional named condition -> color map.
 make_phase_percentage_plot <- function(
     phase_counts, error_bar = c("sd", "sem", "none"), base_font_size = 11,
-    show_points = TRUE, fill_colors = NULL
+    show_points = TRUE, fill_colors = NULL,
+    y_title = "Cells within phase gate\n(% of five-gate total)",
+    caption = NULL
 ) {
   error_bar <- match.arg(error_bar)
   s <- summarize_across_replicates(
@@ -607,8 +1035,7 @@ make_phase_percentage_plot <- function(
       values = resolve_condition_colors(cond_levels, fill_colors), name = NULL) +
     ggplot2::scale_y_continuous(labels = function(x) paste0(x, "%"),
                                 expand = ggplot2::expansion(mult = c(0, 0.10))) +
-    ggplot2::labs(x = "Cell-cycle phase",
-                  y = "Cells within phase gate\n(% of five-gate total)") +
+    ggplot2::labs(x = "Cell-cycle phase", y = y_title, caption = caption) +
     ggplot2::theme_classic(base_size = base_font_size) +
     ggplot2::theme(legend.position = "right",
                    axis.text.x = ggplot2::element_text(angle = 30, hjust = 1))

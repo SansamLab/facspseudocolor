@@ -30,5 +30,6 @@ An updated \code{facs_analysis} object.
 Calculates result tables without drawing or saving plots. The returned
 \code{facs_analysis} contains the original normalized data plus phase medians,
 whole-population medians, phase percentages, gate definitions, and optional
-within-replicate reference ratios.
+within-replicate reference ratios. EdU analyses also contain the seven
+canonical output-contract tables and their acquisition-level forms.
 }
