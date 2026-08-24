@@ -37,6 +37,22 @@ RDS and quantitation filenames. The package no longer invents output filenames.
   `save_facs_results()`.
 - Quantitation plots are returned as ggplot objects and displayed by Quarto;
   save them only to destinations explicitly chosen by the caller.
+- EdU canonical CSV tables require an explicit `output_csv_dir`. Deprecated
+  aliases require the additional explicit `include_deprecated_csv = TRUE`.
+
+## EdU output schema 2
+
+EdU analyses now add seven scientifically explicit `edu_*` tables and matching
+`*_acquisition` tables. The old names retain exactly their former populations:
+
+- `phase_percentages`: historical five-gate assigned composition;
+- `phase_medians`: computed-positive Early/Mid/Late-S intensity;
+- `whole_medians`: whole computed-positive-population intensity.
+
+These aliases are deprecated for one major-release compatibility window and
+emit one warning per analysis. They are never redirected to whole-Single-Cells
+or other scientifically different values. Existing saved artifacts are not
+rewritten.
 
 ## POI peak-detection failure
 

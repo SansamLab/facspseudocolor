@@ -70,7 +70,40 @@ for (name in quantitation_names) print(bundle$quantitation[[name]])
 ## Quantitation tables
 
 ```{r}
-analysis$quantitation
+if (analysis$config$plot_type == "edu") {
+  canonical_edu_tables <- c(
+    "edu_assigned_phase_composition",
+    "edu_single_cells_phase_composition",
+    "edu_six_gate_phase_composition",
+    "edu_regional_positivity",
+    "edu_overall_positivity",
+    "edu_positive_cell_regional_intensity",
+    "edu_positive_population_intensity"
+  )
+  analysis$quantitation[canonical_edu_tables]
+} else {
+  analysis$quantitation
+}
+```
+
+## Acquisition-level quantitation tables
+
+```{r}
+if (analysis$config$plot_type == "edu") {
+  analysis$quantitation[paste0(canonical_edu_tables, "_acquisition")]
+} else {
+  NULL
+}
+```
+
+## Deprecated compatibility aliases
+
+```{r}
+if (analysis$config$plot_type == "edu") {
+  analysis$quantitation[c("phase_percentages", "phase_medians", "whole_medians")]
+} else {
+  NULL
+}
 ```
 
 ## Diagnostics and provenance

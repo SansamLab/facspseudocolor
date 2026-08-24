@@ -214,10 +214,14 @@ This reads `config.yml` and produces `results/pseudocolor_panels.pdf` and
 
 ## Reusable reports and editable artifacts
 
-Every analysis calculates all supported phase medians, whole-population
-medians, and phase percentages for the configured signal, which is
-background-subtracted by default. Reference normalization, when requested, is
-applied afterward to the background-subtracted medians.
+Every EdU analysis calculates seven explicit canonical tables for assigned and
+whole-Single-Cells composition, regional and overall positivity, and
+computed-positive intensity. Acquisition-level tables remain available before
+technical-acquisition aggregation. Quantitative medians are background-
+subtracted and exclude the display offset; event axes identify the offset
+explicitly. Deprecated `phase_percentages`, `phase_medians`, and `whole_medians`
+aliases retain their original meanings for one major-release window. Reference
+normalization, when requested, is reported separately.
 
 To configure an experiment with a GUI, set RStudio's working directory to the
 folder containing the exported CSVs, run

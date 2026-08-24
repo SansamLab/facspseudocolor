@@ -11,7 +11,9 @@ save_facs_results(
   output_png = analysis$config$output_png,
   output_rds = NULL,
   overwrite = FALSE,
-  dpi = 300
+  dpi = 300,
+  output_csv_dir = NULL,
+  include_deprecated_csv = FALSE
 )
 }
 \arguments{
@@ -28,6 +30,15 @@ configured path.}
 
 \item{output_rds}{Explicit path for the complete analysis object, or \code{NULL}
 to skip serialization.}
+
+\item{output_csv_dir}{Explicit directory for canonical EdU CSV tables, or
+\code{NULL} to skip CSV export. Aggregate and acquisition-level tables are
+written with their canonical object names.}
+
+\item{include_deprecated_csv}{Whether to additionally export the deprecated
+\code{phase_percentages}, \code{phase_medians}, and \code{whole_medians}
+aliases. The default is \code{FALSE}; legacy fields are never exported
+implicitly.}
 
 \item{overwrite}{Whether existing requested outputs may be replaced.}
 

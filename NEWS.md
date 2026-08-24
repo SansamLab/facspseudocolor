@@ -3,6 +3,9 @@
 ## Quality assurance
 
 - Corrected the Python-boundary test so source-checkout testing verifies the package-build exclusion rule while installed-package testing directly verifies that repository-only Python tools are absent.
+- Added EdU output schema 2 with seven canonical aggregate and acquisition-level tables, explicit denominator/QC/provenance metadata, and a shared event-classification record.
+- Preserved the historical five-gate, computed-positive regional median, and whole computed-positive median values through one-major-release deprecated aliases with one warning per analysis.
+- Added explicit canonical EdU CSV export while keeping deprecated aliases opt-in and legacy background-divided/Figure 1 outputs outside the automatic modern set.
 
 # facspseudocolor 0.1.0
 
