@@ -63,6 +63,7 @@ prepare_flowjo_csvs_external <- function(
     data_dir <- file.path(config_dir, data_dir)
   }
   dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
+  operation_artifacts <- character()
 
   for (replicate in replicates) {
     flowjo <- utils::modifyList(
@@ -73,7 +74,8 @@ prepare_flowjo_csvs_external <- function(
            call. = FALSE)
     }
     required <- c("source_dir", "workspace", "dna_source_channel",
-                  "target_source_channel")
+                  "target_source_channel", "contract_metadata",
+                  "export_operation_id")
     missing <- required[vapply(flowjo[required], function(x) {
       is.null(x) || !is.character(x) || length(x) != 1L || !nzchar(x)
     }, logical(1))]
@@ -84,6 +86,11 @@ prepare_flowjo_csvs_external <- function(
 
     source_dir <- flowjo$source_dir
     workspace <- file.path(source_dir, flowjo$workspace)
+    contract_metadata <- file.path(source_dir, flowjo$contract_metadata)
+    if (!isTRUE(flowjo$direct_index_semantics_verified)) {
+      stop("Production FlowJo orchestration requires the pinned SYNTHETIC direct-index verification.",
+           call. = FALSE)
+    }
     python <- flowjo_or(flowjo$python, Sys.which("python3"))
     rebuild <- isTRUE(flowjo_or(flowjo$rebuild, TRUE))
     population_map <- flowjo$populations
@@ -105,8 +112,11 @@ prepare_flowjo_csvs_external <- function(
       file.path(data_dir, paste0(prefixes, config$suffixes[[key]]))
     }))
     if (!rebuild && all(file.exists(expected))) {
-      if (verbose) message("FlowJo CSVs already exist for ", replicate$label)
-      next
+      stop(
+        "Production FlowJo orchestration cannot bypass manifest and artifact ",
+        "verification with `rebuild: false`; validate the completed operation ",
+        "explicitly or request a new operation ID/output directory.", call. = FALSE
+      )
     }
 
     # Python, its packages, the workspace, and the original FCS directory are
@@ -117,8 +127,15 @@ prepare_flowjo_csvs_external <- function(
     if (!file.exists(exporter)) {
       stop("Python exporter not found: ", exporter, call. = FALSE)
     }
+    contract_verifier <- file.path(dirname(exporter), "export_contract.py")
+    if (!file.exists(contract_verifier)) {
+      stop("Export-contract verifier not found: ", contract_verifier, call. = FALSE)
+    }
     if (!file.exists(workspace)) {
       stop("FlowJo workspace not found: ", workspace, call. = FALSE)
+    }
+    if (!file.exists(contract_metadata)) {
+      stop("FlowJo contract metadata not found: ", contract_metadata, call. = FALSE)
     }
     dependency_status <- suppressWarnings(system2(
       python, c("-c", shQuote("import flowkit, pandas, lxml")),
@@ -135,13 +152,22 @@ prepare_flowjo_csvs_external <- function(
       data_dir, ".flowjo_export", flowjo_safe_name(replicate$label)
     )
     dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
-    populations <- unique(unlist(population_map, use.names = FALSE))
-    if (verbose) message("Running unchanged FlowJo exporter for ", replicate$label)
+    populations <- unlist(population_map, use.names = FALSE)
+    if (verbose) message("Running contract-aware FlowJo exporter for ", replicate$label)
     status <- system2(python, c(
       shQuote(exporter), shQuote(workspace),
       "--fcs-dir", shQuote(source_dir),
       "--output-dir", shQuote(export_dir),
-      "--populations", vapply(populations, shQuote, character(1))
+      "--populations", vapply(populations, shQuote, character(1)),
+      "--population-keys", vapply(names(population_map), shQuote, character(1)),
+      "--output-suffixes", vapply(
+        unname(unlist(config$suffixes[names(population_map)])),
+        shQuote, character(1)
+      ),
+      "--profile", "production_direct_identity_v1",
+      "--contract-metadata", shQuote(contract_metadata),
+      "--export-operation-id", shQuote(flowjo$export_operation_id),
+      "--direct-index-semantics-verified"
     ))
     if (status != 0) {
       stop("FlowJo export failed for ", replicate$label, call. = FALSE)
@@ -151,80 +177,51 @@ prepare_flowjo_csvs_external <- function(
       stop("FlowJo population count report was not created: ", counts_file,
            call. = FALSE)
     }
-    population_counts <- utils::read.csv(counts_file, check.names = FALSE)
-
+    replicate_artifacts <- character()
     for (key in names(population_map)) {
-      population <- population_map[[key]]
-      export_csv <- file.path(
-        export_dir,
-        paste0(gsub("[^A-Za-z0-9._-]+", "_", population), ".csv")
+      identity_columns <- c(
+        "acquisition_id", "event_index", "event_identity", "identity_source",
+        "identity_method_id", "identity_method_version", "duplicate_occurrence",
+        "export_profile", "export_operation_id", "export_manifest_digest",
+        "export_manifest_reference"
       )
-      if (!file.exists(export_csv)) {
-        stop("Expected FlowJo export was not created: ", export_csv,
-             call. = FALSE)
-      }
-      combined <- utils::read.csv(export_csv, check.names = FALSE)
-      if (!"sample_id" %in% names(combined)) {
-        stop("FlowJo export lacks sample_id: ", export_csv,
-             call. = FALSE)
-      }
-      count_rows <- population_counts[
-        population_counts$gate_name == population, , drop = FALSE
-      ]
-      sample_ids <- unique(c(as.character(count_rows$sample_id),
-                             as.character(combined$sample_id)))
-      sample_ids <- sample_ids[nzchar(sample_ids)]
-      if (!length(sample_ids)) {
-        stop(
-          "FlowJo did not report sample identities for population '",
-          population, "'.", call. = FALSE
-        )
-      }
-      dna_column <- target_column <- NULL
-      if (nrow(combined)) {
-        dna_column <- flowjo_export_column(
-          names(combined), flowjo$dna_source_channel
-        )
-        target_column <- flowjo_export_column(
-          names(combined), flowjo$target_source_channel
-        )
-      }
       for (sample in replicate$samples) {
-        index <- flowjo_sample_id(sample_ids, sample$fcs)
-        selected <- combined$sample_id == sample_ids[[index]]
-        if (nrow(combined)) {
-          output <- data.frame(
-            event_index = if ("event_index" %in% names(combined)) {
-              combined$event_index[selected]
-            } else {
-              seq_len(sum(selected)) - 1L
-            },
-            combined[[dna_column]][selected],
-            combined[[target_column]][selected],
-            check.names = FALSE
-          )
-          names(output) <- c(
-            "event_index", config$dna_channel, config$target_channel
-          )
-        } else {
-          output <- data.frame(
-            event_index = integer(),
-            dna = numeric(),
-            target = numeric()
-          )
-          names(output) <- c(
-            "event_index", config$dna_channel, config$target_channel
-          )
-        }
-        output_file <- file.path(
-          data_dir, paste0(sample$prefix, config$suffixes[[key]])
+        artifact <- file.path(
+          export_dir, paste0(sample$prefix, config$suffixes[[key]])
         )
-        utils::write.csv(output, output_file, row.names = FALSE)
-        if (verbose) message("Wrote ", output_file)
+        if (!file.exists(artifact)) {
+          stop("Expected immutable per-acquisition artifact is missing: ", artifact,
+               call. = FALSE)
+        }
+        exported <- utils::read.csv(
+          artifact, check.names = FALSE,
+          colClasses = stats::setNames(rep("character", length(identity_columns)),
+                                       identity_columns)
+        )
+        missing_identity <- setdiff(identity_columns, names(exported))
+        if (length(missing_identity)) {
+          stop("Sequential identity fallback is prohibited; required identity fields are missing.",
+               call. = FALSE)
+        }
+        if (any(exported$export_profile != "production_direct_identity_v1")) {
+          stop("Legacy or ambiguous FlowJo exports cannot be consumed as production.",
+               call. = FALSE)
+        }
+        operation_artifacts <- c(operation_artifacts, artifact)
+        replicate_artifacts <- c(replicate_artifacts, artifact)
       }
     }
+    verification_status <- system2(python, c(
+      shQuote(contract_verifier),
+      "--verify-operation", shQuote(export_dir),
+      "--artifacts", vapply(replicate_artifacts, shQuote, character(1))
+    ))
+    if (verification_status != 0) {
+      stop("Finalized manifest or consumed population artifact verification failed for ",
+           replicate$label, ".", call. = FALSE)
+    }
   }
-  invisible(TRUE)
+  invisible(normalizePath(operation_artifacts, mustWork = TRUE))
 }
 
 # Export exact FlowJo gate vertices to one experiment-level sidecar. This calls
@@ -266,7 +263,13 @@ prepare_flowjo_gate_geometry_external <- function(
          call. = FALSE)
   }
 
-  all_geometry <- list()
+  if (length(config$replicates) != 1L) {
+    stop(
+      "Verified geometry orchestration is one export operation at a time; ",
+      "call it with a single-replicate configuration for each operation.",
+      call. = FALSE
+    )
+  }
   for (replicate in config$replicates) {
     flowjo <- utils::modifyList(
       flowjo_or(config$flowjo, list()), flowjo_or(replicate$flowjo, list())
@@ -278,7 +281,7 @@ prepare_flowjo_gate_geometry_external <- function(
       stop("FlowJo population key '", population_key, "' is missing for ",
            replicate$label, ".", call. = FALSE)
     }
-    required <- c("source_dir", "workspace", "python")
+    required <- c("source_dir", "workspace", "python", "export_operation_id")
     missing <- required[vapply(flowjo[required], function(value) {
       is.null(value) || !is.character(value) || length(value) != 1L ||
         !nzchar(value)
@@ -294,8 +297,24 @@ prepare_flowjo_gate_geometry_external <- function(
     if (!file.exists(flowjo$python)) {
       stop("Python interpreter not found: ", flowjo$python, call. = FALSE)
     }
-    temporary <- tempfile(fileext = ".csv")
-    on.exit(unlink(temporary), add = TRUE)
+    data_dir <- config$data_dir
+    if (!grepl("^/", data_dir)) {
+      config_dir <- attr(config, "config_dir")
+      if (is.null(config_dir)) {
+        stop("Relative data paths require a file-backed configuration.", call. = FALSE)
+      }
+      data_dir <- file.path(config_dir, data_dir)
+    }
+    operation_dir <- file.path(
+      data_dir, ".flowjo_export", flowjo_safe_name(replicate$label)
+    )
+    expected_output <- normalizePath(
+      file.path(operation_dir, "gate_geometry.csv"), mustWork = FALSE
+    )
+    if (!identical(normalizePath(output_file, mustWork = FALSE), expected_output)) {
+      stop("Verified geometry output must be the operation artifact: ",
+           expected_output, call. = FALSE)
+    }
     if (verbose) {
       message("Extracting FlowJo gate geometry for ", replicate$label)
     }
@@ -303,48 +322,32 @@ prepare_flowjo_gate_geometry_external <- function(
       shQuote(extractor), shQuote(workspace),
       "--fcs-dir", shQuote(flowjo$source_dir),
       "--population", shQuote(population),
-      "--output", shQuote(temporary)
+      "--population-key", shQuote(population_key),
+      "--operation-dir", shQuote(operation_dir),
+      "--export-operation-id", shQuote(flowjo$export_operation_id),
+      "--output", shQuote(output_file)
     ))
-    if (status != 0 || !file.exists(temporary)) {
+    if (status != 0 || !file.exists(output_file) ||
+        !file.exists(file.path(operation_dir, "geometry-manifest.json"))) {
       stop("FlowJo gate-geometry extraction failed for ", replicate$label,
            call. = FALSE)
     }
-    geometry <- utils::read.csv(temporary, check.names = FALSE)
+    geometry <- utils::read.csv(output_file, check.names = FALSE)
     expected_channels <- c(
       flowjo$dna_source_channel, flowjo$target_source_channel
     )
-    observed_channels <- unique(c(geometry$x_channel, geometry$y_channel))
-    if (!setequal(observed_channels, expected_channels)) {
+    observed_pairs <- unique(geometry[c("x_channel", "y_channel")])
+    if (nrow(observed_pairs) != 1L ||
+        !identical(as.character(unlist(observed_pairs[1, ], use.names = FALSE)),
+                   expected_channels)) {
       stop(
         "Extracted gate dimensions do not match the configured DNA and target ",
         "channels for ", replicate$label, ". Expected ",
         paste(expected_channels, collapse = " and "), "; found ",
-        paste(observed_channels, collapse = " and "), ".", call. = FALSE
+        paste(unlist(observed_pairs[1, ], use.names = FALSE), collapse = " and "),
+        ".", call. = FALSE
       )
     }
-    reversed <- geometry$x_channel == flowjo$target_source_channel &
-      geometry$y_channel == flowjo$dna_source_channel
-    if (any(reversed)) {
-      for (suffix in c("transformed", "raw")) {
-        x_name <- paste0("x_", suffix)
-        y_name <- paste0("y_", suffix)
-        temporary_value <- geometry[[x_name]][reversed]
-        geometry[[x_name]][reversed] <- geometry[[y_name]][reversed]
-        geometry[[y_name]][reversed] <- temporary_value
-      }
-      temporary_channel <- geometry$x_channel[reversed]
-      geometry$x_channel[reversed] <- geometry$y_channel[reversed]
-      geometry$y_channel[reversed] <- temporary_channel
-    }
-    sample_ids <- unique(geometry$sample_id)
-    geometry$prefix <- NA_character_
-    for (sample in replicate$samples) {
-      index <- flowjo_sample_id(sample_ids, sample$fcs)
-      geometry$prefix[
-        geometry$sample_id == sample_ids[[index]]
-      ] <- sample$prefix
-    }
-    geometry <- geometry[!is.na(geometry$prefix), , drop = FALSE]
     expected_prefixes <- vapply(
       replicate$samples, `[[`, character(1), "prefix"
     )
@@ -354,12 +357,6 @@ prepare_flowjo_gate_geometry_external <- function(
            ": ", paste(missing_prefixes, collapse = ", "), ".",
            call. = FALSE)
     }
-    geometry$replicate <- replicate$label
-    all_geometry[[length(all_geometry) + 1L]] <- geometry
   }
-  result <- do.call(rbind, all_geometry)
-  rownames(result) <- NULL
-  dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
-  utils::write.csv(result, output_file, row.names = FALSE)
   invisible(normalizePath(output_file, mustWork = TRUE))
 }

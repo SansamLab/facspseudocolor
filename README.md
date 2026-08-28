@@ -62,7 +62,11 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
   selected FlowJo workspace.
 - `examples/appearance/` — optional presentation-only YAML examples.
 - `R/` — the `facspseudocolor` package implementation.
-- `python/export_flowjo_populations.py` — the unchanged optional event exporter.
+- `python/export_flowjo_populations.py` — the optional contract-aware event exporter.
+- pH3 production exports use an immutable local operation manifest and
+  acquisition-scoped direct event identities. Direct-index semantics remain
+  conditional on successful pinned-environment verification; no row-sequence
+  or composite fallback is provided. See `docs/PYTHON_INTERFACE.md`.
 - `python/export_flowjo_gate_geometry.py` — separate optional exact gate
   geometry extractor.
 - `tools/flowjo-orchestration.R` — optional repository-level Python launcher;
