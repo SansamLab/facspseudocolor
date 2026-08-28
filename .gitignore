@@ -28,3 +28,10 @@ Thumbs.db
 
 **/*.quarto_ipynb
 .R-library/
+
+# Untracked local binaries for the explicitly SYNTHETIC source-index fixture only
+/tests/fixtures/SYNTHETIC_flowjo_index_semantics/*.fcs
+/tests/fixtures/SYNTHETIC_flowjo_index_semantics/*.wsp
+
+# Protected unrelated local audit prompt
+/PROMPT_WHOLE_DATASET_ORACLE_AUDIT.md

@@ -16,6 +16,87 @@ The installed R package neither invokes Python nor parses FlowJo workspaces.
 Python, FlowKit, pandas, and lxml are required only for the optional preprocessing
 step in `tools/flowjo-orchestration.R`.
 
+## Production export-operation contract
+
+pH3 production preprocessing uses profile
+`production_direct_identity_v1`. One explicitly named operation directory
+contains population artifacts, `export-manifest.json`, and the detached
+`export-manifest.sha256`. The digest is SHA-256 over the manifest's canonical
+UTF-8 JSON bytes (keys sorted, compact separators, one final newline); it is not
+embedded in those bytes. Final files use atomic no-clobber publication, so a
+concurrent exporter cannot replace a path already claimed by another operation;
+a completed operation is never overwritten, and every artifact is re-hashed
+before finalization.
+
+Production metadata is an explicit local JSON object. It supplies approval,
+transform/compensation context, and an acquisition entry for every workspace
+sample, including `acquisition_id`, `sample_id`, configured `prefix`, source FCS
+reference, and source FCS SHA-256. Gate owner, approver, date, local approval
+record, and positivity method ID/version are mandatory. Missing values stop the
+export; usernames and file order are never used as substitutes.
+
+Direct identity is
+`<acquisition_id>:event_index:<source-index>`. The CSV also carries the source
+`event_index` as character data, identity source/method/version,
+`duplicate_occurrence`, operation ID, `export_manifest_digest`, and an explicit
+full-manifest reference. `export_manifest_digest` is the SHA-256 of canonical
+`manifest_binding_object_v1`: schema, operation/profile/method, immutable
+workspace/software/approval contexts, explicit acquisitions, and requested
+populations. It excludes creation time, population/artifact ledgers, and the
+full-manifest digest, so the same truthful binding digest can be written into
+every event row without a hash cycle. The separate `export-manifest.sha256` is
+the SHA-256 of the complete finalized canonical manifest bytes and covers the
+artifact ledger. The two digests have distinct documented purposes.
+The exporter rejects duplicate indices within a population and never generates
+an index from output row order. R orchestration explicitly reads all identity
+columns as character and has no sequential fallback.
+
+Static inspection establishes that the index returned by FlowKit is used
+directly; it does **not** prove that the supported FlowKit `get_gate_events()`
+index denotes the same source FCS row across parent and child gates. Production
+support therefore remains conditional until the focused SYNTHETIC pinned-
+environment test is run successfully. Only then may the operator pass
+`--direct-index-semantics-verified`. Composite identity is not implemented.
+
+The pinned test independently compares every gated raw row with the raw source-
+acquisition row at the reported index; child-set membership alone is not
+sufficient proof. Production also loads only the exact relative FCS references
+declared in acquisition metadata, verifies each SHA-256, and requires exact
+agreement with workspace sample IDs. It never scans a directory to choose a
+production input.
+
+The explicit legacy profile is `legacy_count_only_unverified_v1`. It records a
+prominent warning and cannot claim identity, containment, or verified geometry.
+Legacy event identity fields are blank, and R orchestration refuses a legacy or
+ambiguous profile as production input.
+
+Population artifacts are emitted once per acquisition and requested population
+inside the dedicated operation directory. Their ledger entries carry exact
+acquisition, sample, population key, gate path, channels, row count, hash, and
+intentional-empty status. R orchestration reads and returns these immutable
+files directly; it does not create, overwrite, rename, or falsely reference an
+unledgered per-sample copy. Immediately before returning them, R invokes the
+local standard-library verifier. It revalidates the detached full-manifest
+digest and every artifact hash, size, row count, and ordered schema, then checks
+every nonempty row's operation ID, manifest-binding digest, acquisition ID,
+sample ID, and production profile against the ledger. Mutation or mismatch is
+fatal.
+
+Geometry is optional. If not requested, the population manifest records
+`geometry_overlay_status: not_requested`. If requested, the geometry exporter
+must receive the completed population `--operation-dir` and exact
+`--population-key`; it verifies the operation ID, workspace digest, sample,
+gate path, and channels, then creates an immutable linked
+`geometry-manifest.json`/`.sha256` member. Similar filenames never establish
+linkage. Geometry remains nonquantitative.
+The geometry artifact and supplement also carry the same structured linkage
+scope: one entry per acquisition/sample with exact full gate path and ordered
+channels. This scope is reconciled with the geometry rows before finalization;
+null scalar linkage cannot stand in for a multi-acquisition artifact.
+Verified R geometry orchestration handles one export operation at a time and
+writes directly inside that operation directory; it does not rewrite or merge
+the ledgered artifact.
+
 ## Exact FlowJo gate geometry
 
 `python/export_flowjo_gate_geometry.py` is a separate optional extractor for

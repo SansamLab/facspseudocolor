@@ -9,6 +9,8 @@ indices, allowing a row to be traced back to its source event.
 from __future__ import annotations
 
 import argparse
+import csv
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -16,6 +18,12 @@ from pathlib import Path
 import flowkit as fk
 import pandas as pd
 from lxml import etree
+
+from export_contract import (
+    DIRECT_METHOD_ID, LEGACY_PROFILE, PRODUCTION_PROFILE,
+    artifact_record, event_identity_fields, finalize_manifest, load_metadata, new_manifest,
+    resolve_production_fcs_files,
+)
 
 
 TRANSFORM_NS = "http://www.isac-net.org/std/Gating-ML/v2.0/transformations"
@@ -49,6 +57,28 @@ def prefix_measurements(frame: pd.DataFrame, prefix: str) -> pd.DataFrame:
     return frame
 
 
+def write_csv_atomically(frame: pd.DataFrame, path: Path, *, quote_all: bool = False) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".partial", dir=str(path.parent)
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            descriptor = -1
+            frame.to_csv(handle, index=False,
+                         quoting=csv.QUOTE_ALL if quote_all else csv.QUOTE_MINIMAL)
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Publish without clobbering a path concurrently claimed by another run.
+        os.link(temporary, path)
+        temporary.unlink()
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def flowjo_saved_counts(workspace_path: Path, populations: list[str]) -> pd.DataFrame:
     tree = etree.parse(str(workspace_path))
     rows: list[dict[str, object]] = []
@@ -71,26 +101,63 @@ def main() -> int:
     parser.add_argument("--fcs-dir", type=Path, help="directory containing the associated FCS files")
     parser.add_argument("--output-dir", type=Path, default=Path("flowjo_population_exports"))
     parser.add_argument("--populations", nargs="+", default=list(DEFAULT_POPULATIONS))
+    parser.add_argument("--population-keys", nargs="+",
+                        help="manifest keys in the same order as --populations")
+    parser.add_argument("--output-suffixes", nargs="+",
+                        help="per-acquisition artifact suffixes matching --populations")
+    parser.add_argument("--contract-metadata", type=Path,
+                        help="explicit local JSON provenance and acquisition mapping")
+    parser.add_argument("--export-operation-id")
+    parser.add_argument("--profile", choices=(PRODUCTION_PROFILE, LEGACY_PROFILE),
+                        default=LEGACY_PROFILE)
+    parser.add_argument("--direct-index-semantics-verified", action="store_true",
+                        help="attest the pinned synthetic source-index test passed")
     args = parser.parse_args()
 
-    fcs_dir = args.fcs_dir or args.workspace.parent
-    fcs_files = sorted(
-        str(path.resolve())
-        for path in fcs_dir.rglob("*")
-        if path.is_file() and path.suffix.casefold() == ".fcs"
-    )
-    if not fcs_files:
-        parser.error(f"no FCS files found under {fcs_dir}")
+    if args.population_keys and len(args.population_keys) != len(args.populations):
+        parser.error("--population-keys must match --populations one-for-one")
+    if args.output_suffixes and len(args.output_suffixes) != len(args.populations):
+        parser.error("--output-suffixes must match --populations one-for-one")
+    population_keys = args.population_keys or [safe_filename(x) for x in args.populations]
+    output_suffixes = args.output_suffixes or [f"__{safe_filename(x)}.csv" for x in args.populations]
+    if any(Path(value).name != value or not value.endswith(".csv") for value in output_suffixes):
+        parser.error("output suffixes must be path-free .csv filename suffixes")
+    output_names = [safe_filename(value) for value in args.populations]
+    if any(not value for value in output_names) or len(output_names) != len(set(output_names)):
+        parser.error("requested population names collide or become empty after filename sanitization")
+    if args.profile == PRODUCTION_PROFILE and (
+            args.contract_metadata is None or not args.export_operation_id):
+        parser.error("production profile requires --contract-metadata and --export-operation-id")
+    metadata = load_metadata(args.contract_metadata) if args.contract_metadata else {}
 
-    # Only load the FCS files the workspace actually references. This avoids
-    # loading unrelated files in the folder (e.g. truncated/corrupt exports that
-    # are not part of the analysis) which would otherwise abort the whole load.
+    fcs_dir = args.fcs_dir or args.workspace.parent
     workspace_names = {
         node.get("name", "")
         for node in etree.parse(str(args.workspace)).xpath(
             "//SampleList/Sample/SampleNode")
     }
-    if workspace_names:
+    manifest = new_manifest(
+        operation_id=args.export_operation_id or "LEGACY-UNVERIFIED",
+        profile=args.profile, workspace=args.workspace,
+        flowkit_version=fk.__version__, metadata=metadata,
+        direct_index_semantics_verified=args.direct_index_semantics_verified,
+        requested_populations=population_keys,
+    )
+    acquisition_by_sample = {
+        item["sample_id"]: item for item in manifest["acquisitions"]
+    }
+    if args.profile == PRODUCTION_PROFILE:
+        fcs_files = [str(path) for path in resolve_production_fcs_files(
+            fcs_dir, manifest["acquisitions"], workspace_names
+        )]
+    else:
+        fcs_files = sorted(
+            str(path.resolve()) for path in fcs_dir.rglob("*")
+            if path.is_file() and path.suffix.casefold() == ".fcs"
+        )
+    if not fcs_files:
+        parser.error(f"no FCS files found under {fcs_dir}")
+    if args.profile == LEGACY_PROFILE and workspace_names:
         referenced = [f for f in fcs_files if Path(f).name in workspace_names]
         skipped = [Path(f).name for f in fcs_files if Path(f).name not in workspace_names]
         if referenced:
@@ -99,6 +166,8 @@ def main() -> int:
                       f"{', '.join(skipped)}")
             fcs_files = referenced
 
+    if args.output_dir.exists() and any(args.output_dir.iterdir()):
+        parser.error(f"refusing to write into nonempty operation directory: {args.output_dir}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="flowjo_export_") as temporary_dir:
         adapted_workspace = Path(temporary_dir) / args.workspace.name
@@ -121,13 +190,24 @@ def main() -> int:
         selected_report["count_difference"] = (
             selected_report["exported_count"] - selected_report["flowjo_saved_count"]
         )
-        selected_report.to_csv(args.output_dir / "population_counts.csv", index=False)
+        counts_path = args.output_dir / "population_counts.csv"
+        write_csv_atomically(selected_report, counts_path)
+        manifest["artifacts"].append(artifact_record(
+            counts_path, operation_dir=args.output_dir, role="population_count_report",
+            row_count=len(selected_report), columns=list(selected_report.columns),
+            linkage={"export_operation_id": manifest["export_operation_id"]},
+        ))
 
-        for population in args.populations:
-            population_frames: list[pd.DataFrame] = []
+        emitted_paths: set[Path] = set()
+        for population_key, population, output_suffix in zip(
+                population_keys, args.populations, output_suffixes):
             for sample_id in sample_ids:
                 matching_paths = workspace.find_matching_gate_paths(sample_id, population)
                 if not matching_paths:
+                    if args.profile == PRODUCTION_PROFILE:
+                        raise RuntimeError(
+                            f"requested population {population!r} is missing in acquisition {sample_id!r}"
+                        )
                     continue
                 if len(matching_paths) > 1:
                     raise RuntimeError(
@@ -137,16 +217,88 @@ def main() -> int:
                 gate_path = matching_paths[0]
                 raw = workspace.get_gate_events(sample_id, population, gate_path, source="raw")
                 scaled = workspace.get_gate_events(sample_id, population, gate_path, source="xform")
+                source_indices = raw.index.map(str)
+                if any(re.fullmatch(r"0|[1-9][0-9]*", index) is None
+                       for index in source_indices):
+                    raise RuntimeError(
+                        f"source event indices are not canonical nonnegative integers in "
+                        f"{sample_id!r} / {population!r}"
+                    )
+                if source_indices.has_duplicates:
+                    raise RuntimeError(
+                        f"duplicate direct source event indices in {sample_id!r} / {population!r}"
+                    )
                 values = prefix_measurements(raw, "raw").join(prefix_measurements(scaled, "scaled"))
-                values.insert(0, "event_index", values.index.astype(int))
+                acquisition = acquisition_by_sample.get(sample_id, {})
+                acquisition_id = acquisition.get("acquisition_id", "unavailable")
+                production = args.profile == PRODUCTION_PROFILE
+                identity = event_identity_fields(args.profile, acquisition_id,
+                                                 list(source_indices))
+                values.insert(0, "export_manifest_reference",
+                              "export-manifest.json + export-manifest.sha256")
+                values.insert(0, "export_manifest_digest",
+                              manifest["manifest_binding"]["digest"])
+                values.insert(0, "export_operation_id", manifest["export_operation_id"])
+                values.insert(0, "export_profile", args.profile)
+                values.insert(0, "duplicate_occurrence", identity["duplicate_occurrence"])
+                values.insert(0, "identity_method_version", identity["identity_method_version"])
+                values.insert(0, "identity_method_id", identity["identity_method_id"])
+                values.insert(0, "identity_source", identity["identity_source"])
+                values.insert(0, "event_identity", identity["event_identity"])
+                values.insert(0, "event_index", identity["event_index"])
+                values.insert(0, "acquisition_id", identity["acquisition_id"])
                 values.insert(0, "sample_id", sample_id)
-                population_frames.append(values.reset_index(drop=True))
+                values = values.reset_index(drop=True)
 
-            output_path = args.output_dir / f"{safe_filename(population)}.csv"
-            if population_frames:
-                pd.concat(population_frames, ignore_index=True).to_csv(output_path, index=False)
-            else:
-                pd.DataFrame(columns=["sample_id", "event_index"]).to_csv(output_path, index=False)
+                gate = workspace.get_gate(sample_id, population, gate_path)
+                parent_path = "/".join(gate_path)
+                channels = [str(column).removeprefix("raw__") for column in raw.columns]
+                population_record = {
+                    "population_key": population_key, "gate_name": population,
+                    "gate_path": "/".join((*gate_path, population)),
+                    "gate_type": gate.gate_type, "parent_population_path": parent_path,
+                    "acquisition_id": acquisition_id, "sample_id": sample_id,
+                    "prefix": acquisition.get("prefix", "unavailable"),
+                    "channels": channels,
+                    "gate_channels": [str(dimension.id) for dimension in gate.dimensions],
+                    "row_count": len(values),
+                    "identity_field": "event_identity" if production else None,
+                    "identity_method_id": DIRECT_METHOD_ID if production else None,
+                    "unique_identity_count": int(values["event_identity"].nunique()) if production else None,
+                    "duplicate_base_combination_count": 0, "duplicate_row_count": 0,
+                    "intentionally_empty": len(values) == 0,
+                    "export_operation_id": manifest["export_operation_id"],
+                }
+                prefix = acquisition.get("prefix", safe_filename(sample_id))
+                output_path = args.output_dir / f"{prefix}{output_suffix}"
+                if output_path.parent.resolve() != args.output_dir.resolve():
+                    raise RuntimeError("population artifact path escapes operation directory")
+                if output_path in emitted_paths or output_path.exists():
+                    raise RuntimeError(f"per-acquisition artifact collision: {output_path.name}")
+                emitted_paths.add(output_path)
+                write_csv_atomically(values, output_path, quote_all=True)
+                artifact = artifact_record(
+                    output_path, operation_dir=args.output_dir, role="population_events",
+                    row_count=len(values), columns=list(values.columns),
+                    identity_columns=(
+                        ["acquisition_id", "event_index", "event_identity"]
+                        if args.profile == PRODUCTION_PROFILE else []
+                    ),
+                    intentionally_empty=len(values) == 0,
+                    linkage={
+                        "export_operation_id": manifest["export_operation_id"],
+                        "acquisition_id": acquisition.get("acquisition_id"),
+                        "sample_id": sample_id, "population_key": population_key,
+                        "gate_path": population_record["gate_path"],
+                        "channels": channels,
+                    },
+                )
+                population_record["artifact_path"] = artifact["path"]
+                population_record["artifact_sha256"] = artifact["sha256"]
+                manifest["populations"].append(population_record)
+                manifest["artifacts"].append(artifact)
+
+    finalize_manifest(manifest, args.output_dir)
 
     print(f"Exported {len(args.populations)} populations from {len(sample_ids)} samples to {args.output_dir}")
     for population in args.populations:

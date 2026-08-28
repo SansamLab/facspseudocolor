@@ -10,6 +10,7 @@ and inverse-transformed channel coordinates.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -18,6 +19,12 @@ import flowkit as fk
 import numpy as np
 import pandas as pd
 from lxml import etree
+
+from export_contract import (
+    artifact_record, finalize_geometry_supplement, sha256_file,
+    validate_geometry_artifact_scope, validate_geometry_coverage,
+    verify_finalized_manifest,
+)
 
 
 TRANSFORM_NS = "http://www.isac-net.org/std/Gating-ML/v2.0/transformations"
@@ -93,14 +100,44 @@ def main() -> int:
         "--output", type=Path, default=Path("flowjo_gate_geometry.csv")
     )
     parser.add_argument("--population", required=True, help="unique FlowJo gate name")
+    parser.add_argument("--operation-dir", type=Path,
+                        help="completed population operation to link and extend")
+    parser.add_argument("--population-key", help="exact manifest population key")
+    parser.add_argument("--export-operation-id", help="expected shared operation ID")
     args = parser.parse_args()
 
+    base_manifest = None
+    if args.operation_dir:
+        if not args.population_key or not args.export_operation_id:
+            parser.error("--operation-dir requires --population-key and --export-operation-id")
+        base_manifest = verify_finalized_manifest(args.operation_dir)
+        if base_manifest["export_operation_id"] != args.export_operation_id:
+            parser.error("declared geometry operation ID differs from population manifest")
+        if sha256_file(args.workspace) != base_manifest["workspace"]["sha256"]:
+            parser.error("workspace hash differs from the population export operation")
+        if args.output.parent.resolve() != args.operation_dir.resolve():
+            parser.error("linked geometry output must be directly inside --operation-dir")
+        if args.output.exists():
+            parser.error(f"refusing to overwrite geometry artifact: {args.output}")
+
     fcs_dir = args.fcs_dir or args.workspace.parent
-    fcs_files = sorted(
-        str(path.resolve())
-        for path in fcs_dir.rglob("*")
-        if path.is_file() and path.suffix.casefold() == ".fcs"
-    )
+    if base_manifest is not None:
+        fcs_files = []
+        for acquisition in base_manifest["acquisitions"]:
+            reference = Path(acquisition["source_fcs_reference"])
+            if reference.is_absolute() or ".." in reference.parts:
+                parser.error("linked source_fcs_reference must be relative and confined")
+            path = (fcs_dir / reference).resolve()
+            if fcs_dir.resolve() not in path.parents or not path.is_file():
+                parser.error("linked source FCS is missing or escapes --fcs-dir")
+            if sha256_file(path) != acquisition["source_fcs_sha256"]:
+                parser.error(f"linked source FCS SHA-256 mismatch: {acquisition['sample_id']}")
+            fcs_files.append(str(path))
+    else:
+        fcs_files = sorted(
+            str(path.resolve()) for path in fcs_dir.rglob("*")
+            if path.is_file() and path.suffix.casefold() == ".fcs"
+        )
     if not fcs_files:
         parser.error(f"no FCS files found under {fcs_dir}")
 
@@ -125,6 +162,10 @@ def main() -> int:
         sample_ids = workspace.get_sample_ids()
         if not sample_ids:
             parser.error("no FCS filenames matched the workspace samples")
+        if base_manifest is not None:
+            expected_sample_ids = {item["sample_id"] for item in base_manifest["acquisitions"]}
+            if set(sample_ids) != expected_sample_ids:
+                parser.error("loaded geometry samples do not match operation acquisitions")
 
         for sample_id in sample_ids:
             paths = workspace.find_matching_gate_paths(sample_id, args.population)
@@ -163,10 +204,17 @@ def main() -> int:
             x_raw = inverse_transform(x_transform, vertices[:, 0])
             y_raw = inverse_transform(y_transform, vertices[:, 1])
             for index in range(vertices.shape[0]):
+                acquisition = next((item for item in base_manifest["acquisitions"]
+                                    if item["sample_id"] == sample_id), None) if base_manifest else None
                 rows.append({
+                    "export_operation_id": (
+                        base_manifest["export_operation_id"] if base_manifest else "unlinked"
+                    ),
                     "sample_id": sample_id,
+                    "acquisition_id": acquisition["acquisition_id"] if acquisition else "unlinked",
+                    "prefix": acquisition["prefix"] if acquisition else "unlinked",
                     "gate_name": args.population,
-                    "gate_path": "/".join(gate_path),
+                    "gate_path": "/".join((*gate_path, args.population)),
                     "gate_type": gate.gate_type,
                     "vertex_index": index + 1,
                     "x_channel": dimensions[0].id,
@@ -178,8 +226,81 @@ def main() -> int:
                     "workspace": str(args.workspace.resolve()),
                 })
 
+    geometry = pd.DataFrame(rows)
+    if base_manifest is not None:
+        base_populations = [item for item in base_manifest["populations"]
+                            if item["population_key"] == args.population_key]
+        if not base_populations:
+            raise ValueError("population key is absent from population manifest")
+        observed = {(str(row.sample_id), str(row.gate_path),
+                     tuple([str(row.x_channel), str(row.y_channel)]))
+                    for row in geometry.itertuples()}
+        validate_geometry_coverage(
+            base_manifest["populations"], base_manifest["acquisitions"],
+            args.population_key, observed,
+        )
+        observed_scope = {
+            (str(row.acquisition_id), str(row.sample_id), str(row.gate_path),
+             (str(row.x_channel), str(row.y_channel)))
+            for row in geometry.itertuples()
+        }
+        linkage_scope = [
+            {"acquisition_id": acquisition_id, "sample_id": sample_id,
+             "gate_path": gate_path, "channels": list(channels)}
+            for acquisition_id, sample_id, gate_path, channels in sorted(observed_scope)
+        ]
+        validate_geometry_artifact_scope(linkage_scope, observed_scope)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(args.output, index=False)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{args.output.name}.", suffix=".partial", dir=str(args.output.parent)
+    )
+    temporary_output = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            descriptor = -1
+            geometry.to_csv(handle, index=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Publish without clobbering a path concurrently claimed by another run.
+        os.link(temporary_output, args.output)
+        temporary_output.unlink()
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary_output.unlink(missing_ok=True)
+        raise
+    if base_manifest is not None:
+        try:
+            geometry_artifact = artifact_record(
+                args.output, operation_dir=args.operation_dir, role="gate_geometry",
+                row_count=len(geometry), columns=list(geometry.columns),
+                linkage={"export_operation_id": base_manifest["export_operation_id"],
+                         "population_key": args.population_key},
+            )
+            geometry_artifact["linkage_scope"] = linkage_scope
+            geometry_artifact["acquisition_id"] = [item["acquisition_id"] for item in linkage_scope]
+            geometry_artifact["sample_id"] = [item["sample_id"] for item in linkage_scope]
+            geometry_artifact["gate_path"] = [item["gate_path"] for item in linkage_scope]
+            geometry_artifact["channels"] = [item["channels"] for item in linkage_scope]
+            supplement = {
+                "manifest_schema": {"name": "facspseudocolor-flowjo-geometry-linkage",
+                                "version": "1.0.0"},
+            "status": "draft",
+            "export_operation_id": base_manifest["export_operation_id"],
+            "base_manifest_digest": (args.operation_dir / "export-manifest.sha256").read_text(
+                encoding="ascii").split()[0],
+            "workspace_sha256": base_manifest["workspace"]["sha256"],
+            "population_key": args.population_key,
+            "geometry_overlay_status": "verified",
+            "geometry_linkage_scope": linkage_scope,
+            "linkage_fields": ["export_operation_id", "workspace_sha256", "sample_id",
+                               "gate_path", "channels"],
+            "artifacts": [geometry_artifact],
+            }
+            finalize_geometry_supplement(supplement, args.operation_dir)
+        except BaseException:
+            args.output.unlink(missing_ok=True)
+            raise
     print(
         f"Exported {args.population!r} geometry for {len(sample_ids)} samples "
         f"to {args.output}"

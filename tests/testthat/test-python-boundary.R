@@ -17,3 +17,35 @@ test_that("installed package contains no Python launcher", {
     expect_identical(system.file("python", package = "facspseudocolor"), "")
   }
 })
+
+test_that("repository orchestration prohibits sequential identity fallback", {
+  namespace <- asNamespace("facspseudocolor")
+  package_root <- getNamespaceInfo(namespace, "path")
+  source_checkout <- file.exists(file.path(package_root, ".Rbuildignore"))
+  orchestration_path <- test_path(
+    "..", "..", "tools", "flowjo-orchestration.R"
+  )
+  if (source_checkout) {
+    expect_true(file.exists(orchestration_path))
+    orchestration <- readLines(orchestration_path, warn = FALSE)
+    text <- paste(orchestration, collapse = "\n")
+    expect_match(text, "Sequential identity fallback is prohibited", fixed = TRUE)
+    expect_false(grepl("seq_len(sum(selected)) - 1L", text, fixed = TRUE))
+    expect_match(text, '"event_identity"', fixed = TRUE)
+    expect_match(text, 'colClasses = stats::setNames', fixed = TRUE)
+    expect_match(text, "Legacy or ambiguous FlowJo exports cannot be consumed",
+                 fixed = TRUE)
+    expect_match(text, '"export_manifest_reference"', fixed = TRUE)
+    expect_match(text, '"export_manifest_digest"', fixed = TRUE)
+    expect_false(grepl("utils::write.csv(output, output_file", text, fixed = TRUE))
+    expect_match(text, '"--verify-operation"', fixed = TRUE)
+    expect_match(text, "Finalized manifest or consumed population artifact verification failed",
+                 fixed = TRUE)
+  } else {
+    expect_false(file.exists(orchestration_path))
+    expect_identical(
+      system.file("tools", "flowjo-orchestration.R", package = "facspseudocolor"),
+      ""
+    )
+  }
+})
