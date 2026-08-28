@@ -34,6 +34,12 @@ sample, including `acquisition_id`, `sample_id`, configured `prefix`, source FCS
 reference, and source FCS SHA-256. Gate owner, approver, date, local approval
 record, and positivity method ID/version are mandatory. Missing values stop the
 export; usernames and file order are never used as substitutes.
+R accepts each recorded source FCS reference only as a nonblank confined
+relative path under the merged Slice 1 `Path` contract. Absolute, UNC,
+drive-qualified, and forward- or backslash parent-traversal variants are fatal;
+harmless empty or `.` components are normalized, and at least one component
+must remain. R does not open the source FCS while validating the recorded
+provenance.
 
 Direct identity is
 `<acquisition_id>:event_index:<source-index>`. The CSV also carries the source
@@ -69,6 +75,32 @@ The explicit legacy profile is `legacy_count_only_unverified_v1`. It records a
 prominent warning and cannot claim identity, containment, or verified geometry.
 Legacy event identity fields are blank, and R orchestration refuses a legacy or
 ambiguous profile as production input.
+
+The installed R package independently consumes finalized production operations
+when PH3 configuration supplies explicit `ph3_export_operation_dirs`. Before
+normalization it verifies the exact Slice 1 schema and method metadata, both
+manifest digests, source-FCS/workspace provenance records, approval and
+software records, exact acquisition/population/count coverage, and each
+consumed artifact's confined path, SHA-256, size, ordered schema, row count,
+channels, and row bindings. It validates G1 and pH3-positive independently as
+exact-character subsets of the same Single Cells acquisition. Duplicate
+identities, noncanonical source-index tokens, cross-acquisition matches,
+unmatched children, excess occurrences, and any hidden or extra ledger member
+are fatal. Zero-row children require exact ledger, gate, schema, approval,
+artifact, and reconciled count-report proof. Required configured channels need
+at least 10 finite Single Cell events, 2 finite G1 events, and 0 finite
+pH3-positive events. Structured results use intermediate schema
+`ph3-input-containment-1.0.0`; this is not the future `ph3-1.0.0` biological
+results schema. Verified event tables are held only long enough for the same
+analysis call to consume them and are removed from the returned input report;
+the containment table and unchanged nested manifest record remain in analysis
+provenance.
+
+For `production_direct_identity_v1`, Slice 2 returns verified normalized event
+tables plus containment/provenance only. It deliberately does not call or
+attach the pre-existing `quantify_ph3()` biological summaries; production pH3
+eligibility and metrics remain withheld until their approved later slices.
+The explicit legacy profile retains its historical `quantify_ph3()` behavior.
 
 Population artifacts are emitted once per acquisition and requested population
 inside the dedicated operation directory. Their ledger entries carry exact
@@ -157,8 +189,10 @@ Every CSV must contain the exact columns configured as `dna_channel` and
 - Nonfinite values are counted and reported; scientific functions decide
   whether enough finite events remain for their calculation.
 - Additional columns are retained and ignored unless explicitly used.
-- Repository orchestration retains `event_index` when available so population
-  membership can be traced to the original Single Cell event.
+- Production PH3 artifacts require canonical character `event_index` and all
+  Slice 1 identity/profile/operation/manifest-binding fields. Legacy inputs do
+  not gain production validation merely because a similarly named column is
+  present.
 
 For PH3 mode, an empty pH3-positive population is valid and is exported as a
 header-only CSV with the required columns. The resulting percentage is zero.

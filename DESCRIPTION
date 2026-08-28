@@ -18,7 +18,9 @@ Depends:
 Imports:
     cowplot,
     ggplot2,
+    jsonlite,
     MASS,
+    openssl,
     scales,
     yaml
 Suggests:

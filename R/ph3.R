@@ -93,15 +93,24 @@ assign_ph3_dna_phase <- function(dna, gates) {
 #'
 #' Every percentage uses all Single Cell events from the same sample as its
 #' denominator. PH3-positive events outside the explicit DNA gates, including
-#' nonfinite DNA values, are retained as `Unassigned`.
+#' nonfinite DNA values, are retained as `Unassigned`. This legacy quantitation
+#' is unavailable for production direct-identity analyses.
 #'
-#' @param analysis A PH3-mode `facs_analysis`.
+#' @param analysis A PH3-mode `facs_analysis` using the explicit legacy
+#'   count-only input profile.
 #' @return The updated analysis with `quantitation$ph3`.
 #' @export
 quantify_ph3 <- function(analysis) {
   validate_analysis_object(analysis)
   if (!identical(analysis$config$plot_type, "ph3")) {
     stop("`quantify_ph3()` requires a PH3-mode analysis.", call. = FALSE)
+  }
+  if (!identical(analysis$config$ph3_input_profile,
+                 "legacy_count_only_unverified_v1")) {
+    stop(
+      "`quantify_ph3()` requires explicit `legacy_count_only_unverified_v1` input; production PH3 biological quantitation is withheld.",
+      call. = FALSE
+    )
   }
   manifest <- analysis$sample_manifest
   gates <- ph3_gate_table(analysis$config)

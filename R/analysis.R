@@ -38,10 +38,53 @@ analysis_settings <- function(config) {
   )
 }
 
+ph3_normalization_inputs <- function(input_report, prefix, profile) {
+  if (identical(profile, "production_direct_identity_v1")) {
+    verified <- attr(input_report, "ph3_verified_events")[[prefix]]
+    if (is.null(verified) ||
+        !all(c("complete", "g1", "ph3_positive") %in% names(verified))) {
+      stop("Verified PH3 event tables are missing for ", prefix, ".",
+           call. = FALSE)
+    }
+    return(verified[c("complete", "g1", "ph3_positive")])
+  }
+  input_path <- function(population) {
+    paths <- input_report$path[input_report$prefix == prefix &
+                                 input_report$population == population]
+    if (length(paths) != 1L) {
+      stop("Validated PH3 input path is ambiguous for ", prefix, " / ",
+           population, ".", call. = FALSE)
+    }
+    paths[[1L]]
+  }
+  list(complete = input_path("complete"), g1 = input_path("g1"),
+       ph3_positive = input_path("ph3_positive"))
+}
+
 new_facs_analysis <- function(
     config, manifest, input_report, normalized_data, models,
     quantitation = list(), warnings = character()
 ) {
+  ph3_mode <- identical(config$plot_type, "ph3")
+  containment <- if (ph3_mode) attr(input_report, "ph3_containment") else NULL
+  export_manifests <- if (ph3_mode) {
+    attr(input_report, "ph3_export_manifests")
+  } else NULL
+  attr(input_report, "ph3_verified_events") <- NULL
+  provenance <- list(
+    package = "facspseudocolor",
+    package_version = as.character(
+      utils::packageVersion("facspseudocolor")
+    ),
+    r_version = R.version.string,
+    config_path = attr(config, "config_path"),
+    config_dir = attr(config, "config_dir"),
+    input_files = input_report$path[input_report$exists]
+  )
+  if (ph3_mode) {
+    provenance$ph3_containment <- containment
+    provenance$ph3_export_manifests <- export_manifests
+  }
   structure(
     list(
       artifact_version = 1L,
@@ -52,16 +95,7 @@ new_facs_analysis <- function(
       models = models,
       quantitation = quantitation,
       warnings = unique(warnings),
-      provenance = list(
-        package = "facspseudocolor",
-        package_version = as.character(
-          utils::packageVersion("facspseudocolor")
-        ),
-        r_version = R.version.string,
-        config_path = attr(config, "config_path"),
-        config_dir = attr(config, "config_dir"),
-        input_files = input_report$path[input_report$exists]
-      )
+      provenance = provenance
     ),
     class = "facs_analysis"
   )
@@ -142,17 +176,12 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
     normalized_data <- lapply(seq_len(nrow(manifest)), function(i) {
       prefix <- manifest$prefix[[i]]
       label <- manifest$condition[[i]]
-      complete_file <- file.path(
-        directory, paste0(prefix, config$suffixes$complete)
-      )
-      g1_file <- file.path(directory, paste0(prefix, config$suffixes$g1))
-      positive_file <- file.path(
-        directory, paste0(prefix, config$suffixes$ph3_positive)
-      )
+      inputs <- ph3_normalization_inputs(input_report, prefix,
+                                         config$ph3_input_profile)
       normalize_ph3(
-        events = complete_file,
-        g1_events = g1_file,
-        ph3_positive_events = positive_file,
+        events = inputs$complete,
+        g1_events = inputs$g1,
+        ph3_positive_events = inputs$ph3_positive,
         dna_channel = config$dna_channel,
         target_channel = config$target_channel,
         dna_2n_value = config$dna_2n_value,
@@ -179,7 +208,11 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
     normalized_data = normalized_data,
     models = models
   )
-  if (config$plot_type == "ph3") {
+  if (config$plot_type == "ph3" &&
+      identical(config$ph3_input_profile,
+                "production_direct_identity_v1")) {
+    analysis
+  } else if (config$plot_type == "ph3") {
     quantify_ph3(analysis)
   } else {
     quantify_cell_cycle(
