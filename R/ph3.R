@@ -844,6 +844,612 @@ derive_ph3_acquisition_tables <- function(
   )
 }
 
+ph3_aggregation_fail <- function(reason, detail) {
+  stop(
+    "PH3 replicate/condition aggregation failed [", reason, "]: ", detail,
+    ".", call. = FALSE
+  )
+}
+
+ph3_canonical_string_array <- function(value) {
+  ph3_canonical_json(as.list(sort(unique(as.character(value)))))
+}
+
+ph3_require_one_group_value <- function(data, field) {
+  value <- unique(data[[field]])
+  if (length(value) != 1L || is.na(value) ||
+      (is.character(value) && !nzchar(value))) {
+    ph3_aggregation_fail(
+      "mixed_or_missing_provenance",
+      paste0("`", field, "` must be one nonmissing value per aggregate group")
+    )
+  }
+  value[[1L]]
+}
+
+ph3_validate_slice4_aggregation_inputs <- function(
+    quantitation, manifest, analysis_provenance
+) {
+  table_names <- c(
+    "ph3_metrics_acquisition", "ph3_phase_prevalence",
+    "ph3_event_eligibility_qc", "ph3_4n_boundary_sensitivity_qc"
+  )
+  if (!is.data.frame(manifest) || !nrow(manifest) ||
+      any(!c("prefix", "condition", "condition_index", "replicate",
+             "replicate_index", "technical_replicate") %in% names(manifest)) ||
+      anyNA(manifest[c("prefix", "condition", "condition_index", "replicate",
+                       "replicate_index", "technical_replicate")]) ||
+      any(!vapply(manifest[c("prefix", "condition", "replicate",
+                             "technical_replicate")], function(value) {
+        all(nzchar(as.character(value)))
+      }, logical(1))) ||
+      anyDuplicated(manifest$prefix) ||
+      anyDuplicated(manifest[c("condition", "replicate", "technical_replicate")])) {
+    ph3_aggregation_fail(
+      "invalid_explicit_manifest",
+      "the active manifest must declare unique acquisition prefixes and condition/replicate/technical membership"
+    )
+  }
+  if (any(!table_names %in% names(quantitation)) ||
+      any(!vapply(quantitation[table_names], is.data.frame, logical(1)))) {
+    ph3_aggregation_fail(
+      "missing_slice4_table", "all four authoritative Slice 4 tables are required"
+    )
+  }
+  common <- c(
+    "analysis_id", "acquisition_id", "sample_id", "prefix", "condition",
+    "condition_index", "replicate", "replicate_index",
+    "technical_replicate", "aggregation_level",
+    "classification_schema_version", "output_schema_version",
+    "positivity_method_id", "eligibility_method_id", "interval_method_id",
+    "four_n_method_id", "sub_four_n_method_id", "containment_method_id",
+    "config_digest", "export_operation_id", "input_manifest_key"
+  )
+  expected_rows <- c(5L, 5L, 16L, 4L)
+  source_acquisitions <- NULL
+  source_mapping <- NULL
+  condition_mapping <- unique(manifest[c("condition", "condition_index")])
+  replicate_mapping <- unique(manifest[c(
+    "condition", "replicate", "replicate_index"
+  )])
+  if (anyDuplicated(condition_mapping$condition) ||
+      anyDuplicated(condition_mapping$condition_index) ||
+      anyDuplicated(replicate_mapping[c("condition", "replicate")]) ||
+      anyDuplicated(replicate_mapping[c("condition", "replicate_index")])) {
+    ph3_aggregation_fail(
+      "unstable_manifest_group_index",
+      "conditions require global index bijection and replicates require condition-scoped index bijection"
+    )
+  }
+  operations <- analysis_provenance$ph3_export_manifests
+  containment <- analysis_provenance$ph3_containment
+  if (!is.list(operations) || !length(operations) ||
+      !is.data.frame(containment)) {
+    ph3_aggregation_fail(
+      "missing_active_analysis_provenance",
+      "active export-manifest and containment provenance are required"
+    )
+  }
+  active_rows <- list()
+  active_index <- 0L
+  for (operation in operations) {
+    acquisitions <- operation$manifest$acquisitions
+    if (!is.list(acquisitions) || !length(acquisitions) ||
+        !is.character(operation$sha256) || length(operation$sha256) != 1L ||
+        is.na(operation$sha256) || !nzchar(operation$sha256) ||
+        !is.character(operation$export_operation_id) ||
+        length(operation$export_operation_id) != 1L ||
+        is.na(operation$export_operation_id) ||
+        !nzchar(operation$export_operation_id)) {
+      ph3_aggregation_fail(
+        "missing_active_analysis_provenance",
+        "active export operations lack acquisition or digest identity"
+      )
+    }
+    for (acquisition in acquisitions) {
+      required <- c("acquisition_id", "sample_id", "prefix")
+      required_values <- if (all(required %in% names(acquisition))) {
+        vapply(acquisition[required], as.character, character(1))
+      } else {
+        character()
+      }
+      if (length(required_values) != length(required) || anyNA(required_values) ||
+          any(!nzchar(required_values))) {
+        ph3_aggregation_fail(
+          "missing_active_analysis_provenance",
+          "an active manifest acquisition lacks required identity"
+        )
+      }
+      active_index <- active_index + 1L
+      active_rows[[active_index]] <- data.frame(
+        acquisition_id = acquisition$acquisition_id,
+        sample_id = acquisition$sample_id, prefix = acquisition$prefix,
+        export_operation_id = operation$export_operation_id,
+        input_manifest_key = operation$sha256, stringsAsFactors = FALSE
+      )
+    }
+  }
+  active_mapping <- do.call(rbind, active_rows)
+  if (nrow(active_mapping) != nrow(manifest) ||
+      anyDuplicated(active_mapping$acquisition_id) ||
+      anyDuplicated(active_mapping$prefix) ||
+      !setequal(active_mapping$prefix, manifest$prefix)) {
+    ph3_aggregation_fail(
+      "active_provenance_membership_mismatch",
+      "active manifest acquisitions do not match the explicit sample manifest"
+    )
+  }
+  containment_required <- c(
+    "acquisition_id", "prefix", "child_population_key", "containment_status",
+    "export_operation_id", "manifest_digest"
+  )
+  if (any(!containment_required %in% names(containment))) {
+    ph3_aggregation_fail(
+      "missing_active_analysis_provenance",
+      "active containment provenance lacks required identity fields"
+    )
+  }
+  if (nrow(containment) != 2L * nrow(active_mapping) ||
+      !setequal(unique(containment$acquisition_id), active_mapping$acquisition_id)) {
+    ph3_aggregation_fail(
+      "active_provenance_membership_mismatch",
+      "active containment acquisition membership is not exact"
+    )
+  }
+  for (i in seq_along(table_names)) {
+    name <- table_names[[i]]
+    data <- quantitation[[name]]
+    string_common <- c(
+      "analysis_id", "acquisition_id", "sample_id", "prefix", "condition",
+      "replicate", "technical_replicate", "aggregation_level",
+      "classification_schema_version", "output_schema_version",
+      "positivity_method_id", "eligibility_method_id", "interval_method_id",
+      "four_n_method_id", "sub_four_n_method_id", "containment_method_id",
+      "config_digest", "export_operation_id", "input_manifest_key"
+    )
+    if (any(!common %in% names(data)) || nrow(data) != nrow(manifest) * expected_rows[[i]] ||
+        anyNA(data[common]) || any(data$aggregation_level != "acquisition") ||
+        any(data$output_schema_version != "ph3-1.0.0") ||
+        any(!vapply(data[string_common], function(value) {
+          all(nzchar(as.character(value)))
+        }, logical(1)))) {
+      ph3_aggregation_fail(
+        "malformed_or_incomplete_slice4_table",
+        paste0("`", name, "` has missing fields, rows, values, or schema")
+      )
+    }
+    keys <- if (identical(name, "ph3_metrics_acquisition")) {
+      c("acquisition_id", "metric_id")
+    } else if (identical(name, "ph3_phase_prevalence")) {
+      c("acquisition_id", "phase_id")
+    } else if (identical(name, "ph3_event_eligibility_qc")) {
+      c("acquisition_id", "qc_dimension", "reason")
+    } else {
+      c("acquisition_id", "perturbation_id")
+    }
+    if (any(!keys %in% names(data)) || anyDuplicated(data[keys])) {
+      ph3_aggregation_fail(
+        "duplicated_or_malformed_slice4_row",
+        paste0("`", name, "` does not have unique required rows")
+      )
+    }
+    current_acquisitions <- sort(unique(data$acquisition_id))
+    if (is.null(source_acquisitions)) source_acquisitions <- current_acquisitions
+    if (!identical(current_acquisitions, source_acquisitions)) {
+      ph3_aggregation_fail(
+        "unreconciled_acquisition_membership",
+        "Slice 4 tables do not contain the same acquisitions"
+      )
+    }
+    current_mapping <- unique(data[c("prefix", "acquisition_id")])
+    current_mapping <- current_mapping[order(current_mapping$prefix), , drop = FALSE]
+    rownames(current_mapping) <- NULL
+    if (is.null(source_mapping)) source_mapping <- current_mapping
+    if (!identical(current_mapping, source_mapping)) {
+      ph3_aggregation_fail(
+        "unreconciled_acquisition_membership",
+        "Slice 4 tables disagree on the manifest-prefix/acquisition mapping"
+      )
+    }
+    for (j in seq_len(nrow(manifest))) {
+      rows <- data[data$prefix == manifest$prefix[[j]], , drop = FALSE]
+      if (nrow(rows) != expected_rows[[i]] ||
+          length(unique(rows$acquisition_id)) != 1L ||
+          any(rows$condition != manifest$condition[[j]]) ||
+          any(rows$condition_index != manifest$condition_index[[j]]) ||
+          any(rows$replicate != manifest$replicate[[j]]) ||
+          any(rows$replicate_index != manifest$replicate_index[[j]]) ||
+          any(rows$technical_replicate != manifest$technical_replicate[[j]])) {
+        ph3_aggregation_fail(
+          "manifest_membership_mismatch",
+          paste0("`", name, "` does not exactly match manifest prefix `",
+                 manifest$prefix[[j]], "`")
+        )
+      }
+    }
+  }
+  metric_order <- c(
+    "ph3_2to4n_positivity_percent", "ph3_within_4n_positivity_percent",
+    "ph3_4n_positive_prevalence_within_2to4n_percent",
+    "ph3_within_sub_4n_positivity_percent",
+    "ph3_sub_4n_positive_prevalence_within_2to4n_percent"
+  )
+  phase_order <- c("G1", "Early S", "Mid S", "Late S", "G2/M")
+  metrics <- quantitation$ph3_metrics_acquisition
+  phases <- quantitation$ph3_phase_prevalence
+  for (acquisition in source_acquisitions) {
+    if (!identical(metrics$metric_id[metrics$acquisition_id == acquisition],
+                   metric_order) ||
+        !identical(phases$phase_id[phases$acquisition_id == acquisition],
+                   phase_order) ||
+        !identical(phases$phase_index[phases$acquisition_id == acquisition],
+                   seq_along(phase_order))) {
+      ph3_aggregation_fail(
+        "missing_extra_or_reordered_required_row",
+        "each acquisition must contain the exact fixed metric and phase rows"
+      )
+    }
+    sensitivity_ids <- quantitation$ph3_4n_boundary_sensitivity_qc$perturbation_id[
+      quantitation$ph3_4n_boundary_sensitivity_qc$acquisition_id == acquisition
+    ]
+    if (!identical(sensitivity_ids,
+                   c("primary", "lower_outward", "lower_inward", "upper_inward"))) {
+      ph3_aggregation_fail(
+        "missing_extra_or_reordered_required_row",
+        "each acquisition must retain the exact four Slice 4 sensitivity rows"
+      )
+    }
+    qc <- quantitation$ph3_event_eligibility_qc[
+      quantitation$ph3_event_eligibility_qc$acquisition_id == acquisition,
+      , drop = FALSE
+    ]
+    expected_qc_dimension <- c(
+      "rows", "identity", "eligibility", rep("eligibility_exclusion", 4L),
+      rep("partition", 2L), rep("configured_phase", 6L),
+      "eligible_configured_phase_unassigned"
+    )
+    expected_qc_reason <- c(
+      "imported_classification_rows", "identity_valid", "eligible_2to4n",
+      "identity_invalid", "dna_nonfinite", "below_b0", "above_b5",
+      "sub_4n", "4n", "configured_phase_assigned", "G1", "Early S",
+      "Mid S", "Late S", "G2/M"
+    )
+    if (!identical(qc$qc_dimension, expected_qc_dimension) ||
+        !identical(qc$reason[seq_along(expected_qc_reason)], expected_qc_reason) ||
+        !qc$reason[[16L]] %in% c("none", "configured_phase_gap")) {
+      ph3_aggregation_fail(
+        "invalid_slice4_eligibility_qc_sequence",
+        "each acquisition must retain the exact Slice 4 eligibility QC rows"
+      )
+    }
+    active <- active_mapping[
+      active_mapping$acquisition_id == acquisition, , drop = FALSE
+    ]
+    containment_rows <- containment[
+      containment$acquisition_id == acquisition, , drop = FALSE
+    ]
+    if (nrow(active) != 1L ||
+        nrow(containment_rows) != 2L ||
+        !setequal(containment_rows$child_population_key, c("g1", "ph3_positive")) ||
+        any(containment_rows$containment_status != "validated") ||
+        any(containment_rows$prefix != active$prefix[[1L]]) ||
+        any(containment_rows$export_operation_id != active$export_operation_id[[1L]]) ||
+        any(containment_rows$manifest_digest != active$input_manifest_key[[1L]])) {
+      ph3_aggregation_fail(
+        "active_provenance_membership_mismatch",
+        paste0("active containment provenance does not bind acquisition `",
+               acquisition, "`")
+      )
+    }
+    source_identity <- unique(metrics[
+      metrics$acquisition_id == acquisition,
+      c("acquisition_id", "sample_id", "prefix", "export_operation_id",
+        "input_manifest_key"), drop = FALSE
+    ])
+    rownames(source_identity) <- NULL
+    rownames(active) <- NULL
+    if (!identical(source_identity, active)) {
+      ph3_aggregation_fail(
+        "active_provenance_membership_mismatch",
+        paste0("Slice 4 identity does not match active provenance for `",
+               acquisition, "`")
+      )
+    }
+    for (field in common) {
+      reference <- unique(metrics[[field]][metrics$acquisition_id == acquisition])
+      if (length(reference) != 1L) {
+        ph3_aggregation_fail(
+          "mixed_or_missing_provenance",
+          paste0("acquisition `", acquisition, "` has inconsistent `", field, "`")
+        )
+      }
+      for (name in table_names) {
+        candidate <- unique(quantitation[[name]][[field]][
+          quantitation[[name]]$acquisition_id == acquisition
+        ])
+        if (!identical(candidate, reference)) {
+          ph3_aggregation_fail(
+            "mixed_or_missing_provenance",
+            paste0("Slice 4 tables disagree on acquisition `", acquisition,
+                   "` field `", field, "`")
+          )
+        }
+      }
+    }
+  }
+  provenance <- c(
+    "analysis_id", "classification_schema_version", "output_schema_version",
+    "positivity_method_id", "eligibility_method_id", "interval_method_id",
+    "four_n_method_id", "sub_four_n_method_id", "containment_method_id",
+    "config_digest"
+  )
+  for (field in provenance) {
+    reference <- ph3_require_one_group_value(metrics, field)
+    for (name in table_names) {
+      if (!identical(ph3_require_one_group_value(quantitation[[name]], field),
+                     reference)) {
+        ph3_aggregation_fail(
+          "mixed_or_missing_provenance",
+          paste0("Slice 4 tables disagree on `", field, "`")
+        )
+      }
+    }
+  }
+  exact_methods <- c(
+    classification_schema_version = "ph3-event-classification-1.0.0",
+    output_schema_version = "ph3-1.0.0",
+    positivity_method_id = "flowjo_owner_approved_positive_population_v1",
+    eligibility_method_id =
+      "identity_validated_finite_dna_b0_b5_inclusive_v1",
+    interval_method_id = "configured_shared_boundaries_left_closed_v1",
+    four_n_method_id = "configured_b4_b5_closed_v1",
+    sub_four_n_method_id =
+      "configured_b0_b4_left_closed_right_open_v1",
+    containment_method_id = "exact_direct_identity_multiset_containment"
+  )
+  for (field in names(exact_methods)) {
+    if (!identical(ph3_require_one_group_value(metrics, field),
+                   exact_methods[[field]])) {
+      ph3_aggregation_fail(
+        "mixed_or_missing_provenance",
+        paste0("Slice 4 `", field, "` is not the approved exact identifier")
+      )
+    }
+  }
+  invisible(list(metric_order = metric_order, phase_order = phase_order))
+}
+
+ph3_aggregate_source_group <- function(data) {
+  if (!is.numeric(data$value_percent) || any(is.nan(data$value_percent)) ||
+      any(is.infinite(data$value_percent)) ||
+      any(is.finite(data$value_percent) & data$result_status != "ok") ||
+      any(is.na(data$value_percent) &
+            data$result_status != "undefined_zero_denominator")) {
+    ph3_aggregation_fail(
+      "invalid_source_value_status", "Slice 4 values and statuses disagree"
+    )
+  }
+  finite <- is.finite(data$value_percent)
+  total_n <- as.integer(nrow(data))
+  finite_n <- as.integer(sum(finite))
+  undefined_n <- as.integer(total_n - finite_n)
+  list(
+    value = if (finite_n) mean(data$value_percent[finite]) else NA_real_,
+    total_n = total_n, finite_n = finite_n, undefined_n = undefined_n,
+    status = if (!finite_n) "undefined_no_finite_values" else if (undefined_n) {
+      "ok_partial_undefined"
+    } else {
+      "ok"
+    }
+  )
+}
+
+derive_ph3_replicate_condition_tables <- function(
+    quantitation, manifest, analysis_provenance
+) {
+  orders <- ph3_validate_slice4_aggregation_inputs(
+    quantitation, manifest, analysis_provenance
+  )
+  metrics <- quantitation$ph3_metrics_acquisition
+  phases <- quantitation$ph3_phase_prevalence
+  provenance <- c(
+    "classification_schema_version", "output_schema_version",
+    "positivity_method_id", "eligibility_method_id", "interval_method_id",
+    "four_n_method_id", "sub_four_n_method_id", "containment_method_id",
+    "config_digest"
+  )
+  replicate_groups <- unique(manifest[c(
+    "condition", "condition_index", "replicate", "replicate_index"
+  )])
+  replicate_groups <- replicate_groups[order(
+    replicate_groups$condition_index, replicate_groups$replicate_index
+  ), , drop = FALSE]
+
+  aggregate_replicates <- function(source, identity_field, identity_order,
+                                   descriptor_fields) {
+    rows <- list()
+    row_index <- 0L
+    for (i in seq_len(nrow(replicate_groups))) {
+      group <- replicate_groups[i, , drop = FALSE]
+      for (identity in identity_order) {
+        selected <- source[
+          source$condition == group$condition &
+            source$condition_index == group$condition_index &
+            source$replicate == group$replicate &
+            source$replicate_index == group$replicate_index &
+            source[[identity_field]] == identity, , drop = FALSE
+        ]
+        result <- ph3_aggregate_source_group(selected)
+        fixed <- c(descriptor_fields, provenance)
+        fixed_values <- lapply(fixed, function(field) {
+          ph3_require_one_group_value(selected, field)
+        })
+        names(fixed_values) <- fixed
+        row_index <- row_index + 1L
+        rows[[row_index]] <- c(
+          list(
+            analysis_id = ph3_require_one_group_value(selected, "analysis_id"),
+            condition = group$condition[[1L]],
+            condition_index = as.integer(group$condition_index[[1L]]),
+            replicate = group$replicate[[1L]],
+            replicate_index = as.integer(group$replicate_index[[1L]]),
+            aggregation_level = "biological_replicate"
+          ), fixed_values,
+          list(
+            value_percent = result$value,
+            technical_acquisition_count = result$total_n,
+            finite_technical_acquisition_count = result$finite_n,
+            undefined_technical_acquisition_count = result$undefined_n,
+            result_status = result$status,
+            source_acquisition_ids =
+              ph3_canonical_string_array(selected$acquisition_id),
+            source_export_operation_ids =
+              ph3_canonical_string_array(selected$export_operation_id),
+            source_input_manifest_keys =
+              ph3_canonical_string_array(selected$input_manifest_key),
+            aggregation_method_id =
+              "unweighted_technical_percentage_mean_within_biorep_condition_v1"
+          )
+        )
+      }
+    }
+    as.data.frame(do.call(rbind, lapply(rows, as.data.frame)),
+                  stringsAsFactors = FALSE)
+  }
+
+  metric_replicates <- aggregate_replicates(
+    metrics, "metric_id", orders$metric_order,
+    c("metric_id", "population_id", "interval_lower", "interval_upper",
+      "lower_inclusive", "upper_inclusive")
+  )
+  phase_replicates <- aggregate_replicates(
+    phases, "phase_id", orders$phase_order,
+    c("metric_id", "phase_id", "phase_index", "interval_lower",
+      "interval_upper", "lower_inclusive", "upper_inclusive")
+  )
+
+  aggregate_conditions <- function(source, identity_field, identity_order,
+                                   descriptor_fields) {
+    conditions <- unique(manifest[c("condition", "condition_index")])
+    conditions <- conditions[order(conditions$condition_index), , drop = FALSE]
+    rows <- list()
+    row_index <- 0L
+    for (i in seq_len(nrow(conditions))) {
+      group <- conditions[i, , drop = FALSE]
+      for (identity in identity_order) {
+        selected <- source[
+          source$condition == group$condition &
+            source$condition_index == group$condition_index &
+            source[[identity_field]] == identity, , drop = FALSE
+        ]
+        finite <- is.finite(selected$value_percent)
+        total_n <- as.integer(nrow(selected))
+        finite_n <- as.integer(sum(finite))
+        undefined_n <- as.integer(total_n - finite_n)
+        mean_value <- if (finite_n) mean(selected$value_percent[finite]) else NA_real_
+        sd_value <- if (finite_n >= 2L) stats::sd(selected$value_percent[finite]) else NA_real_
+        sem_value <- if (finite_n >= 2L) sd_value / sqrt(finite_n) else NA_real_
+        status <- if (!finite_n) {
+          "undefined_no_finite_values"
+        } else if (undefined_n) {
+          "ok_partial_undefined"
+        } else if (finite_n == 1L && total_n == 1L) {
+          "ok_single_biological_replicate"
+        } else {
+          "ok"
+        }
+        fixed <- c(descriptor_fields, provenance)
+        fixed_values <- lapply(fixed, function(field) {
+          ph3_require_one_group_value(selected, field)
+        })
+        names(fixed_values) <- fixed
+        row_index <- row_index + 1L
+        rows[[row_index]] <- c(
+          list(
+            analysis_id = ph3_require_one_group_value(selected, "analysis_id"),
+            condition = group$condition[[1L]],
+            condition_index = as.integer(group$condition_index[[1L]]),
+            aggregation_level = "condition"
+          ), fixed_values,
+          list(
+            mean_percent = mean_value, sd_percent = sd_value,
+            sem_percent = sem_value,
+            biological_replicate_count = total_n,
+            finite_biological_replicate_count = finite_n,
+            undefined_biological_replicate_count = undefined_n,
+            result_status = status,
+            source_replicate_ids =
+              ph3_canonical_string_array(selected$replicate),
+            aggregation_method_id =
+              "unweighted_biological_replicate_mean_within_condition_v1"
+          )
+        )
+      }
+    }
+    as.data.frame(do.call(rbind, lapply(rows, as.data.frame)),
+                  stringsAsFactors = FALSE)
+  }
+
+  metric_conditions <- aggregate_conditions(
+    metric_replicates, "metric_id", orders$metric_order,
+    c("metric_id", "population_id", "interval_lower", "interval_upper",
+      "lower_inclusive", "upper_inclusive")
+  )
+  phase_conditions <- aggregate_conditions(
+    phase_replicates, "phase_id", orders$phase_order,
+    c("metric_id", "phase_id", "phase_index", "interval_lower",
+      "interval_upper", "lower_inclusive", "upper_inclusive")
+  )
+
+  metric_replicate_columns <- c(
+    "analysis_id", "condition", "condition_index", "replicate",
+    "replicate_index", "aggregation_level", "metric_id", "population_id",
+    "interval_lower", "interval_upper", "lower_inclusive", "upper_inclusive",
+    "value_percent", "technical_acquisition_count",
+    "finite_technical_acquisition_count", "undefined_technical_acquisition_count",
+    "result_status", "source_acquisition_ids", "source_export_operation_ids",
+    "source_input_manifest_keys", "classification_schema_version",
+    "output_schema_version", "aggregation_method_id", "positivity_method_id",
+    "eligibility_method_id", "interval_method_id", "four_n_method_id",
+    "sub_four_n_method_id", "containment_method_id", "config_digest"
+  )
+  phase_replicate_columns <- append(metric_replicate_columns, "phase_id", 7L)
+  phase_replicate_columns <- append(phase_replicate_columns, "phase_index", 8L)
+  phase_replicate_columns <- phase_replicate_columns[
+    phase_replicate_columns != "population_id"
+  ]
+  metric_condition_columns <- c(
+    "analysis_id", "condition", "condition_index", "aggregation_level",
+    "metric_id", "population_id", "interval_lower", "interval_upper",
+    "lower_inclusive", "upper_inclusive", "mean_percent", "sd_percent",
+    "sem_percent", "biological_replicate_count",
+    "finite_biological_replicate_count", "undefined_biological_replicate_count",
+    "result_status", "source_replicate_ids", "classification_schema_version",
+    "output_schema_version", "aggregation_method_id", "positivity_method_id",
+    "eligibility_method_id", "interval_method_id", "four_n_method_id",
+    "sub_four_n_method_id", "containment_method_id", "config_digest"
+  )
+  phase_condition_columns <- append(metric_condition_columns, "phase_id", 5L)
+  phase_condition_columns <- append(phase_condition_columns, "phase_index", 6L)
+  phase_condition_columns <- phase_condition_columns[
+    phase_condition_columns != "population_id"
+  ]
+  tables <- list(
+    ph3_metrics_biological_replicate =
+      metric_replicates[metric_replicate_columns],
+    ph3_phase_prevalence_biological_replicate =
+      phase_replicates[phase_replicate_columns],
+    ph3_metrics_condition_summary =
+      metric_conditions[metric_condition_columns],
+    ph3_phase_prevalence_condition_summary =
+      phase_conditions[phase_condition_columns]
+  )
+  lapply(tables, function(data) {
+    rownames(data) <- NULL
+    data
+  })
+}
+
 quantify_ph3_production_acquisitions <- function(analysis) {
   if (!identical(analysis$config$plot_type, "ph3") ||
       !identical(analysis$config$ph3_input_profile,
@@ -866,6 +1472,12 @@ quantify_ph3_production_acquisitions <- function(analysis) {
       rbind, lapply(tables, `[[`, name)
     )
     rownames(analysis$quantitation[[name]]) <- NULL
+  }
+  aggregate_tables <- derive_ph3_replicate_condition_tables(
+    analysis$quantitation, analysis$sample_manifest, analysis$provenance
+  )
+  for (name in names(aggregate_tables)) {
+    analysis$quantitation[[name]] <- aggregate_tables[[name]]
   }
   analysis
 }
