@@ -1,5 +1,6 @@
 ph3_test_config <- function() {
   config <- minimal_config("ph3")
+  config$ph3_input_profile <- "legacy_count_only_unverified_v1"
   config$g1_x_range <- c(750, 1250)
   config$s_phase_bins <- list(
     early = c(1250, 1450),
@@ -120,10 +121,11 @@ test_that("empty PH3-positive CSVs are valid and counts cannot exceed denominato
       row.names = FALSE
     )
   }
-  expect_silent(validate_facs_inputs(config, directory))
+  expect_warning(validate_facs_inputs(config, directory),
+                 "LEGACY COUNT-ONLY PH3 INPUT")
 })
 
-test_that("PH3 input validation verifies event membership when indices exist", {
+test_that("legacy PH3 input never claims event membership validation", {
   config <- ph3_test_config()
   directory <- withr::local_tempdir()
   for (prefix in c("reference", "treatment")) {
@@ -147,12 +149,30 @@ test_that("PH3 input validation verifies event membership when indices exist", {
       row.names = FALSE
     )
   }
-  report <- validate_facs_inputs(config, directory)
-  expect_true(all(
+  warnings <- character()
+  report <- withCallingHandlers(
+    validate_facs_inputs(config, directory),
+    warning = function(warning) {
+      warnings <<- c(warnings, conditionMessage(warning))
+      invokeRestart("muffleWarning")
+    }
+  )
+  expect_length(warnings, 1L)
+  expect_match(warnings[[1L]], "LEGACY COUNT-ONLY PH3 INPUT")
+  expect_false(any(
     report$subset_membership_validated[
-      report$population == "ph3_positive"
+      report$population %in% c("g1", "ph3_positive")
     ]
   ))
+  legacy <- attr(report, "ph3_containment")
+  expect_equal(nrow(legacy), 4L)
+  expect_setequal(legacy$prefix, c("reference", "treatment"))
+  expect_setequal(legacy$child_population_key, c("g1", "ph3_positive"))
+  expect_true(all(legacy$containment_status == "unverified"))
+  expect_true(all(legacy$containment_reason_code ==
+                  "legacy_identity_unavailable"))
+  expect_true(all(is.na(legacy$acquisition_id)))
+  expect_true(all(is.na(legacy$identity_method_id)))
 
   invalid <- utils::read.csv(
     file.path(directory, "treatment_ph3_positive.csv"),
@@ -163,7 +183,24 @@ test_that("PH3 input validation verifies event membership when indices exist", {
     invalid, file.path(directory, "treatment_ph3_positive.csv"),
     row.names = FALSE
   )
-  expect_error(validate_facs_inputs(config, directory), "outside")
+  expect_error(suppressWarnings(validate_facs_inputs(config, directory)),
+               "outside")
+
+  invalid$event_index[[1]] <- invalid$event_index[[2]]
+  utils::write.csv(
+    invalid, file.path(directory, "treatment_ph3_positive.csv"),
+    row.names = FALSE
+  )
+  expect_error(suppressWarnings(validate_facs_inputs(config, directory)),
+               "duplicate event_index")
+
+  invalid$event_index[[1]] <- NA
+  utils::write.csv(
+    invalid, file.path(directory, "treatment_ph3_positive.csv"),
+    row.names = FALSE
+  )
+  expect_error(suppressWarnings(validate_facs_inputs(config, directory)),
+               "missing.*event_index")
 })
 
 test_that("PH3 plotting APIs return editable plots", {
@@ -215,7 +252,16 @@ test_that("high-level PH3 analysis runs from the three explicit CSV populations"
       seq(1000, 6000, length.out = 6)
     )
   }
-  analysis <- analyze_facs_experiment(config, data_dir = directory)
+  warnings <- character()
+  analysis <- withCallingHandlers(
+    analyze_facs_experiment(config, data_dir = directory),
+    warning = function(warning) {
+      warnings <<- c(warnings, conditionMessage(warning))
+      invokeRestart("muffleWarning")
+    }
+  )
+  expect_length(warnings, 1L)
+  expect_match(warnings[[1L]], "LEGACY COUNT-ONLY PH3 INPUT")
   expect_s3_class(analysis, "facs_analysis")
   expect_identical(analysis$config$plot_type, "ph3")
   expect_length(analysis$normalized_data, 2)

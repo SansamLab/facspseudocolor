@@ -25,7 +25,7 @@ facs_config_keys <- function() {
     "quant_reference_condition", "quant_show_points", "quant_phase_lineplot",
     "bar_colors", "layout", "layout_options", "pdf_width",
     "pdf_height_per_row", "output_pdf", "output_png", "samples",
-    "replicates", "flowjo"
+    "replicates", "flowjo", "ph3_input_profile", "ph3_export_operation_dirs"
   )
 }
 
@@ -284,6 +284,30 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   }
 
   if (plot_type == "ph3") {
+    if (!config_scalar_string(config$ph3_input_profile) ||
+        !config$ph3_input_profile %in% c(
+          "production_direct_identity_v1", "legacy_count_only_unverified_v1"
+        )) {
+      errors <- config_add_error(
+        errors,
+        "PH3 mode requires explicit `ph3_input_profile`: 'production_direct_identity_v1' or 'legacy_count_only_unverified_v1'."
+      )
+    } else if (identical(config$ph3_input_profile,
+                         "production_direct_identity_v1")) {
+      raw_directories <- config$ph3_export_operation_dirs
+      valid_directories <-
+        (is.character(raw_directories) && length(raw_directories) > 0L &&
+         all(vapply(as.list(raw_directories), config_scalar_string, logical(1)))) ||
+        (is.list(raw_directories) && length(raw_directories) > 0L &&
+         is.null(names(raw_directories)) &&
+         all(vapply(raw_directories, config_scalar_string, logical(1))))
+      if (!valid_directories) {
+        errors <- config_add_error(
+          errors,
+          "Production PH3 mode requires one or more explicit nonempty `ph3_export_operation_dirs`."
+        )
+      }
+    }
     ph3_ranges <- list(
       g1 = config$g1_x_range,
       early = if (is.list(config$s_phase_bins)) config$s_phase_bins$early else NULL,

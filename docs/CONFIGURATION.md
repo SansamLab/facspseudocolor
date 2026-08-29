@@ -28,6 +28,23 @@ PH3 replicates contain `label` and `samples` but no `reference`. PH3 requires
 explicit contiguous `g1_x_range`, Early/Mid/Late `s_phase_bins`, and
 `g2m_x_range` values.
 
+PH3 also requires an explicit `ph3_input_profile`. Production uses
+`production_direct_identity_v1` plus one or more explicit
+`ph3_export_operation_dirs`. Each directory must be a finalized Slice 1 export
+operation. Relative operation directories are resolved only beneath `data_dir`;
+the package does not search for a nearby operation. The historical profile
+`legacy_count_only_unverified_v1` is an explicit opt-in, warns once during
+analysis, and never claims identity or containment validation. Its structured
+rows are keyed by configured prefix and child population; acquisition,
+identity, manifest, and hash fields remain explicitly unavailable rather than
+being inferred from filenames or row order.
+
+In Slice 2, production PH3 analysis returns validated normalized events and
+containment/provenance only; its quantitation list remains empty until the
+approved production metric slices are implemented. The explicit legacy profile
+retains historical pH3 quantitation and conditional `event_index` safety checks,
+without reporting identity containment as validated.
+
 There are no package defaults for these scientific phase boundaries. The
 values in `examples/config_ph3.yml` are visible starting examples only and are
 never inserted into a configuration automatically.

@@ -37,7 +37,7 @@ minimal_config <- function(plot_type = "edu") {
     list(label = "Reference", prefix = "reference"),
     list(label = "Treatment", prefix = "treatment")
   )
-  list(
+  config <- list(
     plot_type = plot_type,
     data_dir = "explicit/data/path",
     dna_channel = "DNA",
@@ -51,6 +51,10 @@ minimal_config <- function(plot_type = "edu") {
       list(label = "Replicate 1", samples = samples)
     })
   )
+  if (identical(plot_type, "ph3")) {
+    config$ph3_input_profile <- "legacy_count_only_unverified_v1"
+  }
+  config
 }
 
 read_example_config <- function(filename) {

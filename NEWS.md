@@ -2,6 +2,13 @@
 
 ## Quality assurance
 
+- Added fail-closed R-side consumption of finalized PH3 export operations and
+  independent exact-identity containment validation for G1 and pH3-positive
+  populations within Single Cells. Structured intermediate results are retained
+  in analysis input/provenance, while verified event frames remain transient;
+  production biological quantitation remains withheld, and explicit legacy
+  input remains unverified while retaining its historical safety checks.
+
 - Added the pH3 Slice 1 fail-closed local export-operation manifest, scoped
   direct-event identity fields, optional verified geometry linkage, and an
   unmistakable legacy count-only profile. Production direct identity remains

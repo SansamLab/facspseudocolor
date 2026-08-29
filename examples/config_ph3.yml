@@ -2,9 +2,13 @@
 # with values explicitly chosen for the experiment.
 plot_type: "ph3"
 data_dir: "/explicit/path/to/ph3_csvs"
+ph3_input_profile: "production_direct_identity_v1"
+ph3_export_operation_dirs:
+  - ".flowjo_export/Biological_replicate_1"
+  - ".flowjo_export/Biological_replicate_2"
 
-dna_channel: "DNA content"
-target_channel: "pH3 signal"
+dna_channel: "raw__explicit-DNA-detector"
+target_channel: "raw__explicit-pH3-detector"
 target_name: "pH3"
 
 suffixes:

@@ -1,5 +1,12 @@
 # Normalized pseudocolor plots: signal vs DNA content
 
+PH3 production input requires explicit finalized Slice 1 export-operation
+directories. R verifies immutable provenance and independently proves G1 and
+pH3-positive containment within Single Cells before normalization. Legacy
+count-only PH3 input is explicit and is always reported as unverified.
+Production Slice 2 returns containment/provenance and normalized events but
+withholds legacy pH3 biological quantitation pending the approved metric slices.
+
 [![R package checks](https://github.com/SansamLab/facspseudocolor/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/SansamLab/facspseudocolor/actions/workflows/R-CMD-check.yaml)
 
 A reusable R package with a Quarto front end for making publication-style **pseudocolor
