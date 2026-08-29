@@ -332,7 +332,7 @@ test_that("SYNTHETIC active provenance and Slice 3 predicates fail closed", {
   )
 })
 
-test_that("SYNTHETIC production attachment exposes only Slice 4 tables", {
+test_that("SYNTHETIC production retains Slice 4 and attaches exact Slice 5 tables", {
   analysis <- structure(list(
     config = synthetic_slice4_config(),
     sample_manifest = synthetic_slice4_manifest(),
@@ -344,13 +344,61 @@ test_that("SYNTHETIC production attachment exposes only Slice 4 tables", {
       ph3_containment = synthetic_slice4_containment()
     ), input_report = data.frame()
   ), class = "facs_analysis")
+  expected_slice4 <- derive_ph3_acquisition_tables(
+    synthetic_slice4_classification(), synthetic_slice4_manifest(),
+    synthetic_slice4_config(), synthetic_slice4_export_manifests(),
+    synthetic_slice4_containment()
+  )
   result <- quantify_ph3_production_acquisitions(analysis)
-  expect_identical(names(result$quantitation), c(
+  approved_names <- c(
     "ph3_metrics_acquisition", "ph3_phase_prevalence",
-    "ph3_event_eligibility_qc", "ph3_4n_boundary_sensitivity_qc"
+    "ph3_event_eligibility_qc", "ph3_4n_boundary_sensitivity_qc",
+    "ph3_metrics_biological_replicate",
+    "ph3_phase_prevalence_biological_replicate",
+    "ph3_metrics_condition_summary",
+    "ph3_phase_prevalence_condition_summary"
+  )
+  expect_identical(names(result$quantitation), approved_names)
+  expect_true(all(vapply(result$quantitation, is.data.frame, logical(1))))
+  for (name in names(expected_slice4)) {
+    expect_identical(result$quantitation[[name]], expected_slice4[[name]],
+                     info = name)
+  }
+  expect_identical(vapply(
+    result$quantitation[approved_names[1:4]], nrow, integer(1)
+  ), c(
+    ph3_metrics_acquisition = 5L, ph3_phase_prevalence = 5L,
+    ph3_event_eligibility_qc = 16L,
+    ph3_4n_boundary_sensitivity_qc = 4L
   ))
+  expect_identical(vapply(
+    result$quantitation[approved_names[5:8]], nrow, integer(1)
+  ), c(
+    ph3_metrics_biological_replicate = 5L,
+    ph3_phase_prevalence_biological_replicate = 5L,
+    ph3_metrics_condition_summary = 5L,
+    ph3_phase_prevalence_condition_summary = 5L
+  ))
+  replicate_tables <- result$quantitation[approved_names[5:6]]
+  expect_true(all(vapply(replicate_tables, function(data) {
+    identical(unique(data$condition), "SYNTHETIC condition") &&
+      identical(unique(data$condition_index), 1L) &&
+      identical(unique(data$replicate), "SYNTHETIC Replicate 1") &&
+      identical(unique(data$replicate_index), 1L) &&
+      identical(unique(data$source_acquisition_ids), '["SYNTHETIC-A"]') &&
+      identical(unique(data$aggregation_level), "biological_replicate")
+  }, logical(1))))
+  condition_tables <- result$quantitation[approved_names[7:8]]
+  expect_true(all(vapply(condition_tables, function(data) {
+    identical(unique(data$condition), "SYNTHETIC condition") &&
+      identical(unique(data$condition_index), 1L) &&
+      identical(unique(data$source_replicate_ids),
+                '["SYNTHETIC Replicate 1"]') &&
+      identical(unique(data$aggregation_level), "condition")
+  }, logical(1))))
+  expect_false("ph3" %in% names(result$quantitation))
   expect_false(any(grepl(
-    "biological|aggregate|csv|plot|report|geometry",
+    "csv|rds|plot|report|geometry|gui|compat|alias|legacy|slice.?6",
     names(result$quantitation), ignore.case = TRUE
   )))
   expect_identical(result$normalized_data[[1L]]$ph3_event_classification,

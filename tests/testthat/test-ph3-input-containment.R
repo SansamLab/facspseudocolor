@@ -358,7 +358,8 @@ write_synthetic_ph3_operation <- function(
     transformation_context = "SYNTHETIC", compensation_context = "SYNTHETIC",
     approval = list(gate_owner = "SYNTHETIC OWNER", approver = "SYNTHETIC APPROVER",
       approval_date = "2026-08-24", approval_record = "SYNTHETIC/approval.md",
-      positivity_method_id = "SYNTHETIC_METHOD", positivity_method_version = "1"),
+      positivity_method_id = "flowjo_owner_approved_positive_population_v1",
+      positivity_method_version = "1"),
     acquisitions = acquisitions,
     requested_populations = as.list(c("complete", "g1", "ph3_positive")),
     populations = populations, artifacts = artifacts,
@@ -835,7 +836,7 @@ test_that("structured production results and provenance are retained exactly", {
   expect_null(attr(analysis$input_report, "ph3_verified_events"))
 })
 
-test_that("production high-level analysis retains containment and Slice 4 acquisition tables", {
+test_that("production high-level analysis retains Slice 4 and appends Slice 5 tables", {
   operation <- withr::local_tempdir(pattern = "SYNTHETIC_operation_")
   write_synthetic_ph3_operation(operation)
   analysis <- analyze_facs_experiment(synthetic_production_config(operation))
@@ -860,7 +861,11 @@ test_that("production high-level analysis retains containment and Slice 4 acquis
   )))
   approved_names <- c(
     "ph3_metrics_acquisition", "ph3_phase_prevalence",
-    "ph3_event_eligibility_qc", "ph3_4n_boundary_sensitivity_qc"
+    "ph3_event_eligibility_qc", "ph3_4n_boundary_sensitivity_qc",
+    "ph3_metrics_biological_replicate",
+    "ph3_phase_prevalence_biological_replicate",
+    "ph3_metrics_condition_summary",
+    "ph3_phase_prevalence_condition_summary"
   )
   expect_identical(names(analysis$quantitation), approved_names)
   expect_true(all(vapply(
@@ -873,8 +878,28 @@ test_that("production high-level analysis retains containment and Slice 4 acquis
   )
   expect_identical(nrow(analysis$quantitation$ph3_event_eligibility_qc), 32L)
   expect_true(all(vapply(
-    analysis$quantitation,
+    analysis$quantitation[approved_names[1:4]],
     function(x) identical(unique(x$aggregation_level), "acquisition"),
+    logical(1)
+  )))
+  expect_identical(
+    nrow(analysis$quantitation$ph3_metrics_biological_replicate), 10L
+  )
+  expect_identical(
+    nrow(analysis$quantitation$ph3_phase_prevalence_biological_replicate), 10L
+  )
+  expect_identical(nrow(analysis$quantitation$ph3_metrics_condition_summary), 10L)
+  expect_identical(
+    nrow(analysis$quantitation$ph3_phase_prevalence_condition_summary), 10L
+  )
+  expect_true(all(vapply(
+    analysis$quantitation[approved_names[5:6]],
+    function(x) identical(unique(x$aggregation_level), "biological_replicate"),
+    logical(1)
+  )))
+  expect_true(all(vapply(
+    analysis$quantitation[approved_names[7:8]],
+    function(x) identical(unique(x$aggregation_level), "condition"),
     logical(1)
   )))
   expected_acquisition_ids <- c("SYNTHETIC-reference", "SYNTHETIC-treatment")
@@ -884,7 +909,7 @@ test_that("production high-level analysis retains containment and Slice 4 acquis
     ph3_event_eligibility_qc = 16L,
     ph3_4n_boundary_sensitivity_qc = 4L
   )
-  for (name in approved_names) {
+  for (name in approved_names[1:4]) {
     table_value <- analysis$quantitation[[name]]
     expect_identical(
       sort(unique(table_value$acquisition_id)), expected_acquisition_ids,
@@ -898,7 +923,7 @@ test_that("production high-level analysis retains containment and Slice 4 acquis
   }
   expect_false("ph3" %in% names(analysis$quantitation))
   expect_false(any(grepl(
-    "biological|aggregate|condition_stat|csv|plot|report|geometry",
+    "aggregate|condition_stat|csv|plot|report|geometry|compat",
     names(analysis$quantitation), ignore.case = TRUE
   )))
   quantitation_before_rejected_call <- analysis$quantitation
