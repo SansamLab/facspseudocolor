@@ -844,6 +844,20 @@ test_that("production high-level analysis retains containment but withholds metr
   expect_equal(nrow(analysis$provenance$ph3_containment), 4L)
   expect_length(analysis$provenance$ph3_export_manifests, 1L)
   expect_length(analysis$normalized_data, 2L)
+  expect_true(all(vapply(
+    analysis$normalized_data,
+    function(x) is.data.frame(x$ph3_event_classification), logical(1)
+  )))
+  expect_true(all(vapply(
+    analysis$normalized_data,
+    function(x) nrow(x$ph3_event_classification) == nrow(x$data), logical(1)
+  )))
+  expect_true(all(vapply(
+    analysis$normalized_data,
+    function(x) identical(
+      x$ph3_event_classification$event_identity, x$data$event_identity
+    ), logical(1)
+  )))
   expect_identical(analysis$quantitation, list())
   expect_false("ph3" %in% names(analysis$quantitation))
   expect_error(
