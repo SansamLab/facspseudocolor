@@ -393,7 +393,7 @@ write_synthetic_ph3_operation <- function(
 
 synthetic_production_config <- function(operation_dir) {
   operation_dir <- vapply(operation_dir, normalizePath, character(1),
-                          mustWork = FALSE, USE.NAMES = FALSE)
+                          winslash = "/", mustWork = FALSE, USE.NAMES = FALSE)
   config <- minimal_config("ph3")
   config$data_dir <- dirname(operation_dir[[1L]])
   config$ph3_input_profile <- "production_direct_identity_v1"
@@ -625,12 +625,14 @@ test_that("relative operation directories cannot escape data_dir", {
   expect_error(ph3_resolve_operation_dirs(config, base), "operation_path_escape")
 
   config$ph3_export_operation_dirs <- "SYNTHETIC/./operation"
-  normalized_base <- normalizePath(base, mustWork = TRUE)
+  normalized_base <- normalizePath(base, winslash = "/", mustWork = TRUE)
+  resolved <- ph3_resolve_operation_dirs(config, base)
   expect_identical(
-    ph3_resolve_operation_dirs(config, base),
+    resolved,
     normalizePath(file.path(normalized_base, "SYNTHETIC", "operation"),
-                  mustWork = FALSE)
+                  winslash = "/", mustWork = FALSE)
   )
+  expect_false(any(grepl("\\\\", resolved, fixed = TRUE)))
 })
 
 test_that("fractional counts, duplicate identity columns, and linkage fail", {

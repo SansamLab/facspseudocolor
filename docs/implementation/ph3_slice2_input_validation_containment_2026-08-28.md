@@ -1,7 +1,7 @@
 # pH3 Slice 2 input validation and containment implementation
 
-**Status:** CORRECTED AFTER USER-REPORTED FAIL — NOT RUN AFTER CORRECTION,
-LOCAL RERUN REQUIRED
+**Status:** WINDOWS PATH-PORTABILITY CORRECTION PREPARED — NOT RUN AFTER
+CORRECTION, LOCAL RERUN AND WINDOWS CI REQUIRED
 
 ## Scope and provenance
 
@@ -262,6 +262,43 @@ documentation, examples, and installed-package tests all completed successfully.
 Final package-check result: **Status: OK** with no errors, warnings, or notes.
 The tarball and `facspseudocolor.Rcheck` directory were generated only beneath
 the reported temporary check directory, outside the repository.
+
+## Windows CI path-portability correction
+
+Pull request 18 at commit `c2f7aaab81a9cbba2c5fe43513958677925193e5`
+passed the macOS R-release, Ubuntu R-release, and Ubuntu R-old-release jobs.
+The Windows R-release package-check job (job `98961998619` in workflow run
+`33204504738`) failed with 18 failures and 797 passes. All failures were in
+`tests/testthat/test-ph3-input-containment.R` and arose before the intended
+SYNTHETIC validation assertions, with `manifest_path_escape` or
+`operation_path_escape` reason codes.
+
+The root cause was platform-inconsistent spelling of paths used in containment
+comparisons. On Windows, `normalizePath()` defaults to backslashes, while the
+security prefixes could be assembled with a different separator spelling.
+Valid manifest, digest, and ledger-member paths could therefore fail a lexical
+`startsWith()` containment check even though they were within the normalized
+operation directory.
+
+The correction is deliberately limited to path representation, not acceptance
+semantics. Every base/member path participating in PH3 operation-directory,
+manifest/digest, or artifact containment is now normalized with
+`winslash = "/"`, and every containment prefix is constructed with the same
+forward-slash convention. The focused SYNTHETIC setup and harmless-dot
+expectation use the same explicit convention and assert that resolved operation
+paths contain no Windows backslashes. Traversal rejection, containment,
+existence, regular-file, manifest, digest, ledger, identity, and all other
+fail-closed checks remain in place and unchanged.
+
+Files affected by this Windows correction: `R/input.R`,
+`tests/testthat/test-ph3-input-containment.R`, and this implementation record.
+Experimental inputs read or modified: none. Sample mappings, exclusions, gates,
+thresholds, normalization, statistics, biological quantitation, and biological
+claims changed: none. Agents did not execute project code, R or Python tests,
+package commands, renders, examples, snapshots, analyses, or benchmarks.
+Verification status for this correction is **NOT RUN — local execution
+required**. A successful macOS rerun is necessary but not sufficient; after
+human approval and push, the GitHub Actions Windows R-release job must pass.
 
 ## Assumptions and unresolved uncertainty
 

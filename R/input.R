@@ -427,7 +427,8 @@ ph3_fail <- function(acquisition, population, reason, detail) {
 
 ph3_resolve_operation_dirs <- function(config, data_dir = NULL) {
   directories <- unlist(config$ph3_export_operation_dirs, use.names = FALSE)
-  base <- normalizePath(resolve_facs_directory(config, data_dir), mustWork = FALSE)
+  base <- normalizePath(resolve_facs_directory(config, data_dir),
+                        winslash = "/", mustWork = FALSE)
   resolved <- vapply(directories, function(path) {
     expanded <- path.expand(path)
     portable <- gsub("\\\\", "/", expanded)
@@ -446,9 +447,9 @@ ph3_resolve_operation_dirs <- function(config, data_dir = NULL) {
         base
       }
     }
-    path <- normalizePath(expanded, mustWork = FALSE)
+    path <- normalizePath(expanded, winslash = "/", mustWork = FALSE)
     if (relative && !identical(path, base) &&
-        !startsWith(path, paste0(base, .Platform$file.sep))) {
+        !startsWith(path, paste0(base, "/"))) {
       ph3_fail("unknown", "manifest", "operation_path_escape",
                "relative export-operation directories must remain beneath data_dir")
     }
@@ -469,8 +470,9 @@ ph3_operation_member <- function(
     ph3_fail(acquisition, population, reason,
              "ledger member path must be one nonempty relative path")
   }
-  path <- normalizePath(file.path(operation$directory, relative), mustWork = FALSE)
-  root <- paste0(operation$directory, .Platform$file.sep)
+  path <- normalizePath(file.path(operation$directory, relative),
+                        winslash = "/", mustWork = FALSE)
+  root <- paste0(operation$directory, "/")
   if (!startsWith(path, root) || !file.exists(path) ||
       !utils::file_test("-f", path)) {
     ph3_fail(acquisition, population, reason,
@@ -726,10 +728,10 @@ ph3_read_verified_operation <- function(operation_dir) {
     ph3_fail("unknown", "manifest", "missing_finalized_manifest",
              paste0("required manifest/digest pair is absent in ", operation_dir))
   }
-  operation_root <- normalizePath(operation_dir, mustWork = TRUE)
-  manifest_path <- normalizePath(manifest_path, mustWork = TRUE)
-  digest_path <- normalizePath(digest_path, mustWork = TRUE)
-  root_prefix <- paste0(operation_root, .Platform$file.sep)
+  operation_root <- normalizePath(operation_dir, winslash = "/", mustWork = TRUE)
+  manifest_path <- normalizePath(manifest_path, winslash = "/", mustWork = TRUE)
+  digest_path <- normalizePath(digest_path, winslash = "/", mustWork = TRUE)
+  root_prefix <- paste0(operation_root, "/")
   if (!startsWith(manifest_path, root_prefix) ||
       !startsWith(digest_path, root_prefix) ||
       !utils::file_test("-f", manifest_path) ||
