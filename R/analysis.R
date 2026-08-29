@@ -173,12 +173,14 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
       )
     })
   } else {
+    ph3_containment <- attr(input_report, "ph3_containment")
+    ph3_export_manifests <- attr(input_report, "ph3_export_manifests")
     normalized_data <- lapply(seq_len(nrow(manifest)), function(i) {
       prefix <- manifest$prefix[[i]]
       label <- manifest$condition[[i]]
       inputs <- ph3_normalization_inputs(input_report, prefix,
                                          config$ph3_input_profile)
-      normalize_ph3(
+      normalized <- normalize_ph3(
         events = inputs$complete,
         g1_events = inputs$g1,
         ph3_positive_events = inputs$ph3_positive,
@@ -188,6 +190,16 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
         g1_anchor = config$g1_anchor,
         sample_id = label
       )
+      if (identical(config$ph3_input_profile,
+                    "production_direct_identity_v1")) {
+        normalized$ph3_event_classification <- build_ph3_event_classification(
+          normalized = normalized, validated_inputs = inputs, config = config,
+          manifest_row = manifest[i, , drop = FALSE],
+          containment = ph3_containment,
+          export_manifests = ph3_export_manifests
+        )
+      }
+      normalized
     })
     models <- lapply(normalized_data, function(x) {
       list(

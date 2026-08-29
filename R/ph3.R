@@ -89,6 +89,288 @@ assign_ph3_dna_phase <- function(dna, gates) {
   factor(assignment, levels = c(gates$gate, "Unassigned"))
 }
 
+ph3_configuration_digest <- function(config) {
+  value <- as.list(config)
+  location_only <- c(
+    "data_dir", "output_pdf", "output_png", "ph3_export_operation_dirs"
+  )
+  value <- value[setdiff(names(value), location_only)]
+  listify_vectors <- function(x) {
+    if (is.list(x)) return(lapply(x, listify_vectors))
+    if (length(x) > 1L) return(lapply(as.list(x), listify_vectors))
+    x
+  }
+  value <- listify_vectors(value)
+  digest <- as.character(openssl::sha256(charToRaw(
+    paste0(ph3_canonical_json(value), "\n")
+  )))
+  attributes(digest) <- NULL
+  digest
+}
+
+ph3_classification_fail <- function(acquisition_id, reason, detail) {
+  stop(
+    "PH3 event classification failed [", reason, "] for ", acquisition_id,
+    ": ", detail, ".", call. = FALSE
+  )
+}
+
+ph3_analysis_id <- function(config_digest, export_manifests) {
+  operations <- lapply(export_manifests, function(x) list(
+    export_operation_id = x$export_operation_id, manifest_sha256 = x$sha256
+  ))
+  order_key <- vapply(operations, `[[`, character(1), "export_operation_id")
+  operations <- operations[order(order_key)]
+  digest <- as.character(openssl::sha256(charToRaw(paste0(
+    ph3_canonical_json(list(
+      config_sha256 = config_digest, export_operations = operations
+    )), "\n"
+  ))))
+  attributes(digest) <- NULL
+  paste0("ph3-analysis-sha256:", digest)
+}
+
+ph3_classification_context <- function(
+    prefix, containment, export_manifests
+) {
+  rows <- containment[containment$prefix == prefix, , drop = FALSE]
+  if (nrow(rows) != 2L ||
+      !setequal(rows$child_population_key, c("g1", "ph3_positive")) ||
+      any(rows$containment_status != "validated") ||
+      length(unique(rows$acquisition_id)) != 1L ||
+      length(unique(rows$parent_row_count)) != 1L ||
+      length(unique(rows$export_operation_id)) != 1L ||
+      length(unique(rows$manifest_digest)) != 1L ||
+      length(unique(rows$identity_method_id)) != 1L ||
+      length(unique(rows$identity_method_version)) != 1L ||
+      length(unique(rows$identity_source)) != 1L ||
+      length(unique(rows$containment_method_id)) != 1L) {
+    ph3_classification_fail(
+      prefix, "invalid_containment_context",
+      "exact validated G1 and pH3-positive containment is required"
+    )
+  }
+  acquisition_id <- rows$acquisition_id[[1L]]
+  operations <- Filter(function(x) {
+    identical(x$export_operation_id, rows$export_operation_id[[1L]])
+  }, export_manifests)
+  if (length(operations) != 1L ||
+      !identical(operations[[1L]]$sha256, rows$manifest_digest[[1L]])) {
+    ph3_classification_fail(
+      acquisition_id, "manifest_linkage_mismatch",
+      "containment must link to exactly one verified export manifest"
+    )
+  }
+  acquisition <- Filter(function(x) identical(x$acquisition_id, acquisition_id),
+                        operations[[1L]]$manifest$acquisitions)
+  if (length(acquisition) != 1L || !identical(acquisition[[1L]]$prefix, prefix)) {
+    ph3_classification_fail(
+      acquisition_id, "acquisition_linkage_mismatch",
+      "the verified manifest acquisition and configured prefix disagree"
+    )
+  }
+  list(rows = rows, operation = operations[[1L]], acquisition = acquisition[[1L]])
+}
+
+build_ph3_event_classification <- function(
+    normalized, validated_inputs, config, manifest_row, containment,
+    export_manifests
+) {
+  prefix <- manifest_row$prefix[[1L]]
+  context <- ph3_classification_context(prefix, containment, export_manifests)
+  acquisition_id <- context$acquisition$acquisition_id
+  parent <- normalized$data
+  g1 <- normalized$g1
+  positive <- normalized$ph3_positive
+  required_identity <- c(
+    "acquisition_id", "event_index", "event_identity", "identity_source",
+    "identity_method_id", "identity_method_version", "duplicate_occurrence",
+    "export_profile", "export_operation_id", "export_manifest_digest"
+  )
+  validated_parent <- validated_inputs$complete
+  validated_g1 <- validated_inputs$g1
+  validated_positive <- validated_inputs$ph3_positive
+  if (any(!required_identity %in% names(parent)) ||
+      any(!required_identity %in% names(g1)) ||
+      any(!required_identity %in% names(positive)) ||
+      any(!required_identity %in% names(validated_parent)) ||
+      any(!required_identity %in% names(validated_g1)) ||
+      any(!required_identity %in% names(validated_positive)) ||
+      any(!c("dna_norm", "target_raw", config$dna_channel) %in% names(parent)) ||
+      anyNA(parent$event_identity) || any(!nzchar(parent$event_identity)) ||
+      anyDuplicated(parent$event_identity) ||
+      nrow(parent) != context$rows$parent_row_count[[1L]] ||
+      !identical(parent$event_identity, validated_parent$event_identity) ||
+      any(parent$acquisition_id != acquisition_id) ||
+      any(parent$export_operation_id != context$rows$export_operation_id[[1L]]) ||
+      any(parent$export_manifest_digest !=
+          context$operation$manifest$manifest_binding$digest)) {
+    ph3_classification_fail(
+      acquisition_id, "parent_identity_inconsistency",
+      "validated parent identity, row count, or immutable binding changed"
+    )
+  }
+  validate_direct_identity <- function(table, population) {
+    canonical_index <- !is.na(table$event_index) &
+      grepl("^(0|[1-9][0-9]*)$", table$event_index)
+    if (any(!canonical_index) ||
+        any(table$event_identity != paste0(
+          acquisition_id, ":event_index:", table$event_index
+        )) ||
+        any(table$identity_source != context$rows$identity_source[[1L]]) ||
+        any(table$identity_method_id != context$rows$identity_method_id[[1L]]) ||
+        any(table$identity_method_version !=
+              context$rows$identity_method_version[[1L]]) ||
+        any(table$export_profile != context$operation$manifest$profile) ||
+        anyNA(table$duplicate_occurrence) ||
+        any(table$duplicate_occurrence != "1")) {
+      ph3_classification_fail(
+        acquisition_id, paste0(population, "_direct_identity_mismatch"),
+        "canonical direct event identity or its immutable provenance changed"
+      )
+    }
+  }
+  validate_direct_identity(parent, "parent")
+  child_membership <- function(child, validated_child, population) {
+    evidence <- context$rows[
+      context$rows$child_population_key == population, , drop = FALSE
+    ]
+    if (anyNA(child$event_identity) || anyDuplicated(child$event_identity) ||
+        any(!child$event_identity %in% parent$event_identity) ||
+        !identical(child$event_identity, validated_child$event_identity) ||
+        nrow(child) != evidence$child_row_count[[1L]] ||
+        length(unique(child$event_identity)) !=
+          evidence$child_unique_identity_count[[1L]] ||
+        nrow(child) != evidence$matched_child_count[[1L]] ||
+        any(child$acquisition_id != acquisition_id) ||
+        any(child$export_operation_id !=
+              context$rows$export_operation_id[[1L]]) ||
+        any(child$export_manifest_digest !=
+              context$operation$manifest$manifest_binding$digest) ||
+        any(child$identity_method_id != context$rows$identity_method_id[[1L]]) ||
+        any(child$identity_source != context$rows$identity_source[[1L]])) {
+      ph3_classification_fail(
+        acquisition_id, paste0(population, "_identity_inconsistency"),
+        "child membership no longer matches validated direct identity"
+      )
+    }
+    validate_direct_identity(child, population)
+    parent$event_identity %in% child$event_identity
+  }
+  g1_member <- child_membership(g1, validated_g1, "g1")
+  ph3_positive_member <- child_membership(
+    positive, validated_positive, "ph3_positive"
+  )
+
+  gates <- ph3_gate_table(config)
+  bounds <- c(gates$xmin[[1L]], gates$xmax)
+  if (length(bounds) != 6L || any(!is.finite(bounds)) ||
+      any(diff(bounds) <= 0)) {
+    ph3_classification_fail(
+      acquisition_id, "invalid_configured_boundaries",
+      "b0 through b5 must be six finite strictly increasing boundaries"
+    )
+  }
+  dna <- parent$dna_norm
+  dna_finite <- is.finite(dna)
+  identity_valid <- rep(TRUE, nrow(parent))
+  eligible <- identity_valid & dna_finite & dna >= bounds[[1L]] &
+    dna <= bounds[[6L]]
+  sub_four <- eligible & dna < bounds[[5L]]
+  four_n <- eligible & dna >= bounds[[5L]]
+  phase <- as.character(assign_ph3_dna_phase(dna, gates))
+  phase_assigned <- eligible & phase != "Unassigned"
+  exclusion_reason <- ifelse(
+    !identity_valid, "identity_invalid",
+    ifelse(!dna_finite, "dna_nonfinite",
+      ifelse(dna < bounds[[1L]], "below_b0",
+        ifelse(dna > bounds[[6L]], "above_b5", "none")))
+  )
+  unassigned_reason <- ifelse(
+    eligible & !phase_assigned, "configured_phase_gap", "none"
+  )
+  config_digest <- ph3_configuration_digest(config)
+  positivity_method_id <- context$operation$manifest$approval$positivity_method_id
+  geometry_status <- context$operation$manifest$geometry_overlay_status
+  classification <- data.frame(
+    classification_schema_version = "ph3-event-classification-1.0.0",
+    analysis_id = ph3_analysis_id(config_digest, export_manifests),
+    acquisition_id = acquisition_id,
+    sample_id = context$acquisition$sample_id,
+    prefix = prefix,
+    parent_row_number = seq_len(nrow(parent)),
+    event_index = parent$event_index,
+    event_identity = parent$event_identity,
+    event_identity_base = parent$event_identity,
+    identity_occurrence = parent$duplicate_occurrence,
+    identity_source = parent$identity_source,
+    identity_method_id = parent$identity_method_id,
+    identity_method_version = parent$identity_method_version,
+    identity_valid = identity_valid,
+    containment_method_id = context$rows$containment_method_id[[1L]],
+    g1_member = g1_member,
+    ph3_positive_member = ph3_positive_member,
+    g1_containment_status = context$rows$containment_status[
+      match("g1", context$rows$child_population_key)
+    ],
+    ph3_containment_status = context$rows$containment_status[
+      match("ph3_positive", context$rows$child_population_key)
+    ],
+    dna_raw = parent[[config$dna_channel]],
+    dna_norm = dna,
+    dna_finite = dna_finite,
+    b0 = bounds[[1L]], b1 = bounds[[2L]], b2 = bounds[[3L]],
+    b3 = bounds[[4L]], b4 = bounds[[5L]], b5 = bounds[[6L]],
+    eligible_2to4n = eligible,
+    sub_4n_member = sub_four,
+    four_n_member = four_n,
+    configured_phase_id = phase,
+    configured_phase_assigned = phase_assigned,
+    eligibility_exclusion_reason = exclusion_reason,
+    unassigned_reason = unassigned_reason,
+    target_raw = parent$target_raw,
+    target_display = parent$target_raw,
+    target_display_finite = is.finite(parent$target_raw),
+    display_transform_id = "raw_identity_v1",
+    geometry_linkage_status = geometry_status,
+    input_manifest_key = context$rows$manifest_digest[[1L]],
+    input_manifest_reference = context$rows$manifest_reference[[1L]],
+    config_digest = config_digest,
+    export_profile = parent$export_profile,
+    export_operation_id = context$rows$export_operation_id[[1L]],
+    positivity_method_id = positivity_method_id,
+    eligibility_method_id = "identity_validated_finite_dna_b0_b5_inclusive_v1",
+    interval_method_id = "configured_shared_boundaries_left_closed_v1",
+    four_n_method_id = "configured_b4_b5_closed_v1",
+    sub_four_n_method_id =
+      "configured_b0_b4_left_closed_right_open_v1",
+    output_schema_version = "ph3-1.0.0",
+    stringsAsFactors = FALSE
+  )
+  exclusion_levels <- c(
+    "none", "identity_invalid", "dna_nonfinite", "below_b0", "above_b5"
+  )
+  if (nrow(classification) != nrow(parent) ||
+      any(!classification$eligibility_exclusion_reason %in% exclusion_levels) ||
+      sum(classification$eligible_2to4n) +
+        sum(classification$eligibility_exclusion_reason != "none") != nrow(parent) ||
+      any(classification$sub_4n_member & classification$four_n_member) ||
+      sum(classification$sub_4n_member) + sum(classification$four_n_member) !=
+        sum(classification$eligible_2to4n) ||
+      sum(classification$configured_phase_assigned) +
+        sum(classification$eligible_2to4n &
+              classification$unassigned_reason != "none") !=
+        sum(classification$eligible_2to4n) ||
+      !identical(classification$g1_member, g1_member) ||
+      !identical(classification$ph3_positive_member, ph3_positive_member)) {
+    ph3_classification_fail(
+      acquisition_id, "classification_reconciliation_failure",
+      "row, exclusion, partition, phase, or membership counts do not reconcile"
+    )
+  }
+  classification
+}
+
 #' Quantify user-gated pH3-positive events
 #'
 #' Every percentage uses all Single Cell events from the same sample as its
