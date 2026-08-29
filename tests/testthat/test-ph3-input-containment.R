@@ -835,7 +835,7 @@ test_that("structured production results and provenance are retained exactly", {
   expect_null(attr(analysis$input_report, "ph3_verified_events"))
 })
 
-test_that("production high-level analysis retains containment but withholds metrics", {
+test_that("production high-level analysis retains containment and Slice 4 acquisition tables", {
   operation <- withr::local_tempdir(pattern = "SYNTHETIC_operation_")
   write_synthetic_ph3_operation(operation)
   analysis <- analyze_facs_experiment(synthetic_production_config(operation))
@@ -858,13 +858,55 @@ test_that("production high-level analysis retains containment but withholds metr
       x$ph3_event_classification$event_identity, x$data$event_identity
     ), logical(1)
   )))
-  expect_identical(analysis$quantitation, list())
+  approved_names <- c(
+    "ph3_metrics_acquisition", "ph3_phase_prevalence",
+    "ph3_event_eligibility_qc", "ph3_4n_boundary_sensitivity_qc"
+  )
+  expect_identical(names(analysis$quantitation), approved_names)
+  expect_true(all(vapply(
+    analysis$quantitation, is.data.frame, logical(1)
+  )))
+  expect_identical(nrow(analysis$quantitation$ph3_metrics_acquisition), 10L)
+  expect_identical(nrow(analysis$quantitation$ph3_phase_prevalence), 10L)
+  expect_identical(
+    nrow(analysis$quantitation$ph3_4n_boundary_sensitivity_qc), 8L
+  )
+  expect_identical(nrow(analysis$quantitation$ph3_event_eligibility_qc), 32L)
+  expect_true(all(vapply(
+    analysis$quantitation,
+    function(x) identical(unique(x$aggregation_level), "acquisition"),
+    logical(1)
+  )))
+  expected_acquisition_ids <- c("SYNTHETIC-reference", "SYNTHETIC-treatment")
+  expected_rows_per_acquisition <- c(
+    ph3_metrics_acquisition = 5L,
+    ph3_phase_prevalence = 5L,
+    ph3_event_eligibility_qc = 16L,
+    ph3_4n_boundary_sensitivity_qc = 4L
+  )
+  for (name in approved_names) {
+    table_value <- analysis$quantitation[[name]]
+    expect_identical(
+      sort(unique(table_value$acquisition_id)), expected_acquisition_ids,
+      info = name
+    )
+    acquisition_rows <- table(table_value$acquisition_id)
+    expect_identical(
+      as.integer(acquisition_rows[expected_acquisition_ids]),
+      rep(expected_rows_per_acquisition[[name]], 2L), info = name
+    )
+  }
   expect_false("ph3" %in% names(analysis$quantitation))
+  expect_false(any(grepl(
+    "biological|aggregate|condition_stat|csv|plot|report|geometry",
+    names(analysis$quantitation), ignore.case = TRUE
+  )))
+  quantitation_before_rejected_call <- analysis$quantitation
   expect_error(
     quantify_ph3(analysis),
     "legacy_count_only_unverified_v1"
   )
-  expect_identical(analysis$quantitation, list())
+  expect_identical(analysis$quantitation, quantitation_before_rejected_call)
 })
 
 test_that("EdU and POI result provenance remains unchanged", {

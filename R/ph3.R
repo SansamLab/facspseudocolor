@@ -371,6 +371,505 @@ build_ph3_event_classification <- function(
   classification
 }
 
+ph3_metrics_fail <- function(acquisition_id, reason, detail) {
+  stop(
+    "PH3 acquisition metrics failed [", reason, "] for ", acquisition_id,
+    ": ", detail, ".", call. = FALSE
+  )
+}
+
+ph3_classification_scalar <- function(classification, field, acquisition_id) {
+  value <- unique(classification[[field]])
+  if (length(value) != 1L || is.na(value) ||
+      (is.character(value) && !nzchar(value))) {
+    ph3_metrics_fail(
+      acquisition_id, "classification_provenance_inconsistency",
+      paste0("`", field, "` must contain one nonmissing value")
+    )
+  }
+  value[[1L]]
+}
+
+validate_ph3_metric_classification <- function(
+    classification, manifest_row, config, export_manifests, containment
+) {
+  required <- c(
+    "classification_schema_version", "analysis_id", "acquisition_id",
+    "sample_id", "prefix", "event_identity", "identity_valid",
+    "ph3_positive_member", "g1_containment_status",
+    "ph3_containment_status", "dna_norm", "dna_finite", "b0", "b1",
+    "b2", "b3", "b4", "b5", "eligible_2to4n", "sub_4n_member",
+    "four_n_member", "configured_phase_id", "configured_phase_assigned",
+    "eligibility_exclusion_reason", "unassigned_reason",
+    "input_manifest_key", "config_digest", "export_operation_id",
+    "positivity_method_id", "eligibility_method_id", "interval_method_id",
+    "four_n_method_id", "sub_four_n_method_id", "containment_method_id",
+    "output_schema_version"
+  )
+  acquisition_id <- if (is.data.frame(classification) &&
+                          "acquisition_id" %in% names(classification) &&
+                          nrow(classification)) {
+    as.character(classification$acquisition_id[[1L]])
+  } else {
+    as.character(manifest_row$prefix[[1L]])
+  }
+  if (!is.data.frame(classification) || any(!required %in% names(classification))) {
+    ph3_metrics_fail(
+      acquisition_id, "missing_or_malformed_classification",
+      "the retained Slice 3 classification is absent or lacks required fields"
+    )
+  }
+  logical_fields <- c(
+    "identity_valid", "ph3_positive_member", "dna_finite",
+    "eligible_2to4n", "sub_4n_member", "four_n_member",
+    "configured_phase_assigned"
+  )
+  if (!nrow(classification) || any(vapply(
+      classification[logical_fields], function(x) !is.logical(x) || anyNA(x),
+      logical(1)
+    )) || anyNA(classification$event_identity) ||
+      any(!nzchar(classification$event_identity)) ||
+      anyDuplicated(classification$event_identity)) {
+    ph3_metrics_fail(
+      acquisition_id, "missing_or_malformed_classification",
+      "classification rows, identities, or logical membership fields are invalid"
+    )
+  }
+  scalar_fields <- c(
+    "classification_schema_version", "analysis_id", "acquisition_id",
+    "sample_id", "prefix", "g1_containment_status",
+    "ph3_containment_status", paste0("b", 0:5), "input_manifest_key",
+    "config_digest", "export_operation_id", "positivity_method_id",
+    "eligibility_method_id", "interval_method_id", "four_n_method_id",
+    "sub_four_n_method_id", "containment_method_id", "output_schema_version"
+  )
+  values <- stats::setNames(lapply(
+    scalar_fields,
+    function(field) ph3_classification_scalar(classification, field, acquisition_id)
+  ), scalar_fields)
+  bounds <- as.numeric(unlist(values[paste0("b", 0:5)]))
+  active_gates <- ph3_gate_table(config)
+  active_bounds <- c(active_gates$xmin[[1L]], active_gates$xmax)
+  phases <- c("G1", "Early S", "Mid S", "Late S", "G2/M")
+  exclusion_levels <- c(
+    "none", "identity_invalid", "dna_nonfinite", "below_b0", "above_b5"
+  )
+  eligible <- classification$eligible_2to4n
+  active_config_digest <- ph3_configuration_digest(config)
+  active_operations <- Filter(function(operation) {
+    identical(operation$export_operation_id, values$export_operation_id)
+  }, export_manifests)
+  active_acquisitions <- if (length(active_operations) == 1L) {
+    Filter(function(acquisition) {
+      identical(acquisition$acquisition_id, values$acquisition_id)
+    }, active_operations[[1L]]$manifest$acquisitions)
+  } else {
+    list()
+  }
+  containment_fields <- c(
+    "acquisition_id", "prefix", "child_population_key", "containment_status",
+    "containment_method_id", "export_operation_id", "manifest_digest"
+  )
+  active_containment <- if (is.data.frame(containment) &&
+                              all(containment_fields %in% names(containment))) {
+    containment[
+      containment$acquisition_id == values$acquisition_id, , drop = FALSE
+    ]
+  } else {
+    data.frame()
+  }
+  if (length(active_operations) != 1L ||
+      length(active_acquisitions) != 1L ||
+      !identical(active_acquisitions[[1L]]$sample_id, values$sample_id) ||
+      !identical(active_acquisitions[[1L]]$prefix, values$prefix) ||
+      !identical(active_operations[[1L]]$sha256, values$input_manifest_key) ||
+      !identical(active_operations[[1L]]$manifest$approval$positivity_method_id,
+                 values$positivity_method_id) ||
+      !identical(active_config_digest, values$config_digest) ||
+      !identical(ph3_analysis_id(active_config_digest, export_manifests),
+                 values$analysis_id) ||
+      !identical(values$containment_method_id,
+                 "exact_direct_identity_multiset_containment") ||
+      nrow(active_containment) != 2L ||
+      !setequal(active_containment$child_population_key,
+                c("g1", "ph3_positive")) ||
+      any(active_containment$containment_status != "validated") ||
+      any(active_containment$containment_method_id !=
+            values$containment_method_id) ||
+      any(active_containment$prefix != values$prefix) ||
+      any(active_containment$export_operation_id !=
+            values$export_operation_id) ||
+      any(active_containment$manifest_digest != values$input_manifest_key)) {
+    ph3_metrics_fail(
+      acquisition_id, "active_provenance_mismatch",
+      "classification configuration, manifest, operation, positivity, or analysis binding does not match the active analysis"
+    )
+  }
+  expected_eligible <- classification$identity_valid &
+    classification$dna_finite & classification$dna_norm >= bounds[[1L]] &
+    classification$dna_norm <= bounds[[6L]]
+  expected_sub_four <- expected_eligible &
+    classification$dna_norm < bounds[[5L]]
+  expected_four_n <- expected_eligible &
+    classification$dna_norm >= bounds[[5L]]
+  phase_gates <- data.frame(
+    gate = phases, gate_index = seq_along(phases),
+    xmin = bounds[1:5], xmax = bounds[2:6], stringsAsFactors = FALSE
+  )
+  expected_phase <- as.character(assign_ph3_dna_phase(
+    classification$dna_norm, phase_gates
+  ))
+  expected_phase_assigned <- expected_eligible & expected_phase != "Unassigned"
+  expected_exclusion <- ifelse(
+    !classification$identity_valid, "identity_invalid",
+    ifelse(!classification$dna_finite, "dna_nonfinite",
+      ifelse(classification$dna_norm < bounds[[1L]], "below_b0",
+        ifelse(classification$dna_norm > bounds[[6L]], "above_b5", "none")))
+  )
+  expected_unassigned <- ifelse(
+    expected_eligible & !expected_phase_assigned, "configured_phase_gap", "none"
+  )
+  if (!identical(values$classification_schema_version,
+                 "ph3-event-classification-1.0.0") ||
+      !identical(values$output_schema_version, "ph3-1.0.0") ||
+      !identical(values$eligibility_method_id,
+                 "identity_validated_finite_dna_b0_b5_inclusive_v1") ||
+      !identical(values$interval_method_id,
+                 "configured_shared_boundaries_left_closed_v1") ||
+      !identical(values$four_n_method_id,
+                 "configured_b4_b5_closed_v1") ||
+      !identical(values$sub_four_n_method_id,
+                 "configured_b0_b4_left_closed_right_open_v1") ||
+      !identical(values$g1_containment_status, "validated") ||
+      !identical(values$ph3_containment_status, "validated") ||
+      !identical(values$prefix, as.character(manifest_row$prefix[[1L]])) ||
+      any(!is.finite(bounds)) || any(diff(bounds) <= 0) ||
+      !identical(bounds, active_bounds) ||
+      !all(classification$identity_valid) ||
+      !identical(classification$dna_finite,
+                 is.finite(classification$dna_norm)) ||
+      any(!classification$eligibility_exclusion_reason %in% exclusion_levels) ||
+      any(!classification$unassigned_reason %in%
+            c("none", "configured_phase_gap")) ||
+      !identical(classification$eligible_2to4n, expected_eligible) ||
+      !identical(classification$sub_4n_member, expected_sub_four) ||
+      !identical(classification$four_n_member, expected_four_n) ||
+      !identical(as.character(classification$configured_phase_id),
+                 expected_phase) ||
+      !identical(classification$configured_phase_assigned,
+                 expected_phase_assigned) ||
+      !identical(classification$eligibility_exclusion_reason,
+                 expected_exclusion) ||
+      !identical(classification$unassigned_reason, expected_unassigned) ||
+      sum(eligible) +
+        sum(classification$eligibility_exclusion_reason != "none") !=
+        nrow(classification) ||
+      any(eligible !=
+        (classification$eligibility_exclusion_reason == "none")) ||
+      any(classification$sub_4n_member & classification$four_n_member) ||
+      any((classification$sub_4n_member | classification$four_n_member) &
+        !eligible) ||
+      sum(classification$sub_4n_member) +
+        sum(classification$four_n_member) != sum(eligible) ||
+      any(classification$configured_phase_assigned !=
+        (eligible & classification$configured_phase_id %in% phases)) ||
+      any(eligible & !classification$configured_phase_assigned &
+        classification$unassigned_reason == "none") ||
+      any((!eligible | classification$configured_phase_assigned) &
+        classification$unassigned_reason != "none")) {
+    ph3_metrics_fail(
+      acquisition_id, "classification_reconciliation_failure",
+      "Slice 3 provenance, eligibility, partition, phase, or reason fields do not reconcile"
+    )
+  }
+  list(acquisition_id = acquisition_id, values = values, bounds = bounds,
+       phases = phases)
+}
+
+ph3_percentage_result <- function(numerator, denominator) {
+  numerator <- as.integer(numerator)
+  denominator <- as.integer(denominator)
+  if (denominator == 0L) {
+    return(list(value = NA_real_, status = "undefined_zero_denominator"))
+  }
+  value <- 100 * numerator / denominator
+  if (!is.finite(value)) {
+    stop("PH3 percentage calculation produced a nonfinite value.", call. = FALSE)
+  }
+  list(value = value, status = "ok")
+}
+
+ph3_metric_common <- function(manifest_row, context) {
+  values <- context$values
+  data.frame(
+    analysis_id = values$analysis_id,
+    acquisition_id = values$acquisition_id,
+    sample_id = values$sample_id,
+    prefix = as.character(manifest_row$prefix[[1L]]),
+    condition = as.character(manifest_row$condition[[1L]]),
+    condition_index = as.integer(manifest_row$condition_index[[1L]]),
+    replicate = as.character(manifest_row$replicate[[1L]]),
+    replicate_index = as.integer(manifest_row$replicate_index[[1L]]),
+    technical_replicate = as.character(manifest_row$technical_replicate[[1L]]),
+    aggregation_level = "acquisition",
+    classification_schema_version = values$classification_schema_version,
+    output_schema_version = values$output_schema_version,
+    positivity_method_id = values$positivity_method_id,
+    eligibility_method_id = values$eligibility_method_id,
+    interval_method_id = values$interval_method_id,
+    four_n_method_id = values$four_n_method_id,
+    sub_four_n_method_id = values$sub_four_n_method_id,
+    containment_method_id = values$containment_method_id,
+    config_digest = values$config_digest,
+    export_operation_id = values$export_operation_id,
+    input_manifest_key = values$input_manifest_key,
+    stringsAsFactors = FALSE
+  )
+}
+
+derive_ph3_acquisition_tables <- function(
+    classification, manifest_row, config, export_manifests, containment
+) {
+  context <- validate_ph3_metric_classification(
+    classification, manifest_row, config, export_manifests, containment
+  )
+  common <- ph3_metric_common(manifest_row, context)
+  b <- context$bounds
+  eligible <- classification$eligible_2to4n
+  positive <- classification$ph3_positive_member
+  sub_four <- classification$sub_4n_member
+  four_n <- classification$four_n_member
+  a_n <- as.integer(sum(eligible))
+  s_n <- as.integer(sum(sub_four))
+  f_n <- as.integer(sum(four_n))
+  pa_n <- as.integer(sum(positive & eligible))
+  ps_n <- as.integer(sum(positive & sub_four))
+  pf_n <- as.integer(sum(positive & four_n))
+  specifications <- list(
+    list("ph3_2to4n_positivity_percent", pa_n, a_n, "eligible_2to4n",
+         b[[1L]], b[[6L]], TRUE, TRUE),
+    list("ph3_within_4n_positivity_percent", pf_n, f_n, "eligible_4n",
+         b[[5L]], b[[6L]], TRUE, TRUE),
+    list("ph3_4n_positive_prevalence_within_2to4n_percent", pf_n, a_n,
+         "eligible_4n_positive_within_2to4n", b[[5L]], b[[6L]], TRUE, TRUE),
+    list("ph3_within_sub_4n_positivity_percent", ps_n, s_n,
+         "eligible_sub_4n", b[[1L]], b[[5L]], TRUE, FALSE),
+    list("ph3_sub_4n_positive_prevalence_within_2to4n_percent", ps_n, a_n,
+         "eligible_sub_4n_positive_within_2to4n", b[[1L]], b[[5L]], TRUE, FALSE)
+  )
+  metric_rows <- lapply(specifications, function(specification) {
+    result <- ph3_percentage_result(specification[[2L]], specification[[3L]])
+    cbind(
+      common,
+      data.frame(
+        metric_id = specification[[1L]], value_percent = result$value,
+        numerator_count = as.integer(specification[[2L]]),
+        denominator_count = as.integer(specification[[3L]]),
+        population_id = specification[[4L]],
+        interval_lower = as.numeric(specification[[5L]]),
+        interval_upper = as.numeric(specification[[6L]]),
+        lower_inclusive = specification[[7L]],
+        upper_inclusive = specification[[8L]], result_status = result$status,
+        stringsAsFactors = FALSE
+      )
+    )
+  })
+  metrics <- do.call(rbind, metric_rows)
+  rownames(metrics) <- NULL
+
+  phase_bounds <- data.frame(
+    phase_id = context$phases, phase_index = seq_along(context$phases),
+    interval_lower = b[1:5], interval_upper = b[2:6],
+    lower_inclusive = TRUE,
+    upper_inclusive = c(FALSE, FALSE, FALSE, FALSE, TRUE),
+    stringsAsFactors = FALSE
+  )
+  phase_rows <- lapply(seq_len(nrow(phase_bounds)), function(i) {
+    phase <- phase_bounds$phase_id[[i]]
+    numerator <- as.integer(sum(
+      eligible & positive & classification$configured_phase_id == phase
+    ))
+    result <- ph3_percentage_result(numerator, a_n)
+    cbind(common, phase_bounds[i, , drop = FALSE], data.frame(
+      metric_id = "ph3_phase_positive_prevalence_within_2to4n_percent",
+      ph3_positive_count = numerator, eligible_2to4n_count = a_n,
+      value_percent = result$value, result_status = result$status,
+      stringsAsFactors = FALSE
+    ))
+  })
+  phase_prevalence <- do.call(rbind, phase_rows)
+  rownames(phase_prevalence) <- NULL
+
+  qc_specifications <- list(
+    list("rows", "imported_classification_rows", rep(TRUE, nrow(classification))),
+    list("identity", "identity_valid", classification$identity_valid),
+    list("eligibility", "eligible_2to4n", eligible),
+    list("eligibility_exclusion", "identity_invalid",
+         classification$eligibility_exclusion_reason == "identity_invalid"),
+    list("eligibility_exclusion", "dna_nonfinite",
+         classification$eligibility_exclusion_reason == "dna_nonfinite"),
+    list("eligibility_exclusion", "below_b0",
+         classification$eligibility_exclusion_reason == "below_b0"),
+    list("eligibility_exclusion", "above_b5",
+         classification$eligibility_exclusion_reason == "above_b5"),
+    list("partition", "sub_4n", sub_four),
+    list("partition", "4n", four_n),
+    list("configured_phase", "configured_phase_assigned",
+         classification$configured_phase_assigned)
+  )
+  for (phase in context$phases) {
+    qc_specifications[[length(qc_specifications) + 1L]] <- list(
+      "configured_phase", phase,
+      eligible & classification$configured_phase_id == phase
+    )
+  }
+  unassigned_reasons <- sort(unique(
+    classification$unassigned_reason[
+      eligible & classification$unassigned_reason != "none"
+    ]
+  ))
+  if (!length(unassigned_reasons)) unassigned_reasons <- "none"
+  for (reason in unassigned_reasons) {
+    selected <- eligible & !classification$configured_phase_assigned
+    if (!identical(reason, "none")) {
+      selected <- selected & classification$unassigned_reason == reason
+    }
+    qc_specifications[[length(qc_specifications) + 1L]] <- list(
+      "eligible_configured_phase_unassigned", reason, selected
+    )
+  }
+  qc_rows <- lapply(qc_specifications, function(specification) {
+    selected <- specification[[3L]]
+    cbind(common, data.frame(
+      qc_dimension = specification[[1L]], reason = specification[[2L]],
+      event_count = as.integer(sum(selected)),
+      ph3_positive_count = as.integer(sum(selected & positive)),
+      imported_classification_count = as.integer(nrow(classification)),
+      identity_valid_count = as.integer(sum(classification$identity_valid)),
+      eligible_2to4n_count = a_n, eligible_sub_4n_count = s_n,
+      eligible_4n_count = f_n,
+      configured_phase_assigned_count = as.integer(sum(
+        classification$configured_phase_assigned
+      )),
+      eligibility_excluded_count = as.integer(nrow(classification) - a_n),
+      eligible_configured_phase_unassigned_count = as.integer(sum(
+        eligible & !classification$configured_phase_assigned
+      )), eligibility_reconciliation_difference = as.integer(
+        nrow(classification) - a_n -
+          sum(classification$eligibility_exclusion_reason != "none")
+      ), partition_reconciliation_difference = as.integer(a_n - s_n - f_n),
+      configured_phase_reconciliation_difference = as.integer(
+        a_n - sum(classification$configured_phase_assigned) -
+          sum(eligible & !classification$configured_phase_assigned)
+      ), qc_status = "ok", stringsAsFactors = FALSE
+    ))
+  })
+  eligibility_qc <- do.call(rbind, qc_rows)
+  rownames(eligibility_qc) <- NULL
+
+  if (!config_scalar_number(config$ph3_boundary_sensitivity_fraction) ||
+      !config_scalar_number(config$dna_2n_value)) {
+    ph3_metrics_fail(
+      context$acquisition_id, "invalid_boundary_sensitivity_interval",
+      "delta source parameters must be present finite scalar numbers"
+    )
+  }
+  delta <- config$ph3_boundary_sensitivity_fraction * config$dna_2n_value
+  variants <- data.frame(
+    perturbation_id = c("primary", "lower_outward", "lower_inward", "upper_inward"),
+    perturbation_status = c("primary", rep("perturbation", 3L)),
+    interval_lower = c(b[[5L]], b[[5L]] - delta, b[[5L]] + delta, b[[5L]]),
+    interval_upper = c(b[[6L]], b[[6L]], b[[6L]], b[[6L]] - delta),
+    lower_inclusive = TRUE, upper_inclusive = TRUE,
+    stringsAsFactors = FALSE
+  )
+  if (!is.finite(delta) || delta <= 0 ||
+      any(!is.finite(variants$interval_lower)) ||
+      any(!is.finite(variants$interval_upper)) ||
+      any(variants$interval_lower >= variants$interval_upper)) {
+    ph3_metrics_fail(
+      context$acquisition_id, "invalid_boundary_sensitivity_interval",
+      "delta and all four closed perturbation intervals must be finite, positive, and noninverted"
+    )
+  }
+  sensitivity_rows <- lapply(seq_len(nrow(variants)), function(i) {
+    region <- eligible & classification$dna_norm >= variants$interval_lower[[i]] &
+      classification$dna_norm <= variants$interval_upper[[i]]
+    regional_n <- as.integer(sum(region))
+    regional_positive_n <- as.integer(sum(region & positive))
+    within <- ph3_percentage_result(regional_positive_n, regional_n)
+    prevalence <- ph3_percentage_result(regional_positive_n, a_n)
+    cbind(common, variants[i, , drop = FALSE], data.frame(
+      delta = as.numeric(delta),
+      ph3_boundary_sensitivity_fraction =
+        as.numeric(config$ph3_boundary_sensitivity_fraction),
+      dna_2n_value = as.numeric(config$dna_2n_value),
+      eligible_ph3_positive_regional_count = regional_positive_n,
+      eligible_regional_count = regional_n, eligible_2to4n_count = a_n,
+      within_region_positivity_percent = within$value,
+      within_region_result_status = within$status,
+      positive_prevalence_within_2to4n_percent = prevalence$value,
+      prevalence_result_status = prevalence$status,
+      stringsAsFactors = FALSE
+    ))
+  })
+  sensitivity <- do.call(rbind, sensitivity_rows)
+  rownames(sensitivity) <- NULL
+  primary_metric <- metrics[
+    metrics$metric_id == "ph3_within_4n_positivity_percent", , drop = FALSE
+  ]
+  primary_prevalence <- metrics[
+    metrics$metric_id ==
+      "ph3_4n_positive_prevalence_within_2to4n_percent", , drop = FALSE
+  ]
+  if (nrow(primary_metric) != 1L || nrow(primary_prevalence) != 1L ||
+      sensitivity$eligible_ph3_positive_regional_count[[1L]] !=
+        primary_metric$numerator_count[[1L]] ||
+      sensitivity$eligible_regional_count[[1L]] !=
+        primary_metric$denominator_count[[1L]] ||
+      !identical(sensitivity$within_region_positivity_percent[[1L]],
+                 primary_metric$value_percent[[1L]]) ||
+      !identical(sensitivity$positive_prevalence_within_2to4n_percent[[1L]],
+                 primary_prevalence$value_percent[[1L]])) {
+    ph3_metrics_fail(
+      context$acquisition_id, "primary_sensitivity_invariance_failure",
+      "the primary sensitivity row does not reproduce the approved 4N metrics"
+    )
+  }
+  list(
+    ph3_metrics_acquisition = metrics,
+    ph3_phase_prevalence = phase_prevalence,
+    ph3_event_eligibility_qc = eligibility_qc,
+    ph3_4n_boundary_sensitivity_qc = sensitivity
+  )
+}
+
+quantify_ph3_production_acquisitions <- function(analysis) {
+  if (!identical(analysis$config$plot_type, "ph3") ||
+      !identical(analysis$config$ph3_input_profile,
+                 "production_direct_identity_v1")) {
+    stop("Production PH3 acquisition metrics require the production PH3 profile.",
+         call. = FALSE)
+  }
+  tables <- lapply(seq_len(nrow(analysis$sample_manifest)), function(i) {
+    classification <-
+      analysis$normalized_data[[i]]$ph3_event_classification
+    derive_ph3_acquisition_tables(
+      classification, analysis$sample_manifest[i, , drop = FALSE],
+      analysis$config, analysis$provenance$ph3_export_manifests,
+      analysis$provenance$ph3_containment
+    )
+  })
+  names_to_attach <- names(tables[[1L]])
+  for (name in names_to_attach) {
+    analysis$quantitation[[name]] <- do.call(
+      rbind, lapply(tables, `[[`, name)
+    )
+    rownames(analysis$quantitation[[name]]) <- NULL
+  }
+  analysis
+}
+
 #' Quantify user-gated pH3-positive events
 #'
 #' Every percentage uses all Single Cell events from the same sample as its
