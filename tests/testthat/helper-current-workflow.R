@@ -57,6 +57,28 @@ minimal_config <- function(plot_type = "edu") {
   config
 }
 
+synthetic_ph3_output_contract <- function(
+    experiment_id = "SYNTHETIC-experiment", reference = FALSE,
+    comparisons = list()
+) {
+  list(
+    schema_version = "ph3-output-contract-config-1.0.0",
+    experiment_id = experiment_id,
+    conditions = list(
+      list(id = "SYNTHETIC-control", label = "Reference", role = "control"),
+      list(id = "SYNTHETIC-treatment", label = "Treatment", role = "treatment")
+    ),
+    reference = if (isTRUE(reference)) {
+      list(status = "configured", condition_id = "SYNTHETIC-control")
+    } else list(status = "not_configured"),
+    comparisons = comparisons,
+    geometry = list(
+      verified = list(status = "not_configured"),
+      computed = list(status = "not_computed")
+    )
+  )
+}
+
 read_example_config <- function(filename) {
   path <- system.file("config", filename, package = "facspseudocolor")
   if (!nzchar(path)) stop("Installed example config not found: ", filename)

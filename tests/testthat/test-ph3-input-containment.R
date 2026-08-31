@@ -401,6 +401,8 @@ synthetic_production_config <- function(operation_dir) {
   config$ph3_export_operation_dirs <- operation_dir
   config$dna_channel <- "raw__DNA"
   config$target_channel <- "raw__Target"
+  config$replicates[[1L]]$id <- "SYNTHETIC-replicate-1"
+  config$ph3_output_contract <- synthetic_ph3_output_contract()
   config$g1_x_range <- c(750, 1250)
   config$s_phase_bins <- list(early = c(1250, 1450), mid = c(1450, 1650),
                               late = c(1650, 1800))

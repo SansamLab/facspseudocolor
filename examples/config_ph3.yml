@@ -51,14 +51,37 @@ flowjo:
   target_source_channel: "explicit-pH3-detector"
   rebuild: true
 
-# PH3 mode has no normalization reference. Every replicate lists the same
-# conditions in the same order, but does not define `reference:`.
+# The output contract uses stable software keys. Reference and comparison
+# states are explicit; no reference or comparison is inferred from sample order.
+ph3_output_contract:
+  schema_version: "ph3-output-contract-config-1.0.0"
+  experiment_id: "replace-with-stable-experiment-id"
+  conditions:
+    - { id: "untreated", label: "Untreated", role: "control" }
+    - { id: "treatment", label: "Treatment", role: "treatment" }
+  reference:
+    status: "not_configured"
+  comparisons:
+    - id: "treatment-vs-untreated"
+      control_condition_id: "untreated"
+      treatment_condition_id: "treatment"
+      outcome_ids: ["A", "B", "C", "D"]
+  geometry:
+    verified:
+      status: "not_configured"
+    computed:
+      status: "not_computed"
+
+# Replicate-set IDs are stable biological identities. They are not technical
+# replicate labels, model groups, or positions inferred from file order.
 replicates:
-  - label: "Biological replicate 1"
+  - id: "biological-replicate-1"
+    label: "Biological replicate 1"
     samples:
       - { label: "Untreated", prefix: "rep1_NT", fcs: "rep1_NT.fcs" }
       - { label: "Treatment", prefix: "rep1_treatment", fcs: "rep1_treatment.fcs" }
-  - label: "Biological replicate 2"
+  - id: "biological-replicate-2"
+    label: "Biological replicate 2"
     samples:
       - { label: "Untreated", prefix: "rep2_NT", fcs: "rep2_NT.fcs" }
       - { label: "Treatment", prefix: "rep2_treatment", fcs: "rep2_treatment.fcs" }

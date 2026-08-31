@@ -12,6 +12,8 @@ synthetic_classification_config <- function() {
   config$g2m_x_range <- c(1800, 2000)
   config$dna_channel <- "DNA"
   config$target_channel <- "Target"
+  config$replicates[[1L]]$id <- "SYNTHETIC-replicate-1"
+  config$ph3_output_contract <- synthetic_ph3_output_contract()
   config
 }
 
