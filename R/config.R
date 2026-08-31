@@ -25,7 +25,8 @@ facs_config_keys <- function() {
     "quant_reference_condition", "quant_show_points", "quant_phase_lineplot",
     "bar_colors", "layout", "layout_options", "pdf_width",
     "pdf_height_per_row", "output_pdf", "output_png", "samples",
-    "replicates", "flowjo", "ph3_input_profile", "ph3_export_operation_dirs"
+    "replicates", "flowjo", "ph3_input_profile", "ph3_export_operation_dirs",
+    "ph3_output_contract"
   )
 }
 
@@ -306,6 +307,19 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
           errors,
           "Production PH3 mode requires one or more explicit nonempty `ph3_export_operation_dirs`."
         )
+      }
+      contract_error <- tryCatch({
+        validated_contract <- validate_ph3_output_contract_config(
+          config$ph3_output_contract, config$replicates
+        )
+        attr(validated_contract, "condition_table") <- NULL
+        attr(validated_contract, "comparison_table") <- NULL
+        attr(validated_contract, "replicate_set_ids") <- NULL
+        config$ph3_output_contract <- validated_contract
+        NULL
+      }, error = function(e) conditionMessage(e))
+      if (!is.null(contract_error)) {
+        errors <- config_add_error(errors, contract_error)
       }
     }
     ph3_ranges <- list(

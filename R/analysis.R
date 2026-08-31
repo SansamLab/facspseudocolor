@@ -223,7 +223,9 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
   if (config$plot_type == "ph3" &&
       identical(config$ph3_input_profile,
                 "production_direct_identity_v1")) {
-    quantify_ph3_production_acquisitions(analysis)
+    analysis <- quantify_ph3_production_acquisitions(analysis)
+    analysis$ph3_output_model <- build_ph3_output_model(analysis)
+    analysis
   } else if (config$plot_type == "ph3") {
     quantify_ph3(analysis)
   } else {

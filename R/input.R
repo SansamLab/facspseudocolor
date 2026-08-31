@@ -12,7 +12,18 @@
 #' @export
 build_sample_manifest <- function(config) {
   if (!inherits(config, "facs_config")) config <- validate_facs_config(config)
-  make_sample_manifest(samples = config$samples, replicates = config$replicates)
+  manifest <- make_sample_manifest(
+    samples = config$samples, replicates = config$replicates
+  )
+  if (identical(config$plot_type, "ph3") &&
+      identical(config$ph3_input_profile,
+                "production_direct_identity_v1")) {
+    replicate_set_ids <- vapply(
+      config$replicates, `[[`, character(1), "id"
+    )
+    manifest$replicate_set_id <- replicate_set_ids[manifest$replicate_index]
+  }
+  manifest
 }
 
 resolve_facs_directory <- function(config, data_dir = NULL) {

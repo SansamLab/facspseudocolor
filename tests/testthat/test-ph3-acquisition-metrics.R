@@ -18,7 +18,26 @@ synthetic_slice4_config <- function() {
     s_phase_bins = list(
       early = c(3, 6), mid = c(6, 9), late = c(9, 12)
     ),
-    g2m_x_range = c(12, 15)
+    g2m_x_range = c(12, 15),
+    replicates = list(list(
+      id = "SYNTHETIC-replicate-1", label = "SYNTHETIC Replicate 1",
+      samples = list(list(
+        label = "SYNTHETIC condition", prefix = "SYNTHETIC_acquisition"
+      ))
+    )),
+    ph3_output_contract = list(
+      schema_version = "ph3-output-contract-config-1.0.0",
+      experiment_id = "SYNTHETIC-experiment",
+      conditions = list(list(
+        id = "SYNTHETIC-condition", label = "SYNTHETIC condition",
+        role = "control"
+      )),
+      reference = list(status = "not_configured"), comparisons = list(),
+      geometry = list(
+        verified = list(status = "not_configured"),
+        computed = list(status = "not_computed")
+      )
+    )
   )
 }
 
