@@ -74,18 +74,17 @@ ph3_validate_signal_model <- function(model) {
       "experiment and configured sample identity fields must be complete and exact"
     )
   }
-  bases <- unique(events$signal_basis)
-  selected <- unique(model$correction$signal_basis)
   if (!is.character(events$signal_basis) || anyNA(events$signal_basis) ||
       !is.character(model$correction$signal_basis) ||
       anyNA(model$correction$signal_basis) ||
-      length(bases) != 1L || length(selected) != 1L ||
-      !identical(bases, selected) || !bases %in% c(
+      any(!events$signal_basis %in% c(
         "individual_corrected", "pooled_corrected", "raw"
-      )) {
+      )) || any(!model$correction$signal_basis %in% c(
+        "individual_corrected", "pooled_corrected", "raw"
+      ))) {
     ph3_signal_fail(
       "mixed_or_invalid_signal_basis",
-      "one analysis-wide selected signal basis is required for C/D outcomes"
+      "every event and replicate set must retain one approved signal basis"
     )
   }
   expected_samples <- unique(events[c("replicate_set_id", "sample_id")])
@@ -152,6 +151,19 @@ ph3_validate_signal_model <- function(model) {
       "reference_resolution_mismatch",
       "one valid reference record is required for every configured replicate set"
     )
+  }
+  for (set_id in expected_sets) {
+    selected <- model$correction$signal_basis[
+      model$correction$replicate_set_id == set_id
+    ]
+    observed <- unique(events$signal_basis[events$replicate_set_id == set_id])
+    if (length(selected) != 1L || length(observed) != 1L ||
+        !identical(observed, selected)) {
+      ph3_signal_fail(
+        "mixed_or_invalid_signal_basis",
+        "each replicate set must retain exactly its selected signal basis"
+      )
+    }
   }
   for (i in seq_len(nrow(model$reference))) {
     reference <- model$reference[i, , drop = FALSE]

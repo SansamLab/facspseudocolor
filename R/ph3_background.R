@@ -502,60 +502,50 @@ apply_ph3_background_regression <- function(model) {
   replicate_set_ids <- model$replicate_sets$replicate_set_id
   pooled_fits <- setNames(vector("list", length(replicate_set_ids)),
                          replicate_set_ids)
-  invalid_samples <- sample_ids[vapply(individual_fits, function(x) {
-    !identical(x$fit_status, "valid")
-  }, logical(1))]
-  individual_trigger_sample_id <- if (length(invalid_samples)) {
-    invalid_samples[[1L]]
-  } else NA_character_
-  individual_trigger_reason_code <- if (length(invalid_samples)) {
-    individual_fits[[individual_trigger_sample_id]]$validity_reason_code
-  } else NA_character_
-  if (!length(invalid_samples)) {
-    for (replicate_set_id in replicate_set_ids) {
-      pooled_fits[[replicate_set_id]] <- ph3_not_attempted_pooled_fit()
-    }
-    selected_basis <- "individual_corrected"
-    selected_reason <- "all_individual_fits_valid"
-    pooled_failure_set_id <- NA_character_
-    pooled_failure_reason_code <- NA_character_
-  } else {
-    for (replicate_set_id in replicate_set_ids) {
-      member <- events$replicate_set_id == replicate_set_id
-      eligible <- events$eligible_2to4n[member]
-      positive <- eligible & events$ph3_positive_member[member]
-      negative <- eligible & !events$ph3_positive_member[member]
-      pooled_fits[[replicate_set_id]] <- ph3_fit_background_model(
-        events$dna_raw[member], events$target_raw[member], negative, positive
+  decision_rows <- vector("list", length(replicate_set_ids))
+  for (i in seq_along(replicate_set_ids)) {
+    set_id <- replicate_set_ids[[i]]
+    set_samples <- sample_ids[model$samples$replicate_set_id == set_id]
+    invalid_samples <- set_samples[vapply(individual_fits[set_samples], function(x) {
+      !identical(x$fit_status, "valid")
+    }, logical(1))]
+    if (!length(invalid_samples)) {
+      pooled_fits[[set_id]] <- ph3_not_attempted_pooled_fit()
+      decision_rows[[i]] <- data.frame(
+        experiment_id = experiment_id, replicate_set_id = set_id,
+        signal_basis = "individual_corrected",
+        reason_code = "all_individual_fits_valid",
+        individual_trigger_sample_id = NA_character_,
+        individual_trigger_reason_code = NA_character_,
+        pooled_failure_replicate_set_id = NA_character_,
+        pooled_failure_reason_code = NA_character_, stringsAsFactors = FALSE
       )
+      next
     }
-    invalid_pooled_sets <- replicate_set_ids[vapply(
-      pooled_fits, function(x) !identical(x$fit_status, "valid"), logical(1)
-    )]
-    if (!length(invalid_pooled_sets)) {
-      selected_basis <- "pooled_corrected"
-      selected_reason <- "individual_fit_failure_all_pooled_fits_valid"
-      pooled_failure_set_id <- NA_character_
-      pooled_failure_reason_code <- NA_character_
-    } else {
-      selected_basis <- "raw"
-      selected_reason <- "pooled_fit_failure_experiment_raw_fallback"
-      pooled_failure_set_id <- invalid_pooled_sets[[1L]]
-      pooled_failure_reason_code <-
-        pooled_fits[[pooled_failure_set_id]]$validity_reason_code
-    }
-  }
-  decisions <- do.call(rbind, lapply(replicate_set_ids, function(set_id) {
-    data.frame(
+    member <- events$replicate_set_id == set_id
+    eligible <- events$eligible_2to4n[member]
+    positive <- eligible & events$ph3_positive_member[member]
+    negative <- eligible & !events$ph3_positive_member[member]
+    pooled_fits[[set_id]] <- ph3_fit_background_model(
+      events$dna_raw[member], events$target_raw[member], negative, positive
+    )
+    pooled_valid <- identical(pooled_fits[[set_id]]$fit_status, "valid")
+    decision_rows[[i]] <- data.frame(
       experiment_id = experiment_id, replicate_set_id = set_id,
-      signal_basis = selected_basis, reason_code = selected_reason,
-      individual_trigger_sample_id = individual_trigger_sample_id,
-      individual_trigger_reason_code = individual_trigger_reason_code,
-      pooled_failure_replicate_set_id = pooled_failure_set_id,
-      pooled_failure_reason_code = pooled_failure_reason_code,
+      signal_basis = if (pooled_valid) "pooled_corrected" else "raw",
+      reason_code = if (pooled_valid) {
+        "individual_fit_failure_pooled_fit_valid"
+      } else {
+        "pooled_fit_failure_replicate_set_raw_fallback"
+      },
+      individual_trigger_sample_id = invalid_samples[[1L]],
+      individual_trigger_reason_code = individual_fits[[invalid_samples[[1L]]]]$validity_reason_code,
+      pooled_failure_replicate_set_id = if (pooled_valid) NA_character_ else set_id,
+      pooled_failure_reason_code = if (pooled_valid) NA_character_ else pooled_fits[[set_id]]$validity_reason_code,
       stringsAsFactors = FALSE
     )
-  }))
+  }
+  decisions <- do.call(rbind, decision_rows)
   rownames(decisions) <- NULL
   individual_rows <- do.call(rbind, lapply(sample_ids, function(sample_id) {
     sample <- model$samples[model$samples$sample_id == sample_id, , drop = FALSE]
@@ -628,22 +618,24 @@ apply_ph3_background_regression <- function(model) {
     "experiment_id", "replicate_set_id", "signal_basis", "reason_code"
   )]
   correction$status <- "selected"
-  correction$reason_detail <- if (identical(selected_basis,
-                                             "individual_corrected")) {
-    rep(NA_character_, nrow(correction))
-  } else {
+  correction$reason_detail <- vapply(seq_len(nrow(decisions)), function(i) {
+    decision <- decisions[i, , drop = FALSE]
+    if (identical(decision$signal_basis[[1L]], "individual_corrected")) {
+      return(NA_character_)
+    }
     detail <- paste0(
-      "individual_trigger_sample_id=", individual_trigger_sample_id,
-      "; individual_trigger_reason_code=", individual_trigger_reason_code
+      "individual_trigger_sample_id=", decision$individual_trigger_sample_id[[1L]],
+      "; individual_trigger_reason_code=", decision$individual_trigger_reason_code[[1L]]
     )
-    if (identical(selected_basis, "raw")) {
+    if (identical(decision$signal_basis[[1L]], "raw")) {
       detail <- paste0(
-        detail, "; pooled_failure_replicate_set_id=", pooled_failure_set_id,
-        "; pooled_failure_reason_code=", pooled_failure_reason_code
+        detail, "; pooled_failure_replicate_set_id=",
+        decision$pooled_failure_replicate_set_id[[1L]],
+        "; pooled_failure_reason_code=", decision$pooled_failure_reason_code[[1L]]
       )
     }
-    rep(detail, nrow(correction))
-  }
+    detail
+  }, character(1))
   correction <- correction[c(
     "experiment_id", "replicate_set_id", "status", "signal_basis",
     "reason_code", "reason_detail"
@@ -651,8 +643,8 @@ apply_ph3_background_regression <- function(model) {
   model$correction <- correction
   model$schema$correction_reason_codes <- c(
     "all_individual_fits_valid",
-    "individual_fit_failure_all_pooled_fits_valid",
-    "pooled_fit_failure_experiment_raw_fallback"
+    "individual_fit_failure_pooled_fit_valid",
+    "pooled_fit_failure_replicate_set_raw_fallback"
   )
   model$background_regression <- list(
     schema_version = "ph3-background-regression-1.0.0",
