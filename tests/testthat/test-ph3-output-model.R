@@ -126,6 +126,7 @@ synthetic_ph3_output_model_analysis <- function(reference = TRUE) {
       identity_valid = TRUE, ph3_positive_member = positive,
       g1_containment_status = "validated",
       ph3_containment_status = "validated", dna_norm = dna,
+      dna_raw = dna, target_raw = 2 + 3 * dna,
       dna_finite = TRUE, b0 = 0, b1 = 3, b2 = 6, b3 = 9, b4 = 12, b5 = 15,
       eligible_2to4n = TRUE, sub_4n_member = dna < 12,
       four_n_member = dna >= 12, configured_phase_id = phases,
@@ -330,4 +331,17 @@ test_that("SYNTHETIC missing extra mixed and unstable contract state fails close
   ] <- "SYNTHETIC-remapped-replicate"
   expect_error(build_ph3_output_model(remapped),
                "replicate_set_manifest_mismatch")
+})
+
+test_that("SYNTHETIC validated output model is the Slice 2 boundary", {
+  validated <- build_ph3_output_model(synthetic_ph3_output_model_analysis())
+  expect_s3_class(validated, "ph3_output_model")
+  result <- apply_ph3_background_regression(validated)
+  expect_true(all(result$correction$status == "selected"))
+  expect_true(all(result$correction$signal_basis == "raw"))
+  expect_true(all(result$background_regression$set_decisions$signal_basis ==
+                    "raw"))
+  expect_identical(result$source$event_classifications,
+                   validated$source$event_classifications)
+  expect_identical(result$source$quantitation, validated$source$quantitation)
 })
