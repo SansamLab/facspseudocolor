@@ -139,6 +139,80 @@ synthetic_ph3_background_spec <- function(sample_id, replicate_set_id,
   )
 }
 
+test_that("SYNTHETIC pre-cutoff classifications receive explicit compatibility fields", {
+  model <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  result <- apply_ph3_background_regression(model)
+  events <- result$background_regression$event_signals
+  expect_true(all(events$positivity_call_status == "called"))
+  expect_true(all(is.na(events$positivity_call_reason_code)))
+  expect_true(all(is.na(events$config_digest)))
+  expect_true(all(is.na(events$export_operation_id)))
+  expect_true(all(is.na(events$input_manifest_key)))
+})
+
+test_that("SYNTHETIC compatibility preserves legacy fit membership and rejects malformed new fields", {
+  legacy <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec(
+      "SYNTHETIC-sample", "SYNTHETIC-set",
+      list(nonfinite_negative = TRUE)
+    )
+  ))
+  legacy_result <- apply_ph3_background_regression(legacy)
+  expect_identical(legacy_result$correction$signal_basis, "raw")
+  expect_identical(
+    legacy_result$background_regression$individual_fits$validity_reason_code,
+    "nonfinite_fit_input"
+  )
+
+  noncomputed <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  noncomputed$source$event_classifications[[1L]]$positivity_method_id <-
+    rep("SYNTHETIC_flowjo_method", nrow(noncomputed$source$event_classifications[[1L]]))
+  expect_silent(apply_ph3_background_regression(noncomputed))
+
+  malformed <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  malformed$source$event_classifications[[1L]]$positivity_method_id <-
+    rep(c("SYNTHETIC_flowjo_method", "ph3_raw_4n_density_cutoff_v1"),
+        length.out = nrow(malformed$source$event_classifications[[1L]]))
+  expect_error(apply_ph3_background_regression(malformed),
+               "invalid_positivity_method")
+
+  computed_missing <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  computed_missing$source$event_classifications[[1L]]$positivity_method_id <-
+    rep("ph3_raw_4n_density_cutoff_v1", nrow(computed_missing$source$event_classifications[[1L]]))
+  expect_error(apply_ph3_background_regression(computed_missing),
+               "missing_computed_cutoff_event_field")
+
+  invalid_computed_status <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  invalid_data <- invalid_computed_status$source$event_classifications[[1L]]
+  invalid_data$positivity_method_id <- rep("ph3_raw_4n_density_cutoff_v1", nrow(invalid_data))
+  invalid_data$config_digest <- rep("SYNTHETIC-config", nrow(invalid_data))
+  invalid_data$export_operation_id <- rep("SYNTHETIC-operation", nrow(invalid_data))
+  invalid_data$input_manifest_key <- rep("SYNTHETIC-manifest", nrow(invalid_data))
+  invalid_data$positivity_call_status <- rep("not_a_valid_status", nrow(invalid_data))
+  invalid_data$positivity_call_reason_code <- rep(NA_character_, nrow(invalid_data))
+  invalid_computed_status$source$event_classifications[[1L]] <- invalid_data
+  expect_error(apply_ph3_background_regression(invalid_computed_status),
+               "invalid_computed_cutoff_call_state")
+
+  malformed_field <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  malformed_field$source$event_classifications[[1L]]$positivity_call_status <-
+    factor(rep("called", nrow(malformed_field$source$event_classifications[[1L]])))
+  expect_error(apply_ph3_background_regression(malformed_field),
+               "invalid_optional_event_field")
+})
+
 test_that("SYNTHETIC individual validity enforces the confirmed fit rules", {
   fit_99 <- ph3_fit_background_model(
     dna = c(seq(0, 10, length.out = 99), 5),

@@ -42,7 +42,7 @@ ph3_report_model_columns <- function() {
 
 ph3_report_model_empty <- function(columns) {
   data.frame(
-    setNames(replicate(length(columns), character(), simplify = FALSE), columns),
+    stats::setNames(replicate(length(columns), character(), simplify = FALSE), columns),
     stringsAsFactors = FALSE
   )
 }
@@ -99,7 +99,7 @@ ph3_report_model_prevalence_values <- function(model) {
           !identical(value$analysis_id[[1L]], model$experiment$analysis_id[[1L]]) ||
           !identical(value$condition[[1L]], condition_row$condition_label[[1L]]) ||
           !identical(value$replicate[[1L]], set_row$replicate_label[[1L]]) ||
-          !value$result_status[[1L]] %in% c("ok", "ok_partial_undefined", "undefined_no_finite_values")) {
+          !value$result_status[[1L]] %in% c("ok", "ok_partial_undefined", "undefined_no_finite_values", "unavailable_cutoff_failure")) {
         ph3_report_model_fail(
           "prevalence_provenance_mismatch", "A/B values must retain their configured condition and replicate-set provenance"
         )
@@ -131,7 +131,7 @@ ph3_report_model_prevalence_values <- function(model) {
           "available"
         },
         reason_code = if (!available) {
-          "undefined_zero_denominator"
+          if (identical(value$result_status[[1L]], "unavailable_cutoff_failure")) "unavailable_cutoff_failure" else "undefined_zero_denominator"
         } else if (identical(value$result_status[[1L]], "ok_partial_undefined")) {
           "one_or_more_technical_acquisition_values_undefined"
         } else {
@@ -255,11 +255,14 @@ ph3_report_model_summary_row <- function(data, by_basis = FALSE) {
   total <- as.integer(nrow(data))
   finite_n <- as.integer(sum(finite))
   undefined_n <- as.integer(total - finite_n)
+  cutoff_failure <- any(data$reason_code == "unavailable_cutoff_failure", na.rm = TRUE)
   bases <- unique(data$signal_basis)
   signal <- data$outcome_id[[1L]] %in% c("C", "D")
   mixed <- signal && length(bases) != 1L
   status <- if (mixed) "unavailable_mixed_signal_basis" else if (!finite_n) {
     "unavailable_no_finite_values"
+  } else if (cutoff_failure) {
+    "available_partial_unavailable_cutoff_failure"
   } else if (undefined_n) {
     "available_partial_biological_replicate_coverage"
   } else {
@@ -272,7 +275,7 @@ ph3_report_model_summary_row <- function(data, by_basis = FALSE) {
     status = status,
     reason = if (mixed) "mixed_signal_basis" else if (!finite_n) {
       "no_finite_biological_replicate_values"
-    } else if (undefined_n) "one_or_more_biological_replicate_values_unavailable" else NA_character_,
+    } else if (cutoff_failure) "unavailable_cutoff_failure" else if (undefined_n) "one_or_more_biological_replicate_values_unavailable" else NA_character_,
     basis = if (signal && length(bases) == 1L) bases[[1L]] else if (signal) "mixed" else "not_applicable"
   )
 }
@@ -371,7 +374,8 @@ derive_ph3_condition_report_model <- function(model) {
       source_output_model_schema_version = model$schema$schema_version,
       source_signal_outcomes_schema_version = model$signal_outcomes$schema_version,
       analysis_id = model$experiment$analysis_id[[1L]],
-      experiment_id = model$experiment$experiment_id[[1L]]
+      experiment_id = model$experiment$experiment_id[[1L]],
+      positivity_method_id = unique(model$source$quantitation$ph3_metrics_acquisition$positivity_method_id)
     )
   )
   model

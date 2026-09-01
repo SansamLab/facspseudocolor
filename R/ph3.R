@@ -478,13 +478,51 @@ validate_ph3_metric_classification <- function(
   } else {
     data.frame()
   }
+  computed_cutoff <- identical(values$positivity_method_id,
+                               "ph3_raw_4n_density_cutoff_v1")
+  configured_computed_cutoff <- identical(config$ph3_positivity_method,
+                                           "ph3_raw_4n_density_cutoff_v1")
+  computed_membership_valid <- TRUE
+  if (computed_cutoff) {
+    source_method_id <- if (length(active_operations) == 1L) {
+      active_operations[[1L]]$manifest$approval$positivity_method_id
+    } else NA_character_
+    required_computed <- c("flowjo_ph3_positive_member", "positivity_call_status",
+                           "positivity_call_reason_code", "raw_4n_cutoff", "target_raw")
+    cutoff_failure <- all(classification$positivity_call_status == "unavailable_cutoff_failure")
+    computed_membership_valid <- all(required_computed %in% names(classification)) &&
+      is.logical(classification$flowjo_ph3_positive_member) &&
+      !anyNA(classification$flowjo_ph3_positive_member) &&
+      "flowjo_positivity_method_id" %in% names(classification) &&
+      identical(ph3_classification_scalar(classification,
+                                          "flowjo_positivity_method_id",
+                                          acquisition_id),
+                source_method_id) &&
+      is.character(classification$positivity_call_status) &&
+      is.character(classification$positivity_call_reason_code) &&
+      is.numeric(classification$raw_4n_cutoff) &&
+      length(unique(classification$raw_4n_cutoff)) == 1L &&
+      (cutoff_failure && all(is.na(classification$raw_4n_cutoff)) &&
+       all(!classification$ph3_positive_member) &&
+       all(!is.na(classification$positivity_call_reason_code)) ||
+       !cutoff_failure && is.finite(classification$raw_4n_cutoff[[1L]]) &&
+       identical(classification$ph3_positive_member,
+                 is.finite(classification$target_raw) &
+                   classification$target_raw > classification$raw_4n_cutoff[[1L]]) &&
+       identical(classification$positivity_call_status,
+                 ifelse(is.finite(classification$target_raw), "called",
+                        "unavailable_nonfinite_raw_signal")) &&
+       identical(classification$positivity_call_reason_code,
+                 ifelse(is.finite(classification$target_raw), NA_character_,
+                        "nonfinite_raw_signal")))
+  }
   if (length(active_operations) != 1L ||
       length(active_acquisitions) != 1L ||
       !identical(active_acquisitions[[1L]]$sample_id, values$sample_id) ||
       !identical(active_acquisitions[[1L]]$prefix, values$prefix) ||
       !identical(active_operations[[1L]]$sha256, values$input_manifest_key) ||
-      !identical(active_operations[[1L]]$manifest$approval$positivity_method_id,
-                 values$positivity_method_id) ||
+      (!computed_cutoff && !identical(active_operations[[1L]]$manifest$approval$positivity_method_id,
+                                      values$positivity_method_id)) ||
       !identical(active_config_digest, values$config_digest) ||
       !identical(ph3_analysis_id(active_config_digest, export_manifests),
                  values$analysis_id) ||
@@ -499,7 +537,9 @@ validate_ph3_metric_classification <- function(
       any(active_containment$prefix != values$prefix) ||
       any(active_containment$export_operation_id !=
             values$export_operation_id) ||
-      any(active_containment$manifest_digest != values$input_manifest_key)) {
+      any(active_containment$manifest_digest != values$input_manifest_key) ||
+      !computed_membership_valid ||
+      !identical(computed_cutoff, configured_computed_cutoff)) {
     ph3_metrics_fail(
       acquisition_id, "active_provenance_mismatch",
       "classification configuration, manifest, operation, positivity, or analysis binding does not match the active analysis"
@@ -634,6 +674,8 @@ derive_ph3_acquisition_tables <- function(
     classification, manifest_row, config, export_manifests, containment
   )
   common <- ph3_metric_common(manifest_row, context)
+  cutoff_unavailable <- "positivity_call_status" %in% names(classification) &&
+    all(classification$positivity_call_status == "unavailable_cutoff_failure")
   b <- context$bounds
   eligible <- classification$eligible_2to4n
   positive <- classification$ph3_positive_member
@@ -658,7 +700,9 @@ derive_ph3_acquisition_tables <- function(
          "eligible_sub_4n_positive_within_2to4n", b[[1L]], b[[5L]], TRUE, FALSE)
   )
   metric_rows <- lapply(specifications, function(specification) {
-    result <- ph3_percentage_result(specification[[2L]], specification[[3L]])
+    result <- if (cutoff_unavailable) {
+      list(value = NA_real_, status = "unavailable_cutoff_failure")
+    } else ph3_percentage_result(specification[[2L]], specification[[3L]])
     cbind(
       common,
       data.frame(
@@ -689,7 +733,9 @@ derive_ph3_acquisition_tables <- function(
     numerator <- as.integer(sum(
       eligible & positive & classification$configured_phase_id == phase
     ))
-    result <- ph3_percentage_result(numerator, a_n)
+    result <- if (cutoff_unavailable) {
+      list(value = NA_real_, status = "unavailable_cutoff_failure")
+    } else ph3_percentage_result(numerator, a_n)
     cbind(common, phase_bounds[i, , drop = FALSE], data.frame(
       metric_id = "ph3_phase_positive_prevalence_within_2to4n_percent",
       ph3_positive_count = numerator, eligible_2to4n_count = a_n,
@@ -1198,7 +1244,6 @@ ph3_validate_slice4_aggregation_inputs <- function(
   exact_methods <- c(
     classification_schema_version = "ph3-event-classification-1.0.0",
     output_schema_version = "ph3-1.0.0",
-    positivity_method_id = "flowjo_owner_approved_positive_population_v1",
     eligibility_method_id =
       "identity_validated_finite_dna_b0_b5_inclusive_v1",
     interval_method_id = "configured_shared_boundaries_left_closed_v1",
@@ -1216,6 +1261,15 @@ ph3_validate_slice4_aggregation_inputs <- function(
       )
     }
   }
+  if (!ph3_require_one_group_value(metrics, "positivity_method_id") %in% c(
+    "flowjo_owner_approved_positive_population_v1",
+    "ph3_raw_4n_density_cutoff_v1"
+  )) {
+    ph3_aggregation_fail(
+      "mixed_or_missing_provenance",
+      "Slice 4 `positivity_method_id` is not an approved exact identifier"
+    )
+  }
   invisible(list(metric_order = metric_order, phase_order = phase_order))
 }
 
@@ -1224,7 +1278,7 @@ ph3_aggregate_source_group <- function(data) {
       any(is.infinite(data$value_percent)) ||
       any(is.finite(data$value_percent) & data$result_status != "ok") ||
       any(is.na(data$value_percent) &
-            data$result_status != "undefined_zero_denominator")) {
+            !data$result_status %in% c("undefined_zero_denominator", "unavailable_cutoff_failure"))) {
     ph3_aggregation_fail(
       "invalid_source_value_status", "Slice 4 values and statuses disagree"
     )
@@ -1233,10 +1287,11 @@ ph3_aggregate_source_group <- function(data) {
   total_n <- as.integer(nrow(data))
   finite_n <- as.integer(sum(finite))
   undefined_n <- as.integer(total_n - finite_n)
+  cutoff_failure <- any(data$result_status == "unavailable_cutoff_failure")
   list(
     value = if (finite_n) mean(data$value_percent[finite]) else NA_real_,
     total_n = total_n, finite_n = finite_n, undefined_n = undefined_n,
-    status = if (!finite_n) "undefined_no_finite_values" else if (undefined_n) {
+    status = if (cutoff_failure) "unavailable_cutoff_failure" else if (!finite_n) "undefined_no_finite_values" else if (undefined_n) {
       "ok_partial_undefined"
     } else {
       "ok"
@@ -1349,7 +1404,10 @@ derive_ph3_replicate_condition_tables <- function(
         mean_value <- if (finite_n) mean(selected$value_percent[finite]) else NA_real_
         sd_value <- if (finite_n >= 2L) stats::sd(selected$value_percent[finite]) else NA_real_
         sem_value <- if (finite_n >= 2L) sd_value / sqrt(finite_n) else NA_real_
-        status <- if (!finite_n) {
+        cutoff_failure <- any(selected$result_status == "unavailable_cutoff_failure")
+        status <- if (cutoff_failure) {
+          "available_partial_unavailable_cutoff_failure"
+        } else if (!finite_n) {
           "undefined_no_finite_values"
         } else if (undefined_n) {
           "ok_partial_undefined"

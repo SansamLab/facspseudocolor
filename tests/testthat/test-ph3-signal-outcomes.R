@@ -20,6 +20,10 @@ synthetic_ph3_signal_events <- function(sample_id, acquisition_id, basis,
     event_signal_reason_code = ifelse(
       is.finite(values), NA_character_, "nonfinite_raw_or_corrected_signal"
     ),
+    # The established pre-computed-cutoff fixture is explicit about its
+    # already-called positive membership.  It is not a raw-4N cutoff fixture.
+    positivity_call_status = "called",
+    positivity_call_reason_code = NA_character_,
     stringsAsFactors = FALSE
   )
 }
@@ -110,6 +114,36 @@ test_that("SYNTHETIC C/D outcomes use equal acquisition-median weighting", {
     samples$sample_id == "SYNTHETIC-treatment" & samples$outcome_id == "D"
   ], 2.5)
   expect_true(all(samples$signal_basis == "individual_corrected"))
+})
+
+test_that("SYNTHETIC legacy called membership does not mistake NA reasons for cutoff failure", {
+  model <- synthetic_ph3_signal_model()
+  failure <- ph3_signal_cutoff_failure_by_acquisition(
+    model, model$background_regression$event_signals
+  )
+  expect_identical(
+    failure,
+    stats::setNames(
+      c(FALSE, FALSE, FALSE, FALSE),
+      c(
+        "SYNTHETIC-reference-a", "SYNTHETIC-reference-b",
+        "SYNTHETIC-treatment-a", "SYNTHETIC-treatment-b"
+      )
+    )
+  )
+
+  computed_without_cutoff <- model
+  computed_without_cutoff$source$event_classifications <- list(data.frame(
+    positivity_method_id = "ph3_raw_4n_density_cutoff_v1",
+    stringsAsFactors = FALSE
+  ))
+  expect_error(
+    ph3_signal_cutoff_failure_by_acquisition(
+      computed_without_cutoff,
+      computed_without_cutoff$background_regression$event_signals
+    ),
+    "invalid_raw_4n_cutoff_provenance"
+  )
 })
 
 test_that("SYNTHETIC unavailable acquisition is explicit and produces partial coverage", {

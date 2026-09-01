@@ -26,6 +26,7 @@ facs_config_keys <- function() {
     "bar_colors", "layout", "layout_options", "pdf_width",
     "pdf_height_per_row", "output_pdf", "output_png", "samples",
     "replicates", "flowjo", "ph3_input_profile", "ph3_export_operation_dirs",
+    "ph3_positivity_method",
     "ph3_output_contract"
   )
 }
@@ -55,6 +56,7 @@ facs_config_defaults <- function(plot_type) {
     poi_dna_align = "per_sample",
     poi_peak_failure = "error",
     ph3_boundary_sensitivity_fraction = 0.05,
+    ph3_positivity_method = "flowjo_legacy_v1",
     y_limit_lower_quantile = 0.001,
     y_limit_upper_quantile = 0.999,
     palette = "refined",
@@ -285,6 +287,15 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   }
 
   if (plot_type == "ph3") {
+    if (!config_scalar_string(config$ph3_positivity_method) ||
+        !config$ph3_positivity_method %in% c(
+          "flowjo_legacy_v1", "ph3_raw_4n_density_cutoff_v1"
+        )) {
+      errors <- config_add_error(
+        errors,
+        "`ph3_positivity_method` must be `flowjo_legacy_v1` or `ph3_raw_4n_density_cutoff_v1`."
+      )
+    }
     if (!config_scalar_string(config$ph3_input_profile) ||
         !config$ph3_input_profile %in% c(
           "production_direct_identity_v1", "legacy_count_only_unverified_v1"

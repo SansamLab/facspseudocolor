@@ -223,6 +223,10 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
   if (config$plot_type == "ph3" &&
       identical(config$ph3_input_profile,
                 "production_direct_identity_v1")) {
+    if (identical(config$ph3_positivity_method,
+                  "ph3_raw_4n_density_cutoff_v1")) {
+      analysis <- ph3_apply_raw_4n_density_cutoff(analysis)
+    }
     analysis <- quantify_ph3_production_acquisitions(analysis)
     analysis$ph3_output_model <- derive_ph3_condition_report_model(
       derive_ph3_signal_outcomes(

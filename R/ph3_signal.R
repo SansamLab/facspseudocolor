@@ -15,6 +15,116 @@ ph3_signal_outcome_specification <- function() {
   )
 }
 
+ph3_signal_cutoff_failure_by_acquisition <- function(model, events) {
+  cutoff <- model$source$raw_4n_density_cutoff
+  classifications <- model$source$event_classifications
+  has_classifications <- is.list(classifications) && length(classifications)
+  computed_cutoff <- has_classifications && all(vapply(
+    classifications,
+    function(data) {
+      is.data.frame(data) &&
+        identical(ph3_background_positivity_method(data),
+                  "ph3_raw_4n_density_cutoff_v1")
+    },
+    logical(1)
+  ))
+
+  if (!computed_cutoff && is.null(cutoff)) {
+    if (!is.character(events$positivity_call_status) ||
+        !identical(events$positivity_call_status,
+                   rep("called", nrow(events))) ||
+        !is.character(events$positivity_call_reason_code) ||
+        !all(is.na(events$positivity_call_reason_code))) {
+      ph3_signal_fail(
+        "invalid_legacy_positivity_call_state",
+        "a legacy non-computed model must retain explicit called membership"
+      )
+    }
+    return(stats::setNames(rep(FALSE, length(unique(events$acquisition_id))),
+                           unique(events$acquisition_id)))
+  }
+
+  required <- c("schema_version", "method", "records", "application_qc",
+                "density_curves")
+  required_records <- c("replicate_set_id", "cutoff_status")
+  required_application <- c("replicate_set_id", "acquisition_id",
+                            "cutoff_status")
+  if (!computed_cutoff || !is.list(cutoff) ||
+      !identical(names(cutoff), required) ||
+      !identical(cutoff$schema_version,
+                 "ph3-raw-4n-density-cutoff-1.0.0") ||
+      !identical(cutoff$method, ph3_raw_4n_cutoff_method()) ||
+      !is.data.frame(cutoff$records) ||
+      !is.data.frame(cutoff$application_qc) ||
+      !all(required_records %in% names(cutoff$records)) ||
+      !all(required_application %in% names(cutoff$application_qc)) ||
+      anyNA(cutoff$records$cutoff_status) ||
+      anyNA(cutoff$application_qc$cutoff_status) ||
+      any(!cutoff$records$cutoff_status %in%
+            c("available", "unavailable_cutoff_failure")) ||
+      any(!cutoff$application_qc$cutoff_status %in%
+            c("available", "unavailable_cutoff_failure")) ||
+      anyDuplicated(cutoff$records$replicate_set_id) ||
+      anyDuplicated(cutoff$application_qc$acquisition_id) ||
+      !setequal(cutoff$application_qc$acquisition_id,
+                unique(events$acquisition_id))) {
+    ph3_signal_fail(
+      "invalid_raw_4n_cutoff_provenance",
+      "computed raw-4N positivity requires complete frozen cutoff provenance"
+    )
+  }
+  if (!is.character(events$positivity_call_status) ||
+      anyNA(events$positivity_call_status) ||
+      !is.character(events$positivity_call_reason_code) ||
+      any(!events$positivity_call_status %in% c(
+        "called", "unavailable_nonfinite_raw_signal",
+        "unavailable_cutoff_failure"
+      ))) {
+    ph3_signal_fail(
+      "invalid_computed_cutoff_call_state",
+      "computed raw-4N positivity must retain explicit event call states"
+    )
+  }
+
+  result <- logical(length(unique(events$acquisition_id)))
+  names(result) <- unique(events$acquisition_id)
+  for (acquisition_id in names(result)) {
+    application <- cutoff$application_qc[
+      cutoff$application_qc$acquisition_id == acquisition_id, , drop = FALSE
+    ]
+    acquisition_events <- events[events$acquisition_id == acquisition_id, ,
+                                 drop = FALSE]
+    if (nrow(application) != 1L) {
+      ph3_signal_fail(
+        "raw_4n_cutoff_application_mismatch",
+        "each computed acquisition must bind to exactly one cutoff application record"
+      )
+    }
+    record <- cutoff$records[
+      cutoff$records$replicate_set_id == application$replicate_set_id[[1L]],
+      , drop = FALSE
+    ]
+    failed <- identical(application$cutoff_status[[1L]],
+                         "unavailable_cutoff_failure")
+    if (nrow(record) != 1L ||
+        !identical(application$replicate_set_id[[1L]],
+                   acquisition_events$replicate_set_id[[1L]]) ||
+        !identical(application$cutoff_status[[1L]],
+                   record$cutoff_status[[1L]]) ||
+        (failed && !all(acquisition_events$positivity_call_status ==
+                          "unavailable_cutoff_failure")) ||
+        (!failed && any(acquisition_events$positivity_call_status ==
+                          "unavailable_cutoff_failure"))) {
+      ph3_signal_fail(
+        "raw_4n_cutoff_application_mismatch",
+        "computed cutoff status must exactly reconcile to every acquisition"
+      )
+    }
+    result[[acquisition_id]] <- failed
+  }
+  result
+}
+
 ph3_validate_signal_model <- function(model) {
   required <- c("experiment", "samples", "correction", "reference", "source",
                 "background_regression")
@@ -32,7 +142,8 @@ ph3_validate_signal_model <- function(model) {
     "experiment_id", "replicate_set_id", "sample_id", "acquisition_id",
     "event_identity", "eligible_2to4n", "ph3_positive_member",
     "sub_4n_member", "four_n_member", "analytical_signal", "signal_basis",
-    "event_signal_status", "event_signal_reason_code"
+    "event_signal_status", "event_signal_reason_code", "positivity_call_status",
+    "positivity_call_reason_code"
   )
   events <- model$background_regression$event_signals
   if (!is.data.frame(events) || !all(required_events %in% names(events)) ||
@@ -220,6 +331,9 @@ ph3_validate_signal_model <- function(model) {
 ph3_signal_acquisition_table <- function(model, events) {
   outcomes <- ph3_signal_outcome_specification()
   samples <- model$samples
+  cutoff_failure_by_acquisition <- ph3_signal_cutoff_failure_by_acquisition(
+    model, events
+  )
   rows <- list()
   row_index <- 0L
   for (i in seq_len(nrow(samples))) {
@@ -235,13 +349,18 @@ ph3_signal_acquisition_table <- function(model, events) {
         population <- if (identical(outcome$outcome_id, "C")) {
           acquisition_events$four_n_member
         } else acquisition_events$sub_4n_member
+        cutoff_failure <- cutoff_failure_by_acquisition[[acquisition_id]]
         member <- acquisition_events$eligible_2to4n &
           acquisition_events$ph3_positive_member & population
         count <- as.integer(sum(member))
         values <- acquisition_events$analytical_signal[member]
         unavailable <- acquisition_events$event_signal_status[member] != "available" |
           !is.finite(values)
-        if (!count) {
+        if (cutoff_failure) {
+          status <- "unavailable"
+          reason <- "unavailable_cutoff_failure"
+          value <- NA_real_
+        } else if (!count) {
           status <- "unavailable"
           reason <- "no_qualifying_positive_events"
           value <- NA_real_
@@ -289,7 +408,15 @@ ph3_signal_sample_table <- function(model, acquisition) {
       valid <- source$status == "available"
       total <- as.integer(nrow(source))
       valid_count <- as.integer(sum(valid))
-      if (!valid_count) {
+      cutoff_failure <- isTRUE(any(
+        !is.na(source$reason_code) &
+          source$reason_code == "unavailable_cutoff_failure"
+      ))
+      if (cutoff_failure) {
+        direct_status <- "unavailable"
+        direct_reason <- "unavailable_cutoff_failure"
+        direct_value <- NA_real_
+      } else if (!valid_count) {
         direct_status <- "unavailable"
         direct_reason <- "no_valid_acquisition_medians"
         direct_value <- NA_real_
@@ -334,6 +461,11 @@ ph3_signal_sample_table <- function(model, acquisition) {
     if (identical(reference_row$status[[1L]], "not_configured")) {
       result$reference_status[[i]] <- "not_applicable"
       result$reference_reason_code[[i]] <- "reference_not_configured"
+      next
+    }
+    if (identical(result$direct_reason_code[[i]], "unavailable_cutoff_failure")) {
+      result$reference_status[[i]] <- "unavailable"
+      result$reference_reason_code[[i]] <- "unavailable_cutoff_failure"
       next
     }
     reference_source <- result[

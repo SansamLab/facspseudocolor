@@ -772,7 +772,8 @@ build_ph3_output_model <- function(analysis) {
       sample_manifest = manifest,
       sample_mapping = source_sample_mapping,
       event_classifications = classifications,
-      quantitation = analysis$quantitation
+      quantitation = analysis$quantitation,
+      raw_4n_density_cutoff = analysis$provenance$ph3_raw_4n_density_cutoff
     )
   ), class = "ph3_output_model")
 }

@@ -49,11 +49,16 @@ There are no package defaults for these scientific phase boundaries. The
 values in `examples/config_ph3.yml` are visible starting examples only and are
 never inserted into a configuration automatically.
 
-The pH3-positive population must be drawn by the user in FlowJo. The R package
-does not infer a pH3 cutoff. Its primary phase calls use the configured DNA
-ranges, while `ph3_boundary_sensitivity_fraction` produces a diagnostic showing
-how the G2/M percentage changes when both G2/M boundaries move by that fraction
-of the configured 2N value.
+`ph3_positivity_method` is explicit. `flowjo_legacy_v1` preserves the
+historical FlowJo-positive membership. `ph3_raw_4n_density_cutoff_v1` uses the
+matched untreated control's retained 4N raw-pH3 density, selecting the first
+right-side local minimum after its unique dominant peak; the frozen cutoff is
+then applied to every matched treatment across DNA regions. The FlowJo
+pH3-positive export remains provenance during the direct-identity transition,
+not the numerical authority for the computed method. Its primary phase calls
+use the configured DNA ranges, while `ph3_boundary_sensitivity_fraction`
+produces a diagnostic showing how the G2/M percentage changes when both G2/M
+boundaries move by that fraction of the configured 2N value.
 
 ## Input suffixes
 
