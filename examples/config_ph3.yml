@@ -3,6 +3,10 @@
 plot_type: "ph3"
 data_dir: "/explicit/path/to/ph3_csvs"
 ph3_input_profile: "production_direct_identity_v1"
+# The computed method uses matched untreated 4N raw-pH3 density. The FlowJo
+# pH3-positive export remains required direct-identity provenance during the
+# transition but is not the numerical cutoff authority.
+ph3_positivity_method: "ph3_raw_4n_density_cutoff_v1"
 ph3_export_operation_dirs:
   - ".flowjo_export/Biological_replicate_1"
   - ".flowjo_export/Biological_replicate_2"

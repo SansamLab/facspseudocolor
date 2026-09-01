@@ -139,6 +139,80 @@ synthetic_ph3_background_spec <- function(sample_id, replicate_set_id,
   )
 }
 
+test_that("SYNTHETIC pre-cutoff classifications receive explicit compatibility fields", {
+  model <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  result <- apply_ph3_background_regression(model)
+  events <- result$background_regression$event_signals
+  expect_true(all(events$positivity_call_status == "called"))
+  expect_true(all(is.na(events$positivity_call_reason_code)))
+  expect_true(all(is.na(events$config_digest)))
+  expect_true(all(is.na(events$export_operation_id)))
+  expect_true(all(is.na(events$input_manifest_key)))
+})
+
+test_that("SYNTHETIC compatibility preserves legacy fit membership and rejects malformed new fields", {
+  legacy <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec(
+      "SYNTHETIC-sample", "SYNTHETIC-set",
+      list(nonfinite_negative = TRUE)
+    )
+  ))
+  legacy_result <- apply_ph3_background_regression(legacy)
+  expect_identical(legacy_result$correction$signal_basis, "raw")
+  expect_identical(
+    legacy_result$background_regression$individual_fits$validity_reason_code,
+    "nonfinite_fit_input"
+  )
+
+  noncomputed <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  noncomputed$source$event_classifications[[1L]]$positivity_method_id <-
+    rep("SYNTHETIC_flowjo_method", nrow(noncomputed$source$event_classifications[[1L]]))
+  expect_silent(apply_ph3_background_regression(noncomputed))
+
+  malformed <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  malformed$source$event_classifications[[1L]]$positivity_method_id <-
+    rep(c("SYNTHETIC_flowjo_method", "ph3_raw_4n_density_cutoff_v1"),
+        length.out = nrow(malformed$source$event_classifications[[1L]]))
+  expect_error(apply_ph3_background_regression(malformed),
+               "invalid_positivity_method")
+
+  computed_missing <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  computed_missing$source$event_classifications[[1L]]$positivity_method_id <-
+    rep("ph3_raw_4n_density_cutoff_v1", nrow(computed_missing$source$event_classifications[[1L]]))
+  expect_error(apply_ph3_background_regression(computed_missing),
+               "missing_computed_cutoff_event_field")
+
+  invalid_computed_status <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  invalid_data <- invalid_computed_status$source$event_classifications[[1L]]
+  invalid_data$positivity_method_id <- rep("ph3_raw_4n_density_cutoff_v1", nrow(invalid_data))
+  invalid_data$config_digest <- rep("SYNTHETIC-config", nrow(invalid_data))
+  invalid_data$export_operation_id <- rep("SYNTHETIC-operation", nrow(invalid_data))
+  invalid_data$input_manifest_key <- rep("SYNTHETIC-manifest", nrow(invalid_data))
+  invalid_data$positivity_call_status <- rep("not_a_valid_status", nrow(invalid_data))
+  invalid_data$positivity_call_reason_code <- rep(NA_character_, nrow(invalid_data))
+  invalid_computed_status$source$event_classifications[[1L]] <- invalid_data
+  expect_error(apply_ph3_background_regression(invalid_computed_status),
+               "invalid_computed_cutoff_call_state")
+
+  malformed_field <- synthetic_ph3_background_model(list(
+    synthetic_ph3_background_spec("SYNTHETIC-sample", "SYNTHETIC-set")
+  ))
+  malformed_field$source$event_classifications[[1L]]$positivity_call_status <-
+    factor(rep("called", nrow(malformed_field$source$event_classifications[[1L]])))
+  expect_error(apply_ph3_background_regression(malformed_field),
+               "invalid_optional_event_field")
+})
+
 test_that("SYNTHETIC individual validity enforces the confirmed fit rules", {
   fit_99 <- ph3_fit_background_model(
     dna = c(seq(0, 10, length.out = 99), 5),
@@ -236,7 +310,7 @@ test_that("SYNTHETIC coverage equality is valid and a coverage gap is invalid", 
                    "positive_dna_extrapolation_required")
 })
 
-test_that("SYNTHETIC one failure selects pooled correction experiment-wide", {
+test_that("SYNTHETIC one failure selects pooled correction only within its replicate set", {
   model <- synthetic_ph3_background_model(list(
     synthetic_ph3_background_spec("SYNTHETIC-s1", "SYNTHETIC-set-1"),
     synthetic_ph3_background_spec(
@@ -256,18 +330,20 @@ test_that("SYNTHETIC one failure selects pooled correction experiment-wide", {
   result <- apply_ph3_background_regression(model)
   decision <- result$background_regression$set_decisions
   expect_identical(decision$signal_basis,
-                   c("pooled_corrected", "pooled_corrected"))
+                   c("pooled_corrected", "individual_corrected"))
   set_one <- result$background_regression$event_signals$replicate_set_id ==
     "SYNTHETIC-set-1"
   expect_true(all(result$background_regression$event_signals$fit_scope[set_one] ==
                     "pooled"))
   expect_true(result$background_regression$pooled_fits$selected_for_analysis[[1L]])
-  expect_false(any(
-    result$background_regression$individual_fits$selected_for_analysis
-  ))
-  expect_true(all(
-    result$background_regression$pooled_fits$selected_for_analysis
-  ))
+  expect_identical(
+    result$background_regression$individual_fits$selected_for_analysis,
+    c(FALSE, FALSE, TRUE, TRUE)
+  )
+  expect_identical(
+    result$background_regression$pooled_fits$selected_for_analysis,
+    c(TRUE, FALSE)
+  )
   expect_match(
     result$correction$reason_detail[[1L]],
     paste0(
@@ -276,13 +352,12 @@ test_that("SYNTHETIC one failure selects pooled correction experiment-wide", {
     ),
     fixed = TRUE
   )
-  expect_true(all(
-    decision$individual_trigger_sample_id == "SYNTHETIC-s2" &
-      decision$individual_trigger_reason_code ==
-        "insufficient_negative_events" &
-      is.na(decision$pooled_failure_replicate_set_id) &
-      is.na(decision$pooled_failure_reason_code)
-  ))
+  expect_identical(decision$individual_trigger_sample_id,
+                   c("SYNTHETIC-s2", NA_character_))
+  expect_identical(decision$individual_trigger_reason_code,
+                   c("insufficient_negative_events", NA_character_))
+  expect_true(all(is.na(decision$pooled_failure_replicate_set_id)))
+  expect_true(all(is.na(decision$pooled_failure_reason_code)))
   set_one_positive <- set_one &
     result$background_regression$event_signals$ph3_positive_member
   expect_equal(
@@ -304,7 +379,7 @@ test_that("SYNTHETIC one failure selects pooled correction experiment-wide", {
                    ab_before)
 })
 
-test_that("SYNTHETIC pooled failure selects raw for the entire experiment", {
+test_that("SYNTHETIC pooled failure selects raw only within its replicate set", {
   model <- synthetic_ph3_background_model(list(
     synthetic_ph3_background_spec(
       "SYNTHETIC-s1", "SYNTHETIC-set-1",
@@ -318,28 +393,34 @@ test_that("SYNTHETIC pooled failure selects raw for the entire experiment", {
     synthetic_ph3_background_spec("SYNTHETIC-s4", "SYNTHETIC-set-2")
   ))
   result <- apply_ph3_background_regression(model)
-  expect_true(all(result$correction$signal_basis == "raw"))
-  expect_true(all(result$correction$reason_code ==
-                    "pooled_fit_failure_experiment_raw_fallback"))
-  expect_match(result$correction$reason_detail,
+  expect_identical(result$correction$signal_basis,
+                   c("raw", "individual_corrected"))
+  expect_identical(result$correction$reason_code, c(
+    "pooled_fit_failure_replicate_set_raw_fallback",
+    "all_individual_fits_valid"
+  ))
+  expect_match(result$correction$reason_detail[[1L]],
                "pooled_failure_replicate_set_id=SYNTHETIC-set-1",
                fixed = TRUE)
   decision <- result$background_regression$set_decisions
-  expect_true(all(
-    decision$pooled_failure_replicate_set_id == "SYNTHETIC-set-1" &
-      decision$pooled_failure_reason_code == "zero_dna_variation"
-  ))
+  expect_identical(decision$pooled_failure_replicate_set_id,
+                   c("SYNTHETIC-set-1", NA_character_))
+  expect_identical(decision$pooled_failure_reason_code,
+                   c("zero_dna_variation", NA_character_))
   expect_identical(
     result$background_regression$pooled_fits$fit_status,
-    c("invalid", "valid")
+    c("invalid", "not_attempted")
   )
-  expect_false(any(
-    result$background_regression$pooled_fits$selected_for_analysis
-  ))
+  expect_identical(
+    result$background_regression$pooled_fits$selected_for_analysis,
+    c(FALSE, FALSE)
+  )
   signals <- result$background_regression$event_signals
-  expect_identical(signals$analytical_signal[signals$eligible_2to4n],
-                   signals$target_raw[signals$eligible_2to4n])
-  expect_true(all(signals$fit_scope == "not_applicable"))
+  set_one <- signals$replicate_set_id == "SYNTHETIC-set-1"
+  expect_identical(signals$analytical_signal[set_one & signals$eligible_2to4n],
+                   signals$target_raw[set_one & signals$eligible_2to4n])
+  expect_true(all(signals$fit_scope[set_one] == "not_applicable"))
+  expect_true(all(signals$fit_scope[!set_one] == "individual"))
 })
 
 test_that("SYNTHETIC all-valid experiment leaves pooled counts inapplicable", {
@@ -357,7 +438,7 @@ test_that("SYNTHETIC all-valid experiment leaves pooled counts inapplicable", {
   expect_true(all(is.na(pooled$positive_event_count)))
 })
 
-test_that("SYNTHETIC pooled cross-sample coverage failure forces raw globally", {
+test_that("SYNTHETIC pooled cross-sample coverage failure forces raw within that set", {
   model <- synthetic_ph3_background_model(list(
     synthetic_ph3_background_spec(
       "SYNTHETIC-s1", "SYNTHETIC-set-1",
@@ -373,11 +454,11 @@ test_that("SYNTHETIC pooled cross-sample coverage failure forces raw globally", 
   pooled <- result$background_regression$pooled_fits
   expect_identical(pooled$validity_reason_code[[1L]],
                    "positive_dna_extrapolation_required")
-  expect_true(all(result$correction$signal_basis == "raw"))
-  expect_true(all(
-    result$background_regression$set_decisions$
-      pooled_failure_replicate_set_id == "SYNTHETIC-set-1"
-  ))
+  expect_identical(result$correction$signal_basis,
+                   c("raw", "individual_corrected"))
+  expect_identical(result$background_regression$set_decisions$
+                   pooled_failure_replicate_set_id,
+                   c("SYNTHETIC-set-1", NA_character_))
 })
 
 test_that("SYNTHETIC empty positive compartments remain explicit", {

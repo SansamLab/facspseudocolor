@@ -636,6 +636,9 @@ build_ph3_output_model <- function(analysis) {
     )
   }))
   rownames(samples) <- NULL
+  source_sample_mapping <- samples[c(
+    "experiment_id", "replicate_set_id", "sample_id", "condition_id"
+  )]
   replicate_sets <- data.frame(
     experiment_id = contract$experiment_id,
     replicate_set_id = replicate_ids,
@@ -767,8 +770,10 @@ build_ph3_output_model <- function(analysis) {
     output_registry = registry,
     source = list(
       sample_manifest = manifest,
+      sample_mapping = source_sample_mapping,
       event_classifications = classifications,
-      quantitation = analysis$quantitation
+      quantitation = analysis$quantitation,
+      raw_4n_density_cutoff = analysis$provenance$ph3_raw_4n_density_cutoff
     )
   ), class = "ph3_output_model")
 }

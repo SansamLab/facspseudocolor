@@ -1,0 +1,106 @@
+---
+title: "pH3 condition report"
+format: { html: { toc: true, embed-resources: true } }
+execute: { message: false }
+params:
+  config: null
+  analysis_rds: null
+  appearance_file: null
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"),
+       local = TRUE)
+analysis <- facs_report_input(params$config, params$analysis_rds)
+if (!identical(analysis$config$plot_type, "ph3") ||
+    !inherits(analysis$ph3_output_model, "ph3_output_model")) {
+  stop("This report requires a completed production pH3 output-contract analysis.",
+       call. = FALSE)
+}
+plots <- plot_ph3_condition_report(
+  analysis,
+  appearance = facs_report_appearance(params),
+  appearance_file = params$appearance_file
+)
+report_model <- analysis$ph3_output_model$condition_report
+```
+
+## Required pH3 outcomes
+
+Each panel shows the retained biological-replicate values and the condition
+mean. A standard deviation is shown only when at least three finite biological
+replicate values are available. No inferential statistics are shown in this
+profile.
+
+### 4N pH3-positive prevalence
+
+```{r}
+plots$panels$ph3_4n_positive_prevalence
+```
+
+### Below-4N pH3-positive prevalence
+
+```{r}
+plots$panels$ph3_below_4n_positive_prevalence
+```
+
+### pH3 signal in 4N pH3-positive cells
+
+```{r}
+plots$panels$ph3_4n_positive_signal
+```
+
+### pH3 signal in below-4N pH3-positive cells
+
+```{r}
+plots$panels$ph3_below_4n_positive_signal
+```
+
+## Concise QC and provenance
+
+The tables below preserve availability, partial-coverage, and mixed-basis
+states. A mixed signal basis is never combined into one condition signal mean.
+
+```{r}
+report_model$qc_flags
+```
+
+```{r}
+report_model$provenance
+```
+
+```{r}
+analysis$ph3_output_model$correction
+analysis$ph3_output_model$geometry
+```
+
+## Computed positivity-cutoff QC
+
+When the owner-confirmed raw-4N density method is configured, each explicit
+biological-replicate set uses its matched untreated control's raw-pH3 4N
+density. The dashed line is the frozen cutoff applied unchanged to that
+control and its matched treatment(s). FlowJo pH3-positive membership is
+retained only as source provenance and is not the numerical cutoff authority.
+
+```{r}
+if (length(plots$cutoff_qc)) {
+  for (panel in plots$cutoff_qc) print(panel)
+  plots$cutoff_records
+  plots$cutoff_application_qc
+} else {
+  cat("Legacy FlowJo positivity mode: no computed raw-4N cutoff was configured.\n")
+}
+```
+
+```{r}
+#| label: analysis-warnings
+#| results: asis
+if (length(analysis$warnings)) {
+  cat("### Analysis warnings\n\n")
+  cat(paste0("- ", analysis$warnings), sep = "\n")
+  cat("\n")
+}
+```

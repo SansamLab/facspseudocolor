@@ -172,6 +172,19 @@ ph3_fit_background_model <- function(dna, signal, negative_member,
   )
 }
 
+ph3_background_positivity_method <- function(data) {
+  if (!"positivity_method_id" %in% names(data)) return(NA_character_)
+  value <- data[["positivity_method_id"]]
+  if (!is.character(value) || length(value) != nrow(data) || anyNA(value) ||
+      any(!nzchar(value)) || length(unique(value)) != 1L) {
+    ph3_background_fail(
+      "invalid_positivity_method",
+      "classification positivity_method_id must be one nonmissing method repeated for every retained event"
+    )
+  }
+  value[[1L]]
+}
+
 ph3_background_event_table <- function(model) {
   classifications <- model$source$event_classifications
   mapping <- unique(
@@ -208,6 +221,27 @@ ph3_background_event_table <- function(model) {
       "exactly one classification table is required for every authoritative acquisition"
     )
   }
+  event_field <- function(data, field, default, computed_cutoff) {
+    value <- if (field %in% names(data)) data[[field]] else NULL
+    if (length(value) == nrow(data) && is.character(value)) {
+      return(value)
+    }
+    if (length(value) != 0L) {
+      ph3_background_fail(
+        "invalid_optional_event_field",
+        paste0("classification optional field `", field,
+               "` must be character with one value for every retained event")
+      )
+    }
+    if (computed_cutoff) {
+      ph3_background_fail(
+        "missing_computed_cutoff_event_field",
+        paste0("computed raw-4N positivity requires retained `", field,
+               "` values for every event")
+      )
+    }
+    rep(default, nrow(data))
+  }
   rows <- lapply(seq_along(classifications), function(i) {
     data <- classifications[[i]]
     if (!all(required %in% names(data)) || !nrow(data)) {
@@ -233,6 +267,44 @@ ph3_background_event_table <- function(model) {
       )
     }
     event_row <- as.integer(seq_len(nrow(data)))
+    computed_cutoff <- identical(
+      ph3_background_positivity_method(data),
+      "ph3_raw_4n_density_cutoff_v1"
+    )
+    config_digest <- event_field(data, "config_digest", NA_character_, computed_cutoff)
+    export_operation_id <- event_field(data, "export_operation_id", NA_character_, computed_cutoff)
+    input_manifest_key <- event_field(data, "input_manifest_key", NA_character_, computed_cutoff)
+    positivity_call_status <- event_field(
+      data, "positivity_call_status", "called", computed_cutoff
+    )
+    positivity_call_reason_code <- event_field(
+      data, "positivity_call_reason_code", NA_character_, computed_cutoff
+    )
+    if (computed_cutoff) {
+      cutoff_failure <- all(positivity_call_status == "unavailable_cutoff_failure")
+      valid_call_state <- is.character(positivity_call_status) &&
+        is.character(positivity_call_reason_code) &&
+        if (cutoff_failure) {
+          all(!is.na(positivity_call_reason_code) &
+                nzchar(positivity_call_reason_code))
+        } else {
+          identical(
+            positivity_call_status,
+            ifelse(is.finite(data$target_raw), "called",
+                   "unavailable_nonfinite_raw_signal")
+          ) && identical(
+            positivity_call_reason_code,
+            ifelse(is.finite(data$target_raw), NA_character_,
+                   "nonfinite_raw_signal")
+          )
+        }
+      if (!valid_call_state) {
+        ph3_background_fail(
+          "invalid_computed_cutoff_call_state",
+          "computed raw-4N positivity status and reason must exactly reconcile to retained raw signal"
+        )
+      }
+    }
     data.frame(
       analysis_id = data$analysis_id,
       acquisition_id = data$acquisition_id,
@@ -246,6 +318,11 @@ ph3_background_event_table <- function(model) {
       four_n_member = data$four_n_member,
       dna_raw = data$dna_raw, dna_norm = data$dna_norm,
       target_raw = data$target_raw,
+      config_digest = config_digest,
+      export_operation_id = export_operation_id,
+      input_manifest_key = input_manifest_key,
+      positivity_call_status = positivity_call_status,
+      positivity_call_reason_code = positivity_call_reason_code,
       stringsAsFactors = FALSE
     )
   })
@@ -487,6 +564,96 @@ ph3_validate_background_model <- function(model) {
 apply_ph3_background_regression <- function(model) {
   ph3_validate_background_model(model)
   events <- ph3_background_event_table(model)
+  computed_flags <- vapply(model$source$event_classifications,
+    function(x) identical(
+      ph3_background_positivity_method(x),
+      "ph3_raw_4n_density_cutoff_v1"
+    ), logical(1))
+  if (any(computed_flags) && !all(computed_flags)) {
+    ph3_background_fail("mixed_positivity_method",
+                        "all active acquisitions must use one explicit positivity method")
+  }
+  computed_cutoff <- all(computed_flags)
+  if (computed_cutoff) {
+    cutoff <- model$source$raw_4n_density_cutoff
+    required <- c("schema_version", "method", "records", "application_qc", "density_curves")
+    record_fields <- c(
+      "experiment_id", "replicate_set_id", "control_condition_id", "control_sample_id",
+      "control_acquisition_id", "analysis_id", "config_digest",
+      "control_export_operation_id", "control_input_manifest_key", "raw_channel_id",
+      "event_selection_predicate", "target_sample_ids", "target_acquisition_ids",
+      "cutoff_method_id", "cutoff_raw_signal", "cutoff_status"
+    )
+    if (!is.list(cutoff) || !identical(names(cutoff), required) ||
+        !identical(cutoff$schema_version, "ph3-raw-4n-density-cutoff-1.0.0") ||
+        !identical(cutoff$method, ph3_raw_4n_cutoff_method()) ||
+        !is.data.frame(cutoff$records) || !is.data.frame(cutoff$application_qc) ||
+        !is.data.frame(cutoff$density_curves) ||
+        any(!record_fields %in% names(cutoff$records)) ||
+        nrow(cutoff$records) != nrow(model$replicate_sets) ||
+        any(!cutoff$records$cutoff_status %in% c("available", "unavailable_cutoff_failure")) ||
+        any(!cutoff$application_qc$cutoff_status %in% c("available", "unavailable_cutoff_failure"))) {
+      ph3_background_fail("invalid_raw_4n_cutoff_provenance",
+                          "computed positivity requires complete frozen cutoff provenance")
+    }
+    expected_sets <- model$replicate_sets$replicate_set_id
+    if (anyDuplicated(cutoff$records$replicate_set_id) ||
+        !identical(cutoff$records$replicate_set_id, expected_sets) ||
+        any(cutoff$records$experiment_id != model$experiment$experiment_id[[1L]]) ||
+        any(cutoff$records$analysis_id != model$experiment$analysis_id[[1L]]) ||
+        any(cutoff$records$raw_channel_id == "") ||
+        any(cutoff$records$event_selection_predicate !=
+              ph3_raw_4n_cutoff_method()$event_predicate) ||
+        any(cutoff$records$cutoff_method_id != ph3_raw_4n_cutoff_method()$method_id) ||
+        anyDuplicated(cutoff$application_qc$acquisition_id) ||
+        !setequal(cutoff$application_qc$acquisition_id, events$acquisition_id)) {
+      ph3_background_fail("raw_4n_cutoff_provenance_mismatch",
+                          "each replicate set and retained acquisition must bind exactly to one frozen cutoff record")
+    }
+    for (i in seq_len(nrow(cutoff$records))) {
+      record <- cutoff$records[i, , drop = FALSE]
+      set_samples <- model$samples[model$samples$replicate_set_id == record$replicate_set_id[[1L]], , drop = FALSE]
+      control <- set_samples[set_samples$sample_id == record$control_sample_id[[1L]], , drop = FALSE]
+      control_events <- events[events$acquisition_id == record$control_acquisition_id[[1L]], , drop = FALSE]
+      if (nrow(control) != 1L || nrow(control_events) == 0L ||
+          !identical(control_events$sample_id[[1L]], record$control_sample_id[[1L]]) ||
+          !identical(control_events$analysis_id[[1L]], record$analysis_id[[1L]]) ||
+          !identical(ph3_canonical_string_array(set_samples$sample_id), record$target_sample_ids[[1L]]) ||
+          !identical(ph3_canonical_string_array(unique(events$acquisition_id[events$replicate_set_id == record$replicate_set_id[[1L]]])), record$target_acquisition_ids[[1L]]) ||
+          !identical(record$config_digest[[1L]], control_events$config_digest[[1L]]) ||
+          !identical(record$control_export_operation_id[[1L]], control_events$export_operation_id[[1L]]) ||
+          !identical(record$control_input_manifest_key[[1L]], control_events$input_manifest_key[[1L]])) {
+        ph3_background_fail("raw_4n_cutoff_provenance_mismatch",
+                            "cutoff control and target identities must exactly bind active retained events")
+      }
+    }
+    for (i in seq_len(nrow(cutoff$application_qc))) {
+      row <- cutoff$application_qc[i, , drop = FALSE]
+      selected <- events$acquisition_id == row$acquisition_id[[1L]]
+      record <- cutoff$records[
+        cutoff$records$replicate_set_id == row$replicate_set_id[[1L]], , drop = FALSE
+      ]
+      if (nrow(record) != 1L) {
+        ph3_background_fail("raw_4n_cutoff_application_mismatch",
+                            "each acquisition must map to exactly one cutoff record")
+      }
+      failed <- identical(record$cutoff_status[[1L]], "unavailable_cutoff_failure")
+      if (
+          !identical(row$replicate_set_id[[1L]], unique(events$replicate_set_id[selected])[[1L]]) ||
+          !identical(row$cutoff_status[[1L]], record$cutoff_status[[1L]]) ||
+          !identical(row$cutoff_method_id[[1L]], record$cutoff_method_id[[1L]]) ||
+          (!failed && !identical(row$cutoff_raw_signal[[1L]], record$cutoff_raw_signal[[1L]])) ||
+          (failed && !is.na(row$cutoff_raw_signal[[1L]])) ||
+          sum(selected) != row$retained_event_count[[1L]] ||
+          sum(is.finite(events$target_raw[selected])) != row$finite_raw_event_count[[1L]] ||
+          sum(!is.finite(events$target_raw[selected])) != row$nonfinite_raw_event_count[[1L]] ||
+          sum(events$ph3_positive_member[selected]) != row$called_positive_count[[1L]] ||
+          sum(is.finite(events$target_raw[selected]) & !events$ph3_positive_member[selected]) != row$called_negative_count[[1L]]) {
+        ph3_background_fail("raw_4n_cutoff_application_mismatch",
+                            "computed positivity application QC does not reconcile to retained events")
+      }
+    }
+  }
   experiment_id <- model$experiment$experiment_id[[1L]]
   sample_ids <- model$samples$sample_id
   individual_fits <- lapply(sample_ids, function(sample_id) {
@@ -494,68 +661,66 @@ apply_ph3_background_regression <- function(model) {
     eligible <- events$eligible_2to4n[member]
     positive <- eligible & events$ph3_positive_member[member]
     negative <- eligible & !events$ph3_positive_member[member]
+    if (computed_cutoff) {
+      negative <- negative & events$positivity_call_status[member] == "called" &
+        is.finite(events$target_raw[member])
+    }
     ph3_fit_background_model(
       events$dna_raw[member], events$target_raw[member], negative, positive
     )
   })
   names(individual_fits) <- sample_ids
   replicate_set_ids <- model$replicate_sets$replicate_set_id
-  pooled_fits <- setNames(vector("list", length(replicate_set_ids)),
+  pooled_fits <- stats::setNames(vector("list", length(replicate_set_ids)),
                          replicate_set_ids)
-  invalid_samples <- sample_ids[vapply(individual_fits, function(x) {
-    !identical(x$fit_status, "valid")
-  }, logical(1))]
-  individual_trigger_sample_id <- if (length(invalid_samples)) {
-    invalid_samples[[1L]]
-  } else NA_character_
-  individual_trigger_reason_code <- if (length(invalid_samples)) {
-    individual_fits[[individual_trigger_sample_id]]$validity_reason_code
-  } else NA_character_
-  if (!length(invalid_samples)) {
-    for (replicate_set_id in replicate_set_ids) {
-      pooled_fits[[replicate_set_id]] <- ph3_not_attempted_pooled_fit()
-    }
-    selected_basis <- "individual_corrected"
-    selected_reason <- "all_individual_fits_valid"
-    pooled_failure_set_id <- NA_character_
-    pooled_failure_reason_code <- NA_character_
-  } else {
-    for (replicate_set_id in replicate_set_ids) {
-      member <- events$replicate_set_id == replicate_set_id
-      eligible <- events$eligible_2to4n[member]
-      positive <- eligible & events$ph3_positive_member[member]
-      negative <- eligible & !events$ph3_positive_member[member]
-      pooled_fits[[replicate_set_id]] <- ph3_fit_background_model(
-        events$dna_raw[member], events$target_raw[member], negative, positive
+  decision_rows <- vector("list", length(replicate_set_ids))
+  for (i in seq_along(replicate_set_ids)) {
+    set_id <- replicate_set_ids[[i]]
+    set_samples <- sample_ids[model$samples$replicate_set_id == set_id]
+    invalid_samples <- set_samples[vapply(individual_fits[set_samples], function(x) {
+      !identical(x$fit_status, "valid")
+    }, logical(1))]
+    if (!length(invalid_samples)) {
+      pooled_fits[[set_id]] <- ph3_not_attempted_pooled_fit()
+      decision_rows[[i]] <- data.frame(
+        experiment_id = experiment_id, replicate_set_id = set_id,
+        signal_basis = "individual_corrected",
+        reason_code = "all_individual_fits_valid",
+        individual_trigger_sample_id = NA_character_,
+        individual_trigger_reason_code = NA_character_,
+        pooled_failure_replicate_set_id = NA_character_,
+        pooled_failure_reason_code = NA_character_, stringsAsFactors = FALSE
       )
+      next
     }
-    invalid_pooled_sets <- replicate_set_ids[vapply(
-      pooled_fits, function(x) !identical(x$fit_status, "valid"), logical(1)
-    )]
-    if (!length(invalid_pooled_sets)) {
-      selected_basis <- "pooled_corrected"
-      selected_reason <- "individual_fit_failure_all_pooled_fits_valid"
-      pooled_failure_set_id <- NA_character_
-      pooled_failure_reason_code <- NA_character_
-    } else {
-      selected_basis <- "raw"
-      selected_reason <- "pooled_fit_failure_experiment_raw_fallback"
-      pooled_failure_set_id <- invalid_pooled_sets[[1L]]
-      pooled_failure_reason_code <-
-        pooled_fits[[pooled_failure_set_id]]$validity_reason_code
+    member <- events$replicate_set_id == set_id
+    eligible <- events$eligible_2to4n[member]
+    positive <- eligible & events$ph3_positive_member[member]
+    negative <- eligible & !events$ph3_positive_member[member]
+    if (computed_cutoff) {
+      negative <- negative & events$positivity_call_status[member] == "called" &
+        is.finite(events$target_raw[member])
     }
-  }
-  decisions <- do.call(rbind, lapply(replicate_set_ids, function(set_id) {
-    data.frame(
+    pooled_fits[[set_id]] <- ph3_fit_background_model(
+      events$dna_raw[member], events$target_raw[member], negative, positive
+    )
+    pooled_valid <- identical(pooled_fits[[set_id]]$fit_status, "valid")
+    decision_rows[[i]] <- data.frame(
       experiment_id = experiment_id, replicate_set_id = set_id,
-      signal_basis = selected_basis, reason_code = selected_reason,
-      individual_trigger_sample_id = individual_trigger_sample_id,
-      individual_trigger_reason_code = individual_trigger_reason_code,
-      pooled_failure_replicate_set_id = pooled_failure_set_id,
-      pooled_failure_reason_code = pooled_failure_reason_code,
+      signal_basis = if (pooled_valid) "pooled_corrected" else "raw",
+      reason_code = if (pooled_valid) {
+        "individual_fit_failure_pooled_fit_valid"
+      } else {
+        "pooled_fit_failure_replicate_set_raw_fallback"
+      },
+      individual_trigger_sample_id = invalid_samples[[1L]],
+      individual_trigger_reason_code = individual_fits[[invalid_samples[[1L]]]]$validity_reason_code,
+      pooled_failure_replicate_set_id = if (pooled_valid) NA_character_ else set_id,
+      pooled_failure_reason_code = if (pooled_valid) NA_character_ else pooled_fits[[set_id]]$validity_reason_code,
       stringsAsFactors = FALSE
     )
-  }))
+  }
+  decisions <- do.call(rbind, decision_rows)
   rownames(decisions) <- NULL
   individual_rows <- do.call(rbind, lapply(sample_ids, function(sample_id) {
     sample <- model$samples[model$samples$sample_id == sample_id, , drop = FALSE]
@@ -618,7 +783,7 @@ apply_ph3_background_regression <- function(model) {
     "experiment_id", "replicate_set_id", "sample_id", "analysis_id",
     "acquisition_id", "prefix", "event_identity", "event_row",
     "ph3_positive_member", "eligible_2to4n", "sub_4n_member",
-    "four_n_member", "dna_raw", "dna_norm", "target_raw",
+    "four_n_member", "dna_raw", "dna_norm", "target_raw", "config_digest", "export_operation_id", "input_manifest_key", "positivity_call_status", "positivity_call_reason_code",
     "predicted_background",
     "analytical_signal", "signal_basis", "fit_scope",
     "event_signal_status", "event_signal_reason_code"
@@ -628,22 +793,24 @@ apply_ph3_background_regression <- function(model) {
     "experiment_id", "replicate_set_id", "signal_basis", "reason_code"
   )]
   correction$status <- "selected"
-  correction$reason_detail <- if (identical(selected_basis,
-                                             "individual_corrected")) {
-    rep(NA_character_, nrow(correction))
-  } else {
+  correction$reason_detail <- vapply(seq_len(nrow(decisions)), function(i) {
+    decision <- decisions[i, , drop = FALSE]
+    if (identical(decision$signal_basis[[1L]], "individual_corrected")) {
+      return(NA_character_)
+    }
     detail <- paste0(
-      "individual_trigger_sample_id=", individual_trigger_sample_id,
-      "; individual_trigger_reason_code=", individual_trigger_reason_code
+      "individual_trigger_sample_id=", decision$individual_trigger_sample_id[[1L]],
+      "; individual_trigger_reason_code=", decision$individual_trigger_reason_code[[1L]]
     )
-    if (identical(selected_basis, "raw")) {
+    if (identical(decision$signal_basis[[1L]], "raw")) {
       detail <- paste0(
-        detail, "; pooled_failure_replicate_set_id=", pooled_failure_set_id,
-        "; pooled_failure_reason_code=", pooled_failure_reason_code
+        detail, "; pooled_failure_replicate_set_id=",
+        decision$pooled_failure_replicate_set_id[[1L]],
+        "; pooled_failure_reason_code=", decision$pooled_failure_reason_code[[1L]]
       )
     }
-    rep(detail, nrow(correction))
-  }
+    detail
+  }, character(1))
   correction <- correction[c(
     "experiment_id", "replicate_set_id", "status", "signal_basis",
     "reason_code", "reason_detail"
@@ -651,8 +818,8 @@ apply_ph3_background_regression <- function(model) {
   model$correction <- correction
   model$schema$correction_reason_codes <- c(
     "all_individual_fits_valid",
-    "individual_fit_failure_all_pooled_fits_valid",
-    "pooled_fit_failure_experiment_raw_fallback"
+    "individual_fit_failure_pooled_fit_valid",
+    "pooled_fit_failure_replicate_set_raw_fallback"
   )
   model$background_regression <- list(
     schema_version = "ph3-background-regression-1.0.0",

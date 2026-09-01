@@ -42,6 +42,7 @@ Supplying both or neither is an error.
 | `facs_cell_cycle.qmd` | Cell-cycle phase percentages and gates. |
 | `facs_diagnostics.qmd` | Gate assignments, fits, input checks, and warnings. |
 | `facs_ph3_4n.qmd` | Exact FlowJo pH3 gate intersected with configured G2/M DNA, pseudocolor, and percentage. |
+| `facs_ph3_output_contract.qmd` | Canonical four-panel pH3 condition report for a completed production output-contract analysis. |
 
 ## Interactive configuration in RStudio
 
@@ -139,3 +140,15 @@ gate fill, opacity, label color, label size, and label precision parameters
 default to `null`, preserving package presentation defaults until overridden.
 The optional `gate_top_inset_fraction` controls only how far the visible upper
 outline sits below the y-axis ceiling.
+
+## pH3 output-contract report
+
+`facs_ph3_output_contract.qmd` consumes one completed production pH3 analysis
+and shows only the four owner-confirmed condition-level outcomes: 4N and
+below-4N pH3-positive prevalence, followed by the corresponding pH3 signal
+outcomes. It retains biological-replicate points, condition summaries, and
+concise availability/basis QC. Its plot layer does not recalculate pH3
+results, write CSV/RDS/JSON artifacts, show inferential statistics, or
+substitute legacy pH3 plots. Supply exactly one `config` or `analysis_rds`;
+`config` runs the configured analysis, while `analysis_rds` renders an already
+completed analysis without repeating it.
