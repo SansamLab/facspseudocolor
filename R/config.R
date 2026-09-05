@@ -342,9 +342,9 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
       pilot <- config$ph3_pilot
       if (!is.list(pilot) || !identical(names(pilot), c("control_label", "provenance_label")) ||
           !identical(pilot$control_label, "Untreated") ||
-          !identical(pilot$provenance_label, "PILOT / LIMITED-PROVENANCE — NOT PUBLICATION-GRADE")) {
+          !identical(pilot$provenance_label, "PILOT / LIMITED-PROVENANCE \u2014 NOT PUBLICATION-GRADE")) {
         errors <- config_add_error(errors,
-          "`ph3_pilot` must exactly declare control_label: 'Untreated' and provenance_label: 'PILOT / LIMITED-PROVENANCE — NOT PUBLICATION-GRADE'.")
+          "`ph3_pilot` must exactly declare control_label: 'Untreated' and provenance_label: 'PILOT / LIMITED-PROVENANCE \u2014 NOT PUBLICATION-GRADE'.")
       }
       if (!is.list(config$flowjo) || !identical(config$flowjo$rebuild, FALSE)) {
         errors <- config_add_error(errors,

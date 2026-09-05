@@ -292,11 +292,11 @@ ph3_pilot_unavailable_correction_panel <- function(analysis, metadata_row, corre
                                      "\nReason: ", reason),
                       size = 2.6) +
     ggplot2::annotate("text", x = 0.5, y = 0.32,
-                      label = "No raw events, corrected density, or corrected cutoff are shown.\nPILOT / LIMITED-PROVENANCE — NOT PUBLICATION-GRADE.",
+                      label = "No raw events, corrected density, or corrected cutoff are shown.\nPILOT / LIMITED-PROVENANCE \u2014 NOT PUBLICATION-GRADE.",
                       size = 2.3) +
     ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE, clip = "off") +
     ggplot2::labs(
-      title = paste0(metadata_row$replicate[[1L]], " — ", metadata_row$condition[[1L]]),
+      title = paste0(metadata_row$replicate[[1L]], " \u2014 ", metadata_row$condition[[1L]]),
       subtitle = paste0("Sample: ", prefix, ". Background correction unavailable; clone outcomes are unavailable."),
       x = "Normalized DNA content", y = "Background-subtracted pH3 fluorescence",
       caption = paste0(metadata_row$provenance_label[[1L]],
@@ -324,11 +324,11 @@ ph3_pilot_unavailable_display_offset_panel <- function(analysis, metadata_row) {
                       label = paste0("Status: ", metadata_row$display_offset_status[[1L]],
                                      "\nReason: ", reason), size = 2.6) +
     ggplot2::annotate("text", x = 0.5, y = 0.32,
-                      label = "No raw events, corrected density, or cutoff are shown.\nPILOT / LIMITED-PROVENANCE — NOT PUBLICATION-GRADE.",
+                      label = "No raw events, corrected density, or cutoff are shown.\nPILOT / LIMITED-PROVENANCE \u2014 NOT PUBLICATION-GRADE.",
                       size = 2.3) +
     ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE, clip = "off") +
     ggplot2::labs(
-      title = paste0(metadata_row$replicate[[1L]], " — ", metadata_row$condition[[1L]]),
+      title = paste0(metadata_row$replicate[[1L]], " \u2014 ", metadata_row$condition[[1L]]),
       subtitle = paste0("Sample: ", prefix, ". Corrected display offset unavailable; clone outcomes are unavailable."),
       x = "Normalized DNA content", y = "Background-subtracted pH3 fluorescence (display offset restored)",
       caption = paste0(metadata_row$provenance_label[[1L]],
@@ -360,7 +360,7 @@ ph3_pilot_unavailable_log_display_panel <- function(analysis, metadata_row) {
                       size = 2.3) +
     ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE, clip = "off") +
     ggplot2::labs(
-      title = paste0(metadata_row$replicate[[1L]], " — ", metadata_row$condition[[1L]]),
+      title = paste0(metadata_row$replicate[[1L]], " \u2014 ", metadata_row$condition[[1L]]),
       subtitle = paste0("Sample: ", prefix, ". Background-subtracted with display offset; log10 display unavailable."),
       x = "Normalized DNA content", y = "Background-subtracted pH3 fluorescence (display offset restored; log10 display)",
       caption = paste0(metadata_row$provenance_label[[1L]],
@@ -509,7 +509,7 @@ ph3_pilot_pseudocolor_panel <- function(analysis, metadata_row) {
     ggplot2::scale_y_log10(labels = scales::label_comma()) +
     ggplot2::coord_cartesian(xlim = x_limits, ylim = y_limits, clip = "off") +
     ggplot2::labs(
-      title = paste0(metadata_row$replicate[[1L]], " — ", metadata_row$condition[[1L]]),
+      title = paste0(metadata_row$replicate[[1L]], " \u2014 ", metadata_row$condition[[1L]]),
       subtitle = subtitle, x = "Normalized DNA content",
       y = "Background-subtracted pH3 fluorescence (display offset restored; log10 display)",
       caption = paste0(metadata_row$provenance_label[[1L]],
@@ -718,7 +718,7 @@ ph3_build_legacy_csv_pilot <- function(analysis) {
     schema_version = "ph3-legacy-csv-pilot-1.0.0", provenance_label = ph3_pilot_label(analysis),
     limitations = c("Legacy FlowJo CSV exports: event identity and gate containment are unverified.",
                     "Final cutoff, signal panels, and C/D values use per-sample background-subtracted pH3; provisional raw cutoffs are retained only for correction audit.",
-                    "PILOT ONLY — NOT PUBLICATION-GRADE."),
+                    "PILOT ONLY \u2014 NOT PUBLICATION-GRADE."),
     cutoff_records = cutoff_records, provisional_background_qc = do.call(rbind, correction_rows),
     provisional_density_curves = if (length(provisional_density_rows)) do.call(rbind, provisional_density_rows) else data.frame(
       prefix = character(), replicate_index = integer(), raw_pH3 = numeric(), density = numeric(), provisional_cutoff_raw_signal = numeric()),
