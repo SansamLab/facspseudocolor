@@ -231,3 +231,34 @@ eligible 2N–4N background regression -> corrected C/D medians`, and freeze
 the table's Gaussian/nrd0/adjust-1/2,048-grid/minimum-100 settings as
 `ph3_raw_4n_density_cutoff_v1`. The FlowJo-positive-label calibration path is
 superseded and must remain untracked rather than being deleted.
+
+## 2026-09-05 scope clarification — legacy CSV pilot cutoff exception (owner-confirmed)
+
+An independent scientific-integrity review of the separately maintained
+`legacy_csv_pilot_v1` input profile (`R/ph3_legacy_pilot.R`, log at
+`docs/implementation/ph3_legacy_csv_pilot_2026-09-01.md`) found that its
+positivity cutoff is computed from the matched Untreated control's
+DNA-dependent-background-subtracted 4N raw-pH3 events, not from the raw-scale
+control cutoff Rules 2 and 6 above require, even though the pilot's own
+configuration declares `ph3_positivity_method: "ph3_raw_4n_density_cutoff_v1"`.
+No separate, dated, owner-confirmed record authorizing this specific
+deviation existed independent of that pilot's own log at the time of review.
+
+The scientific owner has now confirmed, directly and explicitly, that this
+deviation is intended: for the `legacy_csv_pilot_v1` profile only, the final
+KDE cutoff used for positivity is computed on that clone's Untreated control's
+background-subtracted 4N events, not on raw pH3 as Rules 2 and 6 require for
+the frozen production method.
+
+This exception is scoped exclusively to the `legacy_csv_pilot_v1` profile. It
+does not amend, weaken, or reinterpret Rules 1–6 above for the frozen
+`ph3_raw_4n_density_cutoff_v1` method as used by the `production_direct_identity_v1`
+profile, which remain unchanged and in force. The pilot's reuse of the
+`ph3_raw_4n_density_cutoff_v1` method-ID string, and the shared
+density-estimation engine (`R/ph3_raw_density_cutoff.R`), describes only the
+shared deterministic-estimator mechanics (Gaussian kernel, `nrd0` bandwidth,
+adjust 1, 2,048-point grid, minimum 100 events); for the pilot path it is not
+an assertion that positivity there is computed on raw pH3. A distinct
+pilot-specific method-ID string would improve future auditability but is a
+labeling decision, not a scientific one, and is not required to resolve this
+review finding.
