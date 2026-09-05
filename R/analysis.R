@@ -58,7 +58,11 @@ ph3_normalization_inputs <- function(input_report, prefix, profile) {
     paths[[1L]]
   }
   list(complete = input_path("complete"), g1 = input_path("g1"),
-       ph3_positive = input_path("ph3_positive"))
+       ph3_positive = if (identical(profile, "legacy_csv_pilot_v1")) {
+         NULL
+       } else {
+         input_path("ph3_positive")
+       })
 }
 
 new_facs_analysis <- function(
@@ -234,6 +238,9 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
       )
     )
     analysis
+  } else if (config$plot_type == "ph3" &&
+             identical(config$ph3_input_profile, "legacy_csv_pilot_v1")) {
+    ph3_build_legacy_csv_pilot(analysis)
   } else if (config$plot_type == "ph3") {
     quantify_ph3(analysis)
   } else {

@@ -1,0 +1,121 @@
+---
+title: "pH3 legacy CSV pilot report — NOT PUBLICATION-GRADE"
+format: { html: { toc: true, embed-resources: true } }
+execute: { message: false }
+params:
+  config: null
+  analysis_rds: null
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
+analysis <- facs_report_input(params$config, params$analysis_rds)
+if (!identical(analysis$config$ph3_input_profile, "legacy_csv_pilot_v1") ||
+    is.null(analysis$ph3_legacy_pilot)) {
+  stop("This report requires a completed legacy_csv_pilot_v1 pH3 analysis.", call. = FALSE)
+}
+pilot <- plot_ph3_legacy_pilot_report(analysis)
+```
+
+## PILOT / LIMITED-PROVENANCE — NOT PUBLICATION-GRADE
+
+This report reads existing historical FlowJo CSV exports. Event identity and
+gate containment cannot be verified. Each sample receives an auditable
+provisional raw-4N partition only to fit its own DNA-dependent linear
+background model. Final cutoff, positivity, signal panels, and C/D outcomes
+use **background-subtracted pH3**; the final cutoff is derived from the
+matched Untreated sample on that corrected scale. For each explicit clone
+group, pseudocolor panels use a display-only target equal to the median of that
+group's per-sample raw final-negative medians. Each sample's offset is this
+shared target minus its corrected final-negative median, so usable samples in
+the group have aligned displayed negative medians. The offset does not alter
+any cutoff, outcome, or summary. If any configured group member lacks a valid
+final-negative display input, every panel in that group is shown as unavailable
+rather than using a partial target. Panels then use a log10 y-axis. Any restored
+display values at or below zero are excluded from the plotted density only and
+are reported per sample; they remain unchanged in all stored analysis values.
+
+```{r}
+pilot$limitations
+```
+
+## Four pilot outcomes
+
+```{r}
+pilot$panels$ph3_4n_positive_prevalence
+pilot$panels$ph3_below_4n_positive_prevalence
+pilot$panels$ph3_4n_positive_signal
+pilot$panels$ph3_below_4n_positive_signal
+```
+
+## Final corrected-cutoff QC
+
+```{r}
+pilot$cutoff_records
+```
+
+## Provisional raw partition and background-regression QC
+
+These raw-scale cutoffs are audit intermediates only. They are not the final
+positivity calls and do not appear as final panel overlays.
+
+```{r}
+pilot$provisional_background_qc
+pilot$provisional_density_curves
+```
+
+## Background-subtracted pH3-versus-DNA pseudocolor QC
+
+One display-only panel is shown for every explicitly configured pilot sample.
+Panels with an available correction use background-subtracted pH3 from the
+same complete-event tables, show the clone-matched final corrected 4N cutoff
+when its restored display value is positive, and shade the below-4N and 4N analytic regions. A sample with
+an unavailable correction instead shows a clearly labelled placeholder with
+its stored correction status and reason; it shows no raw events, corrected
+density, or fabricated cutoff. The visual DNA window is 1.6N--4.4N; the
+analytical 2N--4N bounds remain visibly marked and are unchanged for available
+panels. These are computed display regions, not reconstructed or verified
+FlowJo geometry.
+
+## Display-offset QC
+
+For each available sample, the display-only offset is `median(raw final
+negative) - median(background-subtracted final negative)`, calculated from the
+same eligible final pH3-negative events used only for visual restoration. The
+shown cutoff is translated by that same offset. This table is audit information;
+all numerical outcomes above remain on the unshifted background-subtracted
+scale.
+
+```{r}
+pilot$display_offset_qc
+```
+
+## Log10-display QC
+
+The log10 axis is display-only. This table records finite events in each
+visual DNA window, how many are positive and therefore displayed, and how many
+nonpositive restored values are excluded from the plotted density. If no
+positive-domain display events exist, the report shows an explicit no-data
+panel and no cutoff overlay; it never falls back to raw pH3.
+
+```{r}
+pilot$log_display_qc
+```
+
+```{r}
+#| fig-width: 3.125
+#| fig-height: 3.375
+#| out-width: "3.125in"
+#| fig-align: "left"
+#| dpi: 144
+for (prefix in names(pilot$pseudocolor_panels)) {
+  print(pilot$pseudocolor_panels[[prefix]])
+}
+```
+
+```{r}
+pilot$condition_summary
+```

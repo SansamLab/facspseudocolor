@@ -27,10 +27,16 @@ normalize_ph3 <- function(
   g1_events <- read_facs_sample(
     g1_events, dna_channel, target_channel, paste(sample_id, "G1"), 2L
   )
-  ph3_positive_events <- read_facs_sample(
-    ph3_positive_events, dna_channel, target_channel,
-    paste(sample_id, "pH3 positive"), 0L
-  )
+  ph3_positive_events <- if (is.null(ph3_positive_events)) {
+    # Pilot profile has no imported pH3-positive population.  This empty table
+    # is a structural placeholder only; positivity is computed later.
+    events[FALSE, , drop = FALSE]
+  } else {
+    read_facs_sample(
+      ph3_positive_events, dna_channel, target_channel,
+      paste(sample_id, "pH3 positive"), 0L
+    )
+  }
   if (!config_scalar_number(dna_2n_value) || dna_2n_value <= 0) {
     stop("`dna_2n_value` must be a positive finite number.", call. = FALSE)
   }

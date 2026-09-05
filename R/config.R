@@ -27,7 +27,7 @@ facs_config_keys <- function() {
     "pdf_height_per_row", "output_pdf", "output_png", "samples",
     "replicates", "flowjo", "ph3_input_profile", "ph3_export_operation_dirs",
     "ph3_positivity_method",
-    "ph3_output_contract"
+    "ph3_output_contract", "ph3_pilot"
   )
 }
 
@@ -298,11 +298,12 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
     }
     if (!config_scalar_string(config$ph3_input_profile) ||
         !config$ph3_input_profile %in% c(
-          "production_direct_identity_v1", "legacy_count_only_unverified_v1"
+        "production_direct_identity_v1", "legacy_count_only_unverified_v1",
+        "legacy_csv_pilot_v1"
         )) {
       errors <- config_add_error(
         errors,
-        "PH3 mode requires explicit `ph3_input_profile`: 'production_direct_identity_v1' or 'legacy_count_only_unverified_v1'."
+        "PH3 mode requires explicit `ph3_input_profile`: 'production_direct_identity_v1', 'legacy_count_only_unverified_v1', or 'legacy_csv_pilot_v1'."
       )
     } else if (identical(config$ph3_input_profile,
                          "production_direct_identity_v1")) {
@@ -331,6 +332,23 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
       }, error = function(e) conditionMessage(e))
       if (!is.null(contract_error)) {
         errors <- config_add_error(errors, contract_error)
+      }
+    } else if (identical(config$ph3_input_profile, "legacy_csv_pilot_v1")) {
+      if (!identical(config$ph3_positivity_method,
+                     "ph3_raw_4n_density_cutoff_v1")) {
+        errors <- config_add_error(errors,
+          "Legacy CSV pilot requires `ph3_positivity_method: ph3_raw_4n_density_cutoff_v1`.")
+      }
+      pilot <- config$ph3_pilot
+      if (!is.list(pilot) || !identical(names(pilot), c("control_label", "provenance_label")) ||
+          !identical(pilot$control_label, "Untreated") ||
+          !identical(pilot$provenance_label, "PILOT / LIMITED-PROVENANCE \u2014 NOT PUBLICATION-GRADE")) {
+        errors <- config_add_error(errors,
+          "`ph3_pilot` must exactly declare control_label: 'Untreated' and provenance_label: 'PILOT / LIMITED-PROVENANCE \u2014 NOT PUBLICATION-GRADE'.")
+      }
+      if (!is.list(config$flowjo) || !identical(config$flowjo$rebuild, FALSE)) {
+        errors <- config_add_error(errors,
+          "Legacy CSV pilot requires `flowjo.rebuild: false`; it never regenerates historical exports.")
       }
     }
     ph3_ranges <- list(
@@ -385,7 +403,11 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   required_suffixes <- if (plot_type == "edu") {
     c("complete", "g1", "edu_positive")
   } else if (plot_type == "ph3") {
-    c("complete", "g1", "ph3_positive")
+    if (identical(config$ph3_input_profile, "legacy_csv_pilot_v1")) {
+      c("complete", "g1")
+    } else {
+      c("complete", "g1", "ph3_positive")
+    }
   } else {
     "complete"
   }

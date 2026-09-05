@@ -49,6 +49,9 @@ resolve_facs_directory <- function(config, data_dir = NULL) {
 required_population_keys <- function(config, manifest) {
   if (identical(config$plot_type, "poi")) return("complete")
   if (identical(config$plot_type, "ph3")) {
+    if (identical(config$ph3_input_profile, "legacy_csv_pilot_v1")) {
+      return(c("complete", "g1"))
+    }
     return(c("complete", "g1", "ph3_positive"))
   }
 
@@ -82,7 +85,9 @@ facs_input_files <- function(config, data_dir = NULL) {
     for (i in seq_len(nrow(manifest))) {
       rows[[length(rows) + 1L]] <- add_row(i, "complete")
       rows[[length(rows) + 1L]] <- add_row(i, "g1")
-      rows[[length(rows) + 1L]] <- add_row(i, "ph3_positive")
+      if (!identical(config$ph3_input_profile, "legacy_csv_pilot_v1")) {
+        rows[[length(rows) + 1L]] <- add_row(i, "ph3_positive")
+      }
     }
   } else {
     for (i in seq_len(nrow(manifest))) {
@@ -241,6 +246,13 @@ validate_facs_inputs <- function(config, data_dir = NULL) {
     files$nonfinite_event_n[[i]] <- info$nonfinite_event_n
   }
   if (identical(config$plot_type, "ph3")) {
+    if (identical(config$ph3_input_profile, "legacy_csv_pilot_v1")) {
+      warning(
+        "PILOT / LIMITED-PROVENANCE PH3 INPUT: legacy FlowJo CSV exports have no verifiable event identity or containment; not publication-grade.",
+        call. = FALSE
+      )
+      return(files)
+    }
     warning(
       "LEGACY COUNT-ONLY PH3 INPUT: event identity and population containment are unverified.",
       call. = FALSE
