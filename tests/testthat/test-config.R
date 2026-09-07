@@ -46,6 +46,51 @@ test_that("configuration validates references, prefixes, and ranges", {
   expect_error(validate_facs_config(config), "Duplicate sample prefix")
 })
 
+test_that("EdU permits an explicit matched reference in every replicate pair", {
+  config <- minimal_config("edu")
+  config$replicates[[1]]$reference <- "Reference"
+  validated <- validate_facs_config(config)
+  manifest <- build_sample_manifest(validated)
+
+  expect_identical(manifest$prefix[manifest$is_reference], "reference")
+
+  second <- config$replicates[[1]]
+  second$label <- "Replicate 2"
+  second$samples <- lapply(second$samples, function(sample) {
+    sample$prefix <- paste0("second_", sample$prefix)
+    sample
+  })
+  config$replicates[[2]] <- second
+  expect_silent(validate_facs_config(config))
+
+  config$replicates[[2]]$reference <- NULL
+  expect_error(
+    validate_facs_config(config),
+    "EdU replicate `reference` samples must be absent.*exactly one"
+  )
+
+  config$replicates[[2]]$reference <- "Missing"
+  expect_error(
+    validate_facs_config(config),
+    "EdU replicate `reference` samples must be absent.*exactly one"
+  )
+
+  single_invalid <- minimal_config("edu")
+  single_invalid$replicates[[1]]$reference <- "Missing"
+  expect_error(
+    validate_facs_config(single_invalid),
+    "each declared reference must name exactly one matching sample"
+  )
+
+  all_invalid <- config
+  all_invalid$replicates[[1]]$reference <- "Missing"
+  all_invalid$replicates[[2]]$reference <- "Also missing"
+  expect_error(
+    validate_facs_config(all_invalid),
+    "each declared reference must name exactly one matching sample"
+  )
+})
+
 test_that("flat configurations cannot express replicate reference structure", {
   config <- minimal_config("poi")
   config$samples <- config$replicates[[1]]$samples

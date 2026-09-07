@@ -19,10 +19,13 @@ file's directory.
 | `replicates` | list | Biological/technical acquisitions, conditions, and unique prefixes. |
 
 Every sample must contain `label` and `prefix`; optional FlowJo orchestration
-also requires `fcs`. EdU acquisitions do not have a `reference`: their
-background is fitted independently from the EdU-negative cells in each
-acquisition. POI requires one matched background-control `reference` for each
-biological/technical replicate pair.
+also requires `fcs`. EdU background is fitted independently from the
+EdU-negative cells in each acquisition. EdU configurations may either omit
+replicate `reference` values everywhere or name exactly one explicitly matched
+reference sample in every biological/technical replicate pair. Such a reference
+supports explicitly requested reference-normalized outputs; it does not supply
+the EdU background model. POI requires one matched background-control
+`reference` for each biological/technical replicate pair.
 
 PH3 replicates contain `label` and `samples` but no `reference`. PH3 requires
 explicit contiguous `g1_x_range`, Early/Mid/Late `s_phase_bins`, and
