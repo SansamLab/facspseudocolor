@@ -253,6 +253,133 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
   }
 }
 
+#' Validate provenance for experimental model-derived EdU gate inputs
+#'
+#' @param analysis A completed `facs_analysis` in EdU mode.
+#' @param manifest_path Explicit path to `model-gating-manifest.json`.
+#' @return An invisible data frame describing the verified input artifacts.
+#' @export
+validate_edu_model_gate_manifest <- function(analysis, manifest_path) {
+  if (!inherits(analysis, "facs_analysis") ||
+      !identical(analysis$config$plot_type, "edu")) {
+    stop("`analysis` must be a completed EdU facs_analysis.", call. = FALSE)
+  }
+  if (!config_scalar_string(manifest_path) || !file.exists(manifest_path)) {
+    stop("Model-gating manifest path must name one existing file.", call. = FALSE)
+  }
+  manifest_path <- normalizePath(manifest_path, mustWork = TRUE)
+  manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+  if (!identical(manifest$status_label,
+                 "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION")) {
+    stop("Model-gating manifest lacks the required non-production status.",
+         call. = FALSE)
+  }
+  acquisitions <- manifest$acquisitions
+  if (!is.list(acquisitions) || !length(acquisitions)) {
+    stop("Model-gating manifest has no acquisitions.", call. = FALSE)
+  }
+  artifacts <- manifest$artifacts
+  if (!is.list(artifacts) ||
+      !setequal(names(artifacts), c("single_cells", "g1"))) {
+    stop("Model-gating manifest must name exactly the Single Cells and G1 artifacts.",
+         call. = FALSE)
+  }
+  artifact_rows <- list()
+  for (target in names(artifacts)) {
+    artifact <- artifacts[[target]]
+    if (!config_scalar_string(artifact$path) ||
+        !config_scalar_string(artifact$byte_sha256) ||
+        !config_scalar_string(artifact$semantic_sha256) ||
+        !file.exists(artifact$path)) {
+      stop("Model artifact provenance is incomplete for ", target, ".",
+           call. = FALSE)
+    }
+    observed_artifact_hash <- paste0(
+      as.character(openssl::sha256(file(artifact$path))), collapse = ""
+    )
+    if (!identical(observed_artifact_hash, artifact$byte_sha256)) {
+      stop("Model artifact byte SHA-256 differs for ", target, ".", call. = FALSE)
+    }
+    rule <- jsonlite::fromJSON(artifact$path, simplifyVector = FALSE)
+    if (!config_scalar_string(rule$sha256) ||
+        !config_scalar_string(rule$schema_version) ||
+        !config_scalar_number(as.numeric(rule$threshold))) {
+      stop("Model artifact lacks required semantic hash, schema, or threshold for ",
+           target, ".", call. = FALSE)
+    }
+    if (!identical(rule$sha256, artifact$semantic_sha256) ||
+        !identical(rule$schema_version, manifest$feature_schema_version)) {
+      stop("Model artifact semantic provenance differs for ", target, ".",
+           call. = FALSE)
+    }
+    artifact_rows[[length(artifact_rows) + 1L]] <- data.frame(
+      target = target, byte_sha256 = observed_artifact_hash,
+      semantic_sha256 = rule$sha256, threshold = as.numeric(rule$threshold),
+      feature_schema = rule$schema_version, stringsAsFactors = FALSE
+    )
+  }
+  prefixes <- vapply(acquisitions, `[[`, character(1), "prefix")
+  configured <- as.character(analysis$sample_manifest$prefix)
+  if (anyDuplicated(prefixes) || !setequal(prefixes, configured) ||
+      length(prefixes) != length(configured)) {
+    stop("Model-gating manifest prefixes do not exactly match the analysis.",
+         call. = FALSE)
+  }
+  input_paths <- normalizePath(analysis$input_report$path, mustWork = TRUE)
+  input_keys <- paste(analysis$input_report$prefix,
+                      analysis$input_report$population, sep = "\r")
+  population_keys <- c(single_cells = "complete", g1 = "g1",
+                       edu_positive = "edu_positive")
+  verified <- list()
+  for (acquisition in acquisitions) {
+    for (output_name in names(population_keys)) {
+      key <- paste(acquisition$prefix, population_keys[[output_name]], sep = "\r")
+      positions <- which(input_keys == key)
+      if (length(positions) != 1L) {
+        stop("Analysis input is missing or ambiguous for ", key, ".",
+             call. = FALSE)
+      }
+      output <- acquisition$outputs[[output_name]]
+      if (is.null(output$path) || is.null(output$sha256)) {
+        stop("Model-gating manifest output record is incomplete for ", key, ".",
+             call. = FALSE)
+      }
+      if (!config_scalar_string(output$path) ||
+          !identical(basename(output$path), output$path) ||
+          output$path %in% c(".", "..")) {
+        stop("Model-gating manifest output path must be one path-free basename for ",
+             key, ".", call. = FALSE)
+      }
+      expected_path <- normalizePath(
+        file.path(dirname(manifest_path), output$path), mustWork = TRUE
+      )
+      if (!identical(dirname(expected_path), dirname(manifest_path))) {
+        stop("Model-gating manifest output path escapes its manifest directory for ",
+             key, ".", call. = FALSE)
+      }
+      if (!identical(input_paths[[positions]], expected_path)) {
+        stop("Analysis input path differs from the model-gating manifest for ",
+             key, ".", call. = FALSE)
+      }
+      observed_hash <- paste0(
+        as.character(openssl::sha256(file(expected_path))), collapse = ""
+      )
+      if (!identical(observed_hash, output$sha256)) {
+        stop("Analysis input SHA-256 differs from the model-gating manifest for ",
+             key, ".", call. = FALSE)
+      }
+      verified[[length(verified) + 1L]] <- data.frame(
+        prefix = acquisition$prefix,
+        population = population_keys[[output_name]], path = expected_path,
+        sha256 = observed_hash, stringsAsFactors = FALSE
+      )
+    }
+  }
+  result <- do.call(rbind, verified)
+  attr(result, "model_artifacts") <- do.call(rbind, artifact_rows)
+  invisible(result)
+}
+
 #' @export
 print.facs_analysis <- function(x, ...) {
   cat("<facs_analysis>\n")

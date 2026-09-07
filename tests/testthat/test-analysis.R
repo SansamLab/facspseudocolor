@@ -58,3 +58,68 @@ test_that("analysis print method summarizes without exposing event data", {
   expect_output(print(object), "mode:       poi")
   expect_output(print(object), "samples:    2")
 })
+
+test_that("model-derived EdU manifests are hash-bound and fail closed", {
+  directory <- withr::local_tempdir(pattern = "SYNTHETIC_model_gate_")
+  populations <- c(single_cells = "complete", g1 = "g1",
+                   edu_positive = "edu_positive")
+  paths <- file.path(directory, paste0("SYNTHETIC_A_", names(populations), ".csv"))
+  for (path in paths) writeLines(c("DNA content,EdU", "1,2"), path)
+  input_report <- data.frame(
+    prefix = "SYNTHETIC_A", population = unname(populations), path = paths,
+    exists = TRUE, stringsAsFactors = FALSE
+  )
+  analysis <- structure(list(
+    config = list(plot_type = "edu"),
+    sample_manifest = data.frame(prefix = "SYNTHETIC_A"),
+    input_report = input_report
+  ), class = "facs_analysis")
+  outputs <- setNames(lapply(paths, function(path) list(
+    path = basename(path),
+    sha256 = paste0(as.character(openssl::sha256(file(path))), collapse = "")
+  )), names(populations))
+  make_manifest <- function(status = "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION",
+                            prefix = "SYNTHETIC_A", records = outputs) {
+    artifact_path <- file.path(directory, "SYNTHETIC-rule.json")
+    if (!file.exists(artifact_path)) jsonlite::write_json(list(
+      sha256 = "SYNTHETIC-semantic", schema_version = "fd-feature-v2",
+      threshold = 0.5
+    ), artifact_path, auto_unbox = TRUE)
+    artifact <- list(path = artifact_path,
+                     byte_sha256 = paste0(
+                       as.character(openssl::sha256(file(artifact_path))),
+                       collapse = ""
+                     ),
+                     semantic_sha256 = "SYNTHETIC-semantic")
+    list(status_label = status, feature_schema_version = "fd-feature-v2",
+         artifacts = list(single_cells = artifact, g1 = artifact),
+         acquisitions = list(list(prefix = prefix, outputs = records)))
+  }
+  write_manifest <- function(value) {
+    path <- tempfile("SYNTHETIC-manifest-", tmpdir = directory, fileext = ".json")
+    jsonlite::write_json(value, path, auto_unbox = TRUE)
+    path
+  }
+  expect_equal(nrow(validate_edu_model_gate_manifest(
+    analysis, write_manifest(make_manifest()))), 3L)
+  expect_error(validate_edu_model_gate_manifest(
+    analysis, write_manifest(make_manifest(status = "production"))),
+    "non-production status")
+  expect_error(validate_edu_model_gate_manifest(
+    analysis, write_manifest(make_manifest(prefix = "SYNTHETIC_OTHER"))),
+    "prefixes do not exactly match")
+  wrong_path <- outputs
+  wrong_path$single_cells$path <- basename(paths[[2]])
+  expect_error(validate_edu_model_gate_manifest(
+    analysis, write_manifest(make_manifest(records = wrong_path))),
+    "input path differs")
+  wrong_hash <- outputs
+  wrong_hash$g1$sha256 <- paste(rep("0", 64), collapse = "")
+  expect_error(validate_edu_model_gate_manifest(
+    analysis, write_manifest(make_manifest(records = wrong_hash))), "SHA-256")
+  traversal <- outputs
+  traversal$single_cells$path <- "../SYNTHETIC_A_single_cells.csv"
+  expect_error(validate_edu_model_gate_manifest(
+    analysis, write_manifest(make_manifest(records = traversal))),
+    "path-free basename")
+})
