@@ -1,0 +1,63 @@
+---
+title: "Experimental model-derived EdU report (non-production)"
+format: { html: { toc: true, embed-resources: true } }
+execute: { warning: false, message: false }
+params: { config: null, analysis_rds: null, model_gate_manifest: null }
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
+if (is.null(params$model_gate_manifest)) stop("`model_gate_manifest` is required.")
+analysis <- facs_report_input(params$config, params$analysis_rds)
+model_gate_inputs <- validate_edu_model_gate_manifest(analysis, params$model_gate_manifest)
+report <- build_edu_pseudocolor_output_contract(analysis)
+```
+
+> **EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.** Single Cells and G1 were
+> called with immutable development-only models, not FlowJo gates. This report
+> does not establish biological ground truth, production performance, or broad
+> generalizability.
+
+## Every-sample DNA-versus-EdU panels
+
+```{r}
+for (prefix in names(report$panels)) print(report$panels[[prefix]])
+```
+
+## EdU-positive percentages
+
+EdU positivity remains the explicitly mapped FlowJo annotation intersected by
+direct event identity with each model-derived Single Cells population.
+
+```{r}
+print(report$positivity$panels$two_to_four_n)
+print(report$positivity$panels$early_mid_late_s)
+```
+
+## EdU-positive intensity
+
+```{r}
+print(report$intensity$panels$all_computed_positive)
+print(report$intensity$panels$early_mid_late_s)
+```
+
+## Model-gating provenance
+
+```{r}
+print(model_gate_inputs)
+print(attr(model_gate_inputs, "model_artifacts"))
+```
+
+The G1 model was developed within expert-reference Single Cells. Applying it
+after model-derived Single Cells changes its parent distribution; prior G1
+validation metrics therefore do not validate this composed use. The older G1
+rule also omits the second-marker axes used by the audited expert G1 gates.
+
+## Software used
+
+```{r}
+facs_report_software_used()
+```
