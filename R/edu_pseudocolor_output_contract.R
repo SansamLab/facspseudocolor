@@ -157,7 +157,11 @@ edu_display_panel <- function(sample, manifest_row, offset_record, analysis) {
   plot <- ggplot2::ggplot(display, ggplot2::aes(dna_norm, displayed_signal,
                                                 colour = density_color)) +
     ggplot2::geom_point(size = analysis$config$point_size, stroke = 0) +
-    ggplot2::scale_color_gradientn(colours = resolve_palette(analysis$config$palette),
+    # This report deliberately uses the project-standard refined palette,
+    # matching the preferred pH3 report density rendering.  It is a
+    # presentation choice only; density values and analytical results are not
+    # changed by this palette selection.
+    ggplot2::scale_color_gradientn(colours = refined_density_palette(),
                                    limits = c(0, 1), oob = scales::squish,
                                    name = "Relative density") +
     ggplot2::scale_x_continuous(breaks = c(analysis$config$dna_2n_value,
@@ -173,6 +177,588 @@ edu_display_panel <- function(sample, manifest_row, offset_record, analysis) {
   if (isTRUE(analysis$config$y_log10)) plot <- plot + ggplot2::scale_y_log10()
   list(plot = plot, status = "available", reason_code = NA_character_,
        displayed_event_n = nrow(display), display_limits = limits)
+}
+
+edu_positivity_report_fail <- function(reason, detail) {
+  stop("EdU positivity report validation failed [", reason, "]: ", detail,
+       call. = FALSE)
+}
+
+edu_positivity_required_columns <- function() {
+  c(
+    "replicate", "replicate_index", "technical_replicate", "condition",
+    "condition_index", "region", "region_label", "region_index",
+    "numerator_n", "denominator_n", "regional_edu_positive_pct",
+    "source_population", "dna_interval_min", "dna_interval_max",
+    "dna_interval_lower_inclusive", "dna_interval_upper_inclusive",
+    "metric_status", "aggregation_level", "aggregation_method"
+  )
+}
+
+edu_validate_acquisition_manifest_identity <- function(
+    acquisition, manifest, category_col = NULL, category_values = NULL,
+    context
+) {
+  identity_cols <- c(
+    "replicate", "replicate_index", "technical_replicate", "condition",
+    "condition_index"
+  )
+  required <- c(identity_cols, category_col)
+  if (!all(required %in% names(acquisition))) {
+    edu_positivity_report_fail(
+      "acquisition_manifest_identity_mismatch",
+      paste0(context, " is missing the manifest identity field(s) required for report provenance")
+    )
+  }
+  expected <- manifest[, identity_cols, drop = FALSE]
+  if (!is.null(category_col)) {
+    if (!is.character(category_values) || !length(category_values)) {
+      edu_positivity_report_fail(
+        "invalid_report_categories",
+        paste0(context, " requires explicit approved category values")
+      )
+    }
+    expected <- do.call(rbind, lapply(category_values, function(category) {
+      out <- expected
+      out[[category_col]] <- category
+      out
+    }))
+  }
+  key <- function(df, columns) {
+    do.call(paste, c(lapply(df[columns], as.character), sep = "\r"))
+  }
+  actual_key <- key(acquisition, required)
+  expected_key <- key(expected, required)
+  if (anyDuplicated(actual_key) || length(actual_key) != length(expected_key) ||
+      !identical(sort(actual_key), sort(expected_key))) {
+    edu_positivity_report_fail(
+      "acquisition_manifest_identity_mismatch",
+      paste0(context,
+             " must contain exactly one current-manifest row for every required acquisition identity")
+    )
+  }
+  invisible(TRUE)
+}
+
+edu_validate_regional_positivity_for_report <- function(analysis) {
+  q <- analysis$quantitation
+  acquisition_name <- "edu_regional_positivity_acquisition"
+  aggregate_name <- "edu_regional_positivity"
+  if (!is.list(q) || !is.data.frame(q[[acquisition_name]]) ||
+      !is.data.frame(q[[aggregate_name]])) {
+    edu_positivity_report_fail(
+      "missing_canonical_regional_positivity",
+      "the completed analysis must retain both canonical regional positivity tables"
+    )
+  }
+  acquisition <- q[[acquisition_name]]
+  aggregate <- q[[aggregate_name]]
+  required <- edu_positivity_required_columns()
+  missing <- setdiff(required, names(acquisition))
+  if (length(missing)) {
+    edu_positivity_report_fail(
+      "invalid_canonical_regional_positivity",
+      "the canonical acquisition table is incomplete or has duplicate identity rows"
+    )
+  }
+  expected_regions <- c("early", "mid", "late")
+  manifest <- analysis$sample_manifest
+  edu_validate_acquisition_manifest_identity(
+    acquisition, manifest, category_col = "region",
+    category_values = expected_regions,
+    context = "canonical regional positivity acquisition table"
+  )
+  if (nrow(acquisition) != 3L * nrow(manifest) ||
+      !identical(as.character(acquisition$region),
+                 rep(expected_regions, times = nrow(manifest))) ||
+      !identical(as.character(acquisition$source_population), rep(
+        "eligible_single_cells_in_dna_region", nrow(acquisition)
+      ))) {
+    edu_positivity_report_fail(
+      "invalid_canonical_regional_positivity",
+      "the canonical table must contain Early, Mid, and Late S rows in manifest order"
+    )
+  }
+  expected_aggregate <- average_edu_metric_table(
+    acquisition, "regional_edu_positive_pct",
+    c("region", "region_label", "region_index")
+  )
+  if (!identical(aggregate, expected_aggregate)) {
+    edu_positivity_report_fail(
+      "regional_positivity_reconciliation_failed",
+      "the biological-replicate regional table must exactly reconcile to canonical acquisition rows"
+    )
+  }
+  aggregate
+}
+
+edu_collect_2to4n_positivity_for_report <- function(analysis) {
+  manifest <- analysis$sample_manifest
+  samples <- analysis$normalized_data
+  if (is.null(names(samples)) || !identical(names(samples), as.character(manifest$prefix))) {
+    edu_positivity_report_fail(
+      "sample_identity_mismatch",
+      "normalized samples must be named in exact manifest-prefix order"
+    )
+  }
+  lower <- analysis$config$dna_2n_value
+  upper <- 2 * analysis$config$dna_2n_value
+  rows <- lapply(seq_len(nrow(manifest)), function(i) {
+    sample <- samples[[i]]
+    source <- sample$data
+    classified <- sample$edu_event_classification
+    required <- c("event_row", "dna_norm", "computed_positive", "positivity_eligible")
+    if (!is.data.frame(source) || !is.data.frame(classified) ||
+        !all(c("dna_norm", "edu_computed_positive") %in% names(source)) ||
+        !all(required %in% names(classified)) || nrow(source) != nrow(classified) ||
+        !identical(classified$event_row, seq_len(nrow(source))) ||
+        !identical(classified$dna_norm, source$dna_norm) ||
+        !identical(classified$computed_positive, source$edu_computed_positive)) {
+      edu_positivity_report_fail(
+        "classification_identity_mismatch",
+        paste0("the retained EdU classification must exactly match source events for ",
+               manifest$prefix[[i]])
+      )
+    }
+    positive_known <- !is.na(source$edu_computed_positive) &
+      source$edu_computed_positive %in% c(TRUE, FALSE)
+    expected_eligible <- is.finite(source$dna_norm) & positive_known
+    if (!identical(classified$positivity_eligible, expected_eligible)) {
+      edu_positivity_report_fail(
+        "classification_eligibility_mismatch",
+        paste0("the retained EdU positivity eligibility must reconcile for ",
+               manifest$prefix[[i]])
+      )
+    }
+    in_2to4n <- classified$positivity_eligible &
+      classified$dna_norm >= lower & classified$dna_norm <= upper
+    denominator_n <- sum(in_2to4n)
+    numerator_n <- sum(in_2to4n & classified$computed_positive %in% TRUE)
+    metadata <- edu_metric_metadata(
+      "eligible_single_cells_in_2n_to_4n_inclusive",
+      classified$display_offset[[1L]],
+      classified$display_offset_applied[[1L]] %in% TRUE,
+      lower, upper, display_transform = classified$display_transform[[1L]]
+    )
+    metadata$dna_interval_upper_inclusive <- TRUE
+    cbind(
+      edu_sample_metadata(manifest, i),
+      data.frame(
+        region = "2to4n", region_label = "2N\u20134N", region_index = 1L,
+        numerator_n = numerator_n, denominator_n = denominator_n,
+        two_to_four_n_edu_positive_pct = if (denominator_n > 0L) {
+          100 * numerator_n / denominator_n
+        } else NA_real_,
+        stringsAsFactors = FALSE
+      ),
+      metadata,
+      data.frame(
+        metric_status = if (denominator_n > 0L) "ok" else "zero_denominator",
+        stringsAsFactors = FALSE
+      )
+    )
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
+
+edu_positivity_plot <- function(
+    points, value_col, category_col, category_levels, category_label,
+    y_label, analysis
+) {
+  if (!is.data.frame(points) || !all(c(
+    value_col, category_col, "condition", "condition_index", "replicate",
+    "replicate_index"
+  ) %in% names(points))) {
+    edu_positivity_report_fail("invalid_plot_input", "validated positivity rows are required")
+  }
+  categories <- as.character(points[[category_col]])
+  if (!identical(sort(unique(categories)), sort(category_levels))) {
+    edu_positivity_report_fail("invalid_plot_input", "the approved positivity categories are missing or duplicated")
+  }
+  summary <- summarize_across_replicates(
+    points, value_col, c(category_col, "condition", "condition_index")
+  )
+  names(summary)[[1L]] <- category_col
+  summary[[category_col]] <- factor(summary[[category_col]], levels = category_levels)
+  points[[category_col]] <- factor(points[[category_col]], levels = category_levels)
+  condition_levels <- unique(summary$condition[order(summary$condition_index)])
+  summary$condition <- factor(summary$condition, levels = condition_levels)
+  points$condition <- factor(points$condition, levels = condition_levels)
+  summary$error <- switch(
+    analysis$config$quant_error_bar,
+    sd = summary$sd, sem = summary$sem, none = rep(NA_real_, nrow(summary))
+  )
+  colours <- resolve_condition_colors(condition_levels, analysis$config$bar_colors)
+  dodge <- 0.82
+  plot <- ggplot2::ggplot(
+    summary, ggplot2::aes(
+      x = .data[[category_col]], y = .data$mean, fill = .data$condition
+    )
+  ) +
+    ggplot2::geom_col(
+      position = ggplot2::position_dodge(width = dodge), width = 0.76,
+      color = "white", linewidth = 0.25, na.rm = TRUE
+    ) +
+    ggplot2::geom_errorbar(
+      ggplot2::aes(ymin = pmax(0, mean - error), ymax = mean + error),
+      position = ggplot2::position_dodge(width = dodge), width = 0.14,
+      linewidth = 0.45, na.rm = TRUE
+    )
+  if (isTRUE(analysis$config$quant_show_points)) {
+    plot <- plot + ggplot2::geom_point(
+      data = points,
+      ggplot2::aes(
+        x = .data[[category_col]], y = .data[[value_col]], group = .data$condition
+      ),
+      inherit.aes = FALSE, shape = 21, fill = "white", color = "black",
+      size = 1.8, stroke = 0.4,
+      position = ggplot2::position_jitterdodge(
+        jitter.width = 0.05, dodge.width = dodge, seed = 1L
+      ), na.rm = TRUE
+    )
+  }
+  plot +
+    ggplot2::scale_fill_manual(values = colours, name = "Condition") +
+    ggplot2::scale_y_continuous(
+      labels = function(x) paste0(x, "%"),
+      expand = ggplot2::expansion(mult = c(0, 0.10))
+    ) +
+    ggplot2::labs(x = category_label, y = y_label,
+                  caption = "Points are biological-replicate values; bars show condition means.") +
+    ggplot2::theme_classic(base_size = 10) +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 25, hjust = 1))
+}
+
+edu_build_positivity_report <- function(analysis) {
+  regional <- edu_validate_regional_positivity_for_report(analysis)
+  overall_acquisition <- edu_collect_2to4n_positivity_for_report(analysis)
+  overall <- average_edu_metric_table(
+    overall_acquisition, "two_to_four_n_edu_positive_pct",
+    c("region", "region_label", "region_index")
+  )
+  list(
+    schema_version = "edu-positivity-report-1.0.0",
+    overall_2to4n_acquisition = overall_acquisition,
+    overall_2to4n_biological_replicate = overall,
+    regional_biological_replicate = regional,
+    panels = list(
+      two_to_four_n = edu_positivity_plot(
+        overall, "two_to_four_n_edu_positive_pct", "region_label", "2N\u20134N",
+        "DNA content", "2N\u20134N EdU-positive percentage", analysis
+      ),
+      early_mid_late_s = edu_positivity_plot(
+        regional, "regional_edu_positive_pct", "region_label",
+        c("Early S", "Mid S", "Late S"), "S-phase region",
+        "EdU-positive percentage within DNA region", analysis
+      )
+    ),
+    provenance = list(
+      overall_definition = paste0(
+        "computed EdU-positive events with DNA in inclusive [",
+        analysis$config$dna_2n_value, ", ", 2 * analysis$config$dna_2n_value,
+        "] divided by all positivity-eligible events in the same interval"
+      ),
+      regional_source = "canonical_edu_regional_positivity_biological_replicate",
+      aggregation = "unweighted technical-acquisition mean within biological replicate"
+    )
+  )
+}
+
+edu_validate_intensity_table_for_report <- function(
+    analysis, acquisition_name, aggregate_name, value_col, group_cols,
+    expected_source_population, expected_rows_per_acquisition,
+    category_col = NULL, category_values = NULL
+) {
+  q <- analysis$quantitation
+  if (!is.list(q) || !is.data.frame(q[[acquisition_name]]) ||
+      !is.data.frame(q[[aggregate_name]])) {
+    edu_positivity_report_fail(
+      "missing_canonical_intensity",
+      paste0("the completed analysis must retain `", acquisition_name,
+             "` and `", aggregate_name, "`")
+    )
+  }
+  acquisition <- q[[acquisition_name]]
+  aggregate <- q[[aggregate_name]]
+  required <- c(
+    "replicate", "replicate_index", "technical_replicate", "condition",
+    "condition_index", "source_population_n", value_col,
+    "source_population", "signal_transform", "aggregation_level",
+    "aggregation_method", "metric_status"
+  )
+  if (!all(required %in% names(acquisition))) {
+    edu_positivity_report_fail(
+      "invalid_canonical_intensity",
+      paste0("the canonical `", acquisition_name,
+             "` is missing the required intensity fields")
+    )
+  }
+  edu_validate_acquisition_manifest_identity(
+    acquisition, analysis$sample_manifest, category_col, category_values,
+    paste0("canonical `", acquisition_name, "`")
+  )
+  if (nrow(acquisition) != expected_rows_per_acquisition * nrow(analysis$sample_manifest) ||
+      !identical(as.character(acquisition$source_population),
+                 rep(expected_source_population, nrow(acquisition)))) {
+    edu_positivity_report_fail(
+      "invalid_canonical_intensity",
+      paste0("the canonical `", acquisition_name,
+             "` rows do not have the approved identity and source population")
+    )
+  }
+  if (!all(acquisition$signal_transform == "background_subtracted")) {
+    edu_positivity_report_fail(
+      "invalid_canonical_intensity",
+      paste0("the canonical `", acquisition_name,
+             "` must contain only background-subtracted values")
+    )
+  }
+  expected <- average_edu_metric_table(acquisition, value_col, group_cols)
+  if (!identical(aggregate, expected)) {
+    edu_positivity_report_fail(
+      "intensity_reconciliation_failed",
+      paste0("the canonical `", aggregate_name,
+             "` must exactly reconcile to its acquisition rows")
+    )
+  }
+  aggregate
+}
+
+edu_intensity_plot <- function(
+    points, value_col, category_col, category_levels, category_label,
+    y_label, analysis
+) {
+  if (!is.data.frame(points) || !all(c(
+    value_col, category_col, "condition", "condition_index", "replicate",
+    "replicate_index"
+  ) %in% names(points))) {
+    edu_positivity_report_fail("invalid_intensity_plot_input", "validated canonical intensity rows are required")
+  }
+  if (!identical(sort(unique(as.character(points[[category_col]]))),
+                 sort(category_levels))) {
+    edu_positivity_report_fail("invalid_intensity_plot_input", "the approved intensity categories are missing or duplicated")
+  }
+  summary <- summarize_across_replicates(
+    points, value_col, c(category_col, "condition", "condition_index")
+  )
+  names(summary)[[1L]] <- category_col
+  summary[[category_col]] <- factor(summary[[category_col]], levels = category_levels)
+  points[[category_col]] <- factor(points[[category_col]], levels = category_levels)
+  condition_levels <- unique(summary$condition[order(summary$condition_index)])
+  summary$condition <- factor(summary$condition, levels = condition_levels)
+  points$condition <- factor(points$condition, levels = condition_levels)
+  summary$error <- switch(
+    analysis$config$quant_error_bar,
+    sd = summary$sd, sem = summary$sem, none = rep(NA_real_, nrow(summary))
+  )
+  colours <- resolve_condition_colors(condition_levels, analysis$config$bar_colors)
+  dodge <- 0.82
+  plot <- ggplot2::ggplot(
+    points,
+    ggplot2::aes(
+      x = .data[[category_col]], y = .data[[value_col]], colour = .data$condition
+    )
+  )
+  if (isTRUE(analysis$config$quant_show_points)) {
+    plot <- plot + ggplot2::geom_point(
+      shape = 16, size = 2.0,
+      position = ggplot2::position_jitterdodge(
+        jitter.width = 0.05, dodge.width = dodge, seed = 1L
+      ), na.rm = TRUE
+    )
+  }
+  plot +
+    ggplot2::geom_errorbar(
+      data = summary,
+      ggplot2::aes(
+        x = .data[[category_col]], ymin = .data$mean - .data$error,
+        ymax = .data$mean + .data$error, colour = .data$condition
+      ), position = ggplot2::position_dodge(width = dodge), width = 0.14,
+      linewidth = 0.45, na.rm = TRUE, inherit.aes = FALSE
+    ) +
+    ggplot2::geom_point(
+      data = summary,
+      ggplot2::aes(
+        x = .data[[category_col]], y = .data$mean, colour = .data$condition
+      ), position = ggplot2::position_dodge(width = dodge), shape = 95,
+      size = 5, stroke = 1.1, na.rm = TRUE, inherit.aes = FALSE
+    ) +
+    ggplot2::scale_colour_manual(values = colours, name = "Condition") +
+    ggplot2::labs(
+      x = category_label, y = y_label,
+      caption = "Points are biological-replicate values; horizontal marks show condition means."
+    ) +
+    ggplot2::theme_classic(base_size = 10) +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 25, hjust = 1))
+}
+
+# Derive a report-only fold value from the retained biological-replicate
+# intensity table.  This intentionally happens after the established
+# acquisition-to-biological-replicate averaging, so each configured Untreated
+# sample is the within-biological-replicate denominator.  It neither refits a
+# background model nor changes any canonical quantitative table.
+edu_reference_relative_intensity <- function(
+    points, value_col, manifest, category_col = NULL
+) {
+  required_manifest <- c(
+    "replicate", "replicate_index", "technical_replicate", "model_group",
+    "condition", "reference_condition", "is_reference"
+  )
+  if (!is.data.frame(manifest) || !all(required_manifest %in% names(manifest))) {
+    edu_positivity_report_fail(
+      "missing_reference_provenance",
+      "the current sample manifest lacks the reference identity required for reference-relative intensity"
+    )
+  }
+  required_points <- c("replicate", "replicate_index", "condition", value_col)
+  if (!is.data.frame(points) || !all(required_points %in% names(points))) {
+    edu_positivity_report_fail(
+      "invalid_reference_intensity_input",
+      "validated biological-replicate intensity rows are required"
+    )
+  }
+  if (!is.null(category_col) && !category_col %in% names(points)) {
+    edu_positivity_report_fail(
+      "invalid_reference_intensity_input",
+      "the required report category is absent from the intensity rows"
+    )
+  }
+
+  group_rows <- split(seq_len(nrow(manifest)), manifest$model_group)
+  reference_by_group <- vapply(group_rows, function(idx) {
+    group <- manifest[idx, , drop = FALSE]
+    declared <- unique(as.character(group$reference_condition))
+    declared <- declared[!is.na(declared) & nzchar(declared)]
+    reference <- which(group$is_reference %in% TRUE)
+    if (length(declared) != 1L || length(reference) != 1L ||
+        !identical(as.character(group$condition[[reference]]), declared[[1L]])) {
+      edu_positivity_report_fail(
+        "invalid_reference_identity",
+        paste0("each biological/technical replicate pair must contain exactly one configured reference; invalid group: ",
+               group$model_group[[1L]])
+      )
+    }
+    declared[[1L]]
+  }, character(1))
+  reference_by_replicate <- lapply(
+    split(seq_len(nrow(manifest)), manifest$replicate_index),
+    function(idx) {
+      values <- unique(unname(reference_by_group[manifest$model_group[idx]]))
+      if (length(values) != 1L) {
+        edu_positivity_report_fail(
+          "mixed_reference_identity",
+          paste0("all technical acquisitions must use one configured reference within biological replicate ",
+                 manifest$replicate[[idx[[1L]]]])
+        )
+      }
+      values[[1L]]
+    }
+  )
+  reference_by_replicate <- unlist(reference_by_replicate, use.names = TRUE)
+
+  replicate_key <- as.character(points$replicate_index)
+  expected_reference <- unname(reference_by_replicate[replicate_key])
+  if (anyNA(expected_reference) || any(!nzchar(expected_reference))) {
+    edu_positivity_report_fail(
+      "reference_coverage_mismatch",
+      "every report intensity row must map to a configured biological-replicate reference"
+    )
+  }
+  category_key <- if (is.null(category_col)) rep("", nrow(points)) else
+    as.character(points[[category_col]])
+  group_key <- paste(replicate_key, category_key, sep = "\r")
+  out <- points
+  out$reference_condition <- expected_reference
+  out$reference_intensity <- NA_real_
+  out$reference_relative_intensity <- NA_real_
+  for (key in unique(group_key)) {
+    idx <- which(group_key == key)
+    reference_idx <- idx[out$condition[idx] == out$reference_condition[idx]]
+    if (length(reference_idx) != 1L) {
+      edu_positivity_report_fail(
+        "reference_coverage_mismatch",
+        "each biological-replicate intensity/category group must contain exactly one configured reference row"
+      )
+    }
+    reference_value <- out[[value_col]][[reference_idx]]
+    values <- out[[value_col]][idx]
+    out$reference_intensity[idx] <- reference_value
+    if (!is.finite(reference_value) || reference_value <= 0) {
+      # A background-subtracted signal can validly be nonpositive.  It cannot
+      # define a fold denominator, however, so retain the canonical result but
+      # expose no substitute ratio for any condition in this exact group.
+      out$reference_normalization_status[idx] <-
+        "unavailable_invalid_reference_intensity"
+      next
+    }
+    finite <- is.finite(values)
+    out$reference_relative_intensity[idx[finite]] <-
+      values[finite] / reference_value
+    out$reference_normalization_status[idx[finite]] <- "available"
+    out$reference_normalization_status[idx[!finite]] <-
+      "unavailable_nonfinite_canonical_intensity"
+  }
+  if (!"reference_normalization_status" %in% names(out)) {
+    out$reference_normalization_status <- NA_character_
+  }
+  out$reference_normalization_method <-
+    "biological_replicate_canonical_median_divided_by_configured_reference_v1"
+  out
+}
+
+edu_build_intensity_report <- function(analysis) {
+  overall <- edu_validate_intensity_table_for_report(
+    analysis,
+    "edu_positive_population_intensity_acquisition",
+    "edu_positive_population_intensity",
+    "positive_population_edu_bgsub_median", character(),
+    "whole_computed_positive_eligible_population", 1L
+  )
+  regional <- edu_validate_intensity_table_for_report(
+    analysis,
+    "edu_positive_cell_regional_intensity_acquisition",
+    "edu_positive_cell_regional_intensity",
+    "positive_cell_regional_edu_bgsub_median",
+    c("phase", "phase_label", "phase_index"),
+    "computed_positive_eligible_cells_in_dna_region", 3L,
+    category_col = "phase", category_values = c("early", "mid", "late")
+  )
+  overall$population_label <- "All computed EdU-positive"
+  overall_relative <- edu_reference_relative_intensity(
+    overall, "positive_population_edu_bgsub_median", analysis$sample_manifest
+  )
+  regional_relative <- edu_reference_relative_intensity(
+    regional, "positive_cell_regional_edu_bgsub_median",
+    analysis$sample_manifest, category_col = "phase"
+  )
+  list(
+    schema_version = "edu-intensity-report-1.1.0",
+    overall_canonical_biological_replicate = overall,
+    regional_canonical_biological_replicate = regional,
+    overall_biological_replicate = overall_relative,
+    regional_biological_replicate = regional_relative,
+    panels = list(
+      all_computed_positive = edu_intensity_plot(
+        overall_relative, "reference_relative_intensity", "population_label",
+        "All computed EdU-positive", "Population",
+        "Median background-subtracted EdU fluorescence\n(relative to matched Untreated)", analysis
+      ),
+      early_mid_late_s = edu_intensity_plot(
+        regional_relative, "reference_relative_intensity", "phase_label",
+        c("Early S", "Mid S", "Late S"), "S-phase region",
+        "Median background-subtracted EdU fluorescence\n(relative to matched Untreated)", analysis
+      )
+    ),
+    provenance = list(
+      overall_source = "canonical_edu_positive_population_intensity_biological_replicate",
+      regional_source = "canonical_edu_positive_cell_regional_intensity_biological_replicate",
+      signal = "background_subtracted",
+      aggregation = "unweighted technical-acquisition mean within biological replicate",
+      reference_normalization = "canonical biological-replicate median divided by the explicitly configured matched Untreated reference"
+    )
+  )
 }
 
 #' Build every-sample EdU pseudocolor panels using per-sample display offsets
@@ -226,14 +812,19 @@ build_edu_pseudocolor_output_contract <- function(analysis) {
     y_limit_upper = vapply(panels, function(x) x$display_limits[[2L]], numeric(1)),
     stringsAsFactors = FALSE
   )
+  positivity <- edu_build_positivity_report(analysis)
+  intensity <- edu_build_intensity_report(analysis)
   structure(list(
-    schema_version = "edu-pseudocolor-output-contract-1.0.0",
+    schema_version = "edu-pseudocolor-output-contract-1.2.0",
     panels = stats::setNames(lapply(panels, `[[`, "plot"), expected),
     display_offset_qc = offset_qc, panel_qc = panel_qc,
+    positivity = positivity,
+    intensity = intensity,
     provenance = list(
       display_offset_method = "raw_negative_median_minus_corrected_negative_median_v1",
       analytical_values_mutated = FALSE,
-      panel_identity_key = "manifest_prefix"
+      panel_identity_key = "manifest_prefix",
+      density_palette = "refined_density_palette_v1"
     )
   ), class = "edu_pseudocolor_output_contract")
 }

@@ -94,6 +94,40 @@ test_that("Quarto templates use exactly-one input setup", {
   expect_error(environment$facs_report_input("a.yml", "a.rds"), "exactly one")
 })
 
+test_that("reader-facing pH3 and EdU reports hide source tables and end with software", {
+  templates <- c(
+    "facs_ph3_legacy_pilot.qmd",
+    "facs_ph3_output_contract.qmd",
+    "facs_ph3_4n.qmd",
+    "facs_edu_pseudocolor_output_contract.qmd"
+  )
+  documents <- lapply(templates, function(template) {
+    path <- system.file("quarto", template, package = "facspseudocolor")
+    expect_true(nzchar(path), info = template)
+    paste(readLines(path, warn = FALSE), collapse = "\n")
+  })
+  names(documents) <- templates
+
+  for (template in templates) {
+    expect_match(documents[[template]], "## Software used", fixed = TRUE)
+    expect_match(documents[[template]], "facs_report_software_used()", fixed = TRUE)
+  }
+
+  expect_false(grepl("pilot\\$cutoff_records", documents$facs_ph3_legacy_pilot.qmd))
+  expect_false(grepl("report_model\\$qc_flags", documents$facs_ph3_output_contract.qmd))
+  expect_false(grepl("report\\$positivity\\$overall_2to4n_biological_replicate",
+                     documents$facs_edu_pseudocolor_output_contract.qmd))
+  expect_false(grepl("unique\\(geometry", documents$facs_ph3_4n.qmd))
+
+  helper <- system.file("quarto", "_report-setup.R", package = "facspseudocolor")
+  environment <- new.env(parent = globalenv())
+  sys.source(helper, envir = environment)
+  software <- environment$facs_report_software_used()
+  expect_identical(names(software), c("component", "version"))
+  expect_setequal(software$component,
+                  c("facspseudocolor", "R", "Quarto", "ggplot2", "knitr"))
+})
+
 test_that("interactive configurator retains mode and sample-role controls", {
   path <- system.file("quarto", "facs_configurator.qmd",
                       package = "facspseudocolor")

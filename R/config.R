@@ -185,8 +185,18 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
         split(manifest, manifest$model_group),
         function(x) sum(x$is_reference), integer(1)
       )
-      if (plot_type %in% c("edu", "ph3") && any(reference_counts != 0L)) {
-        stop(toupper(plot_type), " mode does not use replicate `reference` samples.")
+      reference_declared <- vapply(
+        split(manifest, manifest$model_group),
+        function(x) any(!is.na(x$reference_condition)), logical(1)
+      )
+      if (plot_type == "edu" && any(reference_declared) &&
+          any(reference_counts != 1L)) {
+        stop(
+          "EdU replicate `reference` samples must be absent in every biological/technical replicate pair, or each declared reference must name exactly one matching sample in every pair."
+        )
+      }
+      if (plot_type == "ph3" && any(reference_counts != 0L)) {
+        stop("PH3 mode does not use replicate `reference` samples.")
       }
       if (plot_type == "poi" && any(reference_counts != 1L)) {
         stop("Each biological/technical replicate pair must contain exactly one matching `reference` condition.")

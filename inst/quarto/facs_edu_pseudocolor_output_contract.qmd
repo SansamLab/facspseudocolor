@@ -22,15 +22,51 @@ report <- build_edu_pseudocolor_output_contract(analysis)
 for (prefix in names(report$panels)) print(report$panels[[prefix]])
 ```
 
-## Display-offset and panel QC
+## EdU-positive percentages
+
+The 2N–4N panel uses all positivity-eligible events with DNA content from 2N
+through 4N, inclusive, as its denominator. The regional panel uses the
+established canonical Early/Mid/Late-S denominators; it is therefore reported
+separately rather than labeled “All S”.
 
 ```{r}
-report$display_offset_qc
-report$panel_qc
+print(report$positivity$panels$two_to_four_n)
+print(report$positivity$panels$early_mid_late_s)
 ```
+
+The positivity source tables are retained in the completed analysis artifact
+and are intentionally not printed in this reader-facing report.
+
+## EdU-positive intensity
+
+These figures use only the completed canonical background-subtracted EdU
+intensity tables. Within each biological replicate, each value is divided by
+the explicitly configured matched Untreated value; Untreated is therefore 1.
+They do not re-fit background, re-call positivity, or change any event-level
+value. The percentage figures above remain absolute percentages.
+
+When a completed background-subtracted Untreated median is nonpositive or a
+canonical median is nonfinite, its reference-relative value is shown as
+unavailable rather than replaced by a direct, raw, or display-offset value.
+
+```{r}
+print(report$intensity$panels$all_computed_positive)
+print(report$intensity$panels$early_mid_late_s)
+```
+
+The intensity source tables are retained in the completed analysis artifact
+and are intentionally not printed in this reader-facing report.
 
 ## Display provenance
 
+Display-offset, panel-QC, and provenance records remain in the completed
+analysis artifact for audit and are not printed here as source tables.
+
+## Software used
+
+This report was rendered with Quarto. The versions below identify the analysis
+and report-rendering software used for this report.
+
 ```{r}
-report$provenance
+facs_report_software_used()
 ```

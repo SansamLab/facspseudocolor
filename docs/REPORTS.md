@@ -1,5 +1,15 @@
 # Reusable reports and RDS artifacts
 
+## Reader-facing report convention
+
+Reader-facing pH3, EdU, and future POI reports show their approved figures,
+concise explanatory text, warnings, and availability states; they do not print
+raw or source tables. The completed analysis RDS and approved machine-readable
+exports retain the full source tables, QC records, and provenance needed for
+audit. Every reader-facing report ends with a **Software used** section that
+lists the package, R, Quarto, and plotting/rendering software versions. Future
+POI report templates must follow the same convention.
+
 Every EdU analysis automatically calculates the seven approved canonical tables:
 historical five-gate assigned composition, whole-Single-Cells composition,
 six-gate assigned composition, Early/Mid/Late-S regional positivity, overall
