@@ -79,11 +79,15 @@ bundle$pseudocolor
 
 ## Gate geometry and provenance
 
+The source geometry, sample summary, and provenance records are retained in the
+completed analysis artifact and are intentionally not printed in this
+reader-facing report.
+
+## Software used
+
+This report was rendered with Quarto. The versions below identify the analysis
+and report-rendering software used for this report.
+
 ```{r}
-unique(geometry[c(
-  "prefix", "sample_id", "gate_name", "gate_path", "gate_type",
-  "x_channel", "y_channel", "workspace"
-)])
-analysis$quantitation$ph3$sample_summary
-analysis$provenance
+facs_report_software_used()
 ```

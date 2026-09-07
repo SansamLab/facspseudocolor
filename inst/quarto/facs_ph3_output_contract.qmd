@@ -61,21 +61,10 @@ plots$panels$ph3_below_4n_positive_signal
 
 ## Concise QC and provenance
 
-The tables below preserve availability, partial-coverage, and mixed-basis
-states. A mixed signal basis is never combined into one condition signal mean.
-
-```{r}
-report_model$qc_flags
-```
-
-```{r}
-report_model$provenance
-```
-
-```{r}
-analysis$ph3_output_model$correction
-analysis$ph3_output_model$geometry
-```
+Availability, partial-coverage, mixed-basis, correction, geometry, and
+provenance records are retained in the completed analysis artifact. A mixed
+signal basis is never combined into one condition signal mean. These audit and
+source tables are intentionally not printed in this reader-facing report.
 
 ## Computed positivity-cutoff QC
 
@@ -88,8 +77,6 @@ retained only as source provenance and is not the numerical cutoff authority.
 ```{r}
 if (length(plots$cutoff_qc)) {
   for (panel in plots$cutoff_qc) print(panel)
-  plots$cutoff_records
-  plots$cutoff_application_qc
 } else {
   cat("Legacy FlowJo positivity mode: no computed raw-4N cutoff was configured.\n")
 }
@@ -103,4 +90,13 @@ if (length(analysis$warnings)) {
   cat(paste0("- ", analysis$warnings), sep = "\n")
   cat("\n")
 }
+```
+
+## Software used
+
+This report was rendered with Quarto. The versions below identify the analysis
+and report-rendering software used for this report.
+
+```{r}
+facs_report_software_used()
 ```

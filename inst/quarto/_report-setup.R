@@ -32,3 +32,25 @@ facs_report_save_artifacts <- function(
   }
   invisible(NULL)
 }
+
+facs_report_software_used <- function() {
+  package_version <- function(package) {
+    if (requireNamespace(package, quietly = TRUE)) {
+      as.character(utils::packageVersion(package))
+    } else {
+      "not available"
+    }
+  }
+
+  data.frame(
+    component = c("facspseudocolor", "R", "Quarto", "ggplot2", "knitr"),
+    version = c(
+      package_version("facspseudocolor"),
+      R.version.string,
+      Sys.getenv("QUARTO_VERSION", unset = "not reported to R"),
+      package_version("ggplot2"),
+      package_version("knitr")
+    ),
+    stringsAsFactors = FALSE
+  )
+}
