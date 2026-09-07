@@ -118,6 +118,12 @@ test_that("SYNTHETIC cutoff failure makes every matched-clone outcome unavailabl
   expect_true(all(failed_offsets$shared_target_reason_code ==
                     "configured_group_member_display_input_unavailable"))
   expect_true(all(failed_offsets$display_offset_status == "unavailable"))
+  failed_axis <- pilot$group_y_axis_qc[pilot$group_y_axis_qc$replicate_index == 1L, , drop = FALSE]
+  expect_true(all(failed_axis$group_y_axis_status == "unavailable"))
+  expect_true(all(failed_axis$group_y_axis_reason_code ==
+                    "no_group_member_with_available_log_display"))
+  expect_true(all(is.na(failed_axis$group_y_axis_lower)))
+  expect_true(all(is.na(failed_axis$group_y_axis_upper)))
   report <- plot_ph3_legacy_pilot_report(result)
   expect_true(all(vapply(report$pseudocolor_panels[failed_offsets$prefix], function(panel) {
     !any(vapply(panel$layers, function(layer) inherits(layer$geom, "GeomPoint") ||
@@ -239,12 +245,31 @@ test_that("SYNTHETIC legacy pilot exposes one corrected pH3-versus-DNA panel per
   expect_true(all(log_qc$positive_domain_display_event_count > 0L))
   expect_true(all(log_qc$nonpositive_display_event_count == 0L))
   expect_identical(metadata$log_display_status, log_qc$log_display_status)
+  axis_qc <- result$group_y_axis_qc
+  expect_identical(axis_qc$prefix, manifest$prefix)
+  expect_true(all(axis_qc$group_y_axis_method_id ==
+                    "clone_group_union_positive_display_signal_v1"))
+  expect_true(all(axis_qc$group_y_axis_status == "available"))
+  expect_true(all(is.finite(axis_qc$group_y_axis_lower)))
+  expect_true(all(is.finite(axis_qc$group_y_axis_upper)))
+  expect_true(all(axis_qc$group_y_axis_lower > 0))
+  expect_true(all(axis_qc$group_y_axis_upper > axis_qc$group_y_axis_lower))
+  expect_identical(metadata$group_y_axis_lower, axis_qc$group_y_axis_lower)
+  expect_identical(metadata$group_y_axis_upper, axis_qc$group_y_axis_upper)
   expect_true(all(vapply(result$pseudocolor_panels, inherits, logical(1), "ggplot")))
   # The visual window is 1.6N--4.4N, while the three analytic-region lines
   # remain independent display guides rather than plotting limits.
   expect_true(all(vapply(result$pseudocolor_panels, function(panel) {
     identical(panel$coordinates$limits$x, c(800, 2200))
   }, logical(1))))
+  for (group in unique(metadata$replicate_index)) {
+    members <- metadata$replicate_index == group
+    expected_limits <- c(metadata$group_y_axis_lower[members][[1L]],
+                         metadata$group_y_axis_upper[members][[1L]])
+    expect_true(all(vapply(result$pseudocolor_panels[metadata$prefix[members]], function(panel) {
+      identical(panel$coordinates$limits$y, expected_limits)
+    }, logical(1))))
+  }
   expect_true(all(vapply(result$pseudocolor_panels, function(panel) {
     any(vapply(panel$layers, function(layer) inherits(layer$geom, "GeomHline"), logical(1)))
   }, logical(1))))
@@ -293,6 +318,32 @@ test_that("SYNTHETIC legacy pilot exposes one corrected pH3-versus-DNA panel per
     identical(panel$theme$legend.title$size, 6) &&
       identical(panel$theme$legend.text$size, 5)
   }, logical(1))))
+})
+
+test_that("SYNTHETIC group y-axis is clone-isolated and does not mutate analysis", {
+  analysis <- ph3_build_legacy_csv_pilot(synthetic_ph3_legacy_pilot_analysis())
+  before_events <- analysis$ph3_legacy_pilot$event_corrections
+  result <- plot_ph3_legacy_pilot_report(analysis)
+  qc <- result$group_y_axis_qc
+
+  for (group in unique(qc$replicate_index)) {
+    members <- qc$replicate_index == group
+    values <- unlist(lapply(qc$prefix[members], function(prefix) {
+      offset <- result$display_offset_qc$display_offset[
+        match(prefix, result$display_offset_qc$prefix)
+      ]
+      event_data <- before_events[[prefix]]
+      dna_norm <- analysis$normalized_data[[prefix]]$data$dna_norm
+      in_window <- dna_norm >= 800 & dna_norm <= 2200
+      displayed <- event_data$corrected_signal[in_window] + offset
+      displayed[is.finite(displayed) & displayed > 0]
+    }), use.names = FALSE)
+    expect_identical(qc$group_y_axis_positive_event_count[members],
+                     rep(as.integer(length(values)), sum(members)))
+    expect_equal(qc$group_y_axis_lower[members], rep(min(values), sum(members)))
+    expect_equal(qc$group_y_axis_upper[members], rep(max(values), sum(members)))
+  }
+  expect_identical(analysis$ph3_legacy_pilot$event_corrections, before_events)
 })
 
 test_that("SYNTHETIC shared clone display target equally weights sample medians without changing analysis values", {

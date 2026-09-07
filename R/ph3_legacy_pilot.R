@@ -44,7 +44,8 @@ ph3_pilot_value <- function(x, denominator) {
 # to the normalized complete-event tables that the pilot already used; they do
 # not recreate or claim any FlowJo gate geometry.
 ph3_pilot_pseudocolor_metadata <- function(analysis, cutoff_records,
-                                            display_offset_qc, log_display_qc) {
+                                            display_offset_qc, log_display_qc,
+                                            group_y_axis_qc) {
   manifest <- analysis$sample_manifest
   records <- cutoff_records[match(manifest$replicate_index,
                                   cutoff_records$replicate_index), , drop = FALSE]
@@ -65,6 +66,12 @@ ph3_pilot_pseudocolor_metadata <- function(analysis, cutoff_records,
       !identical(log_display$prefix, manifest$prefix)) {
     ph3_pilot_fail("invalid_log_display_qc",
                    "every configured pilot sample must map to one log-display QC row")
+  }
+  group_axis <- group_y_axis_qc[match(manifest$prefix, group_y_axis_qc$prefix), , drop = FALSE]
+  if (nrow(group_axis) != nrow(manifest) || anyNA(match(manifest$prefix, group_axis$prefix)) ||
+      !identical(group_axis$prefix, manifest$prefix)) {
+    ph3_pilot_fail("invalid_group_y_axis_qc",
+                   "every configured pilot sample must map to one group y-axis QC row")
   }
   data.frame(
     prefix = manifest$prefix,
@@ -88,6 +95,14 @@ ph3_pilot_pseudocolor_metadata <- function(analysis, cutoff_records,
     visual_window_finite_event_count = log_display$visual_window_finite_event_count,
     positive_domain_display_event_count = log_display$positive_domain_display_event_count,
     nonpositive_display_event_count = log_display$nonpositive_display_event_count,
+    group_y_axis_method_id = group_axis$group_y_axis_method_id,
+    group_y_axis_status = group_axis$group_y_axis_status,
+    group_y_axis_reason_code = group_axis$group_y_axis_reason_code,
+    group_y_axis_lower = group_axis$group_y_axis_lower,
+    group_y_axis_upper = group_axis$group_y_axis_upper,
+    group_y_axis_member_count = group_axis$group_y_axis_member_count,
+    group_y_axis_available_member_count = group_axis$group_y_axis_available_member_count,
+    group_y_axis_positive_event_count = group_axis$group_y_axis_positive_event_count,
     signal_basis = "background_subtracted",
     provenance_label = ph3_pilot_label(analysis),
     stringsAsFactors = FALSE
@@ -155,6 +170,94 @@ ph3_pilot_log_display_qc <- function(analysis, display_offset_qc, corrections) {
       base$log_display_status <- "available"
       base$log_display_reason_code <- NA_character_
     }
+    base
+  })
+  result <- do.call(rbind, rows)
+  rownames(result) <- NULL
+  result
+}
+
+# Presentation-only group axis contract.  Every available panel in an explicit
+# clone/replicate group uses limits derived from the union of that group's own
+# positive, offset-restored events in the existing 1.6N--4.4N visual window.
+# No event or value from another group is used.  A member that cannot support
+# log display remains its own unavailable placeholder; available siblings use
+# the group range with an explicit partial-group status.
+ph3_pilot_group_y_axis_qc <- function(analysis, display_offset_qc, log_display_qc,
+                                       corrections) {
+  manifest <- analysis$sample_manifest
+  x_limits <- c(0.8, 2.2) * as.numeric(analysis$config$dna_2n_value)
+  statuses <- c("available", "available_nonpositive_display_values_excluded")
+  rows <- lapply(unique(manifest$replicate_index), function(group_index) {
+    members <- which(manifest$replicate_index == group_index)
+    available_members <- members[log_display_qc$log_display_status[members] %in% statuses]
+    base <- data.frame(
+      prefix = manifest$prefix[members],
+      replicate = manifest$replicate[members],
+      replicate_index = as.integer(group_index),
+      condition = manifest$condition[members],
+      group_y_axis_method_id = "clone_group_union_positive_display_signal_v1",
+      group_y_axis_status = "unavailable",
+      group_y_axis_reason_code = NA_character_,
+      group_y_axis_lower = NA_real_,
+      group_y_axis_upper = NA_real_,
+      group_y_axis_member_count = as.integer(length(members)),
+      group_y_axis_available_member_count = as.integer(length(available_members)),
+      group_y_axis_positive_event_count = NA_integer_,
+      stringsAsFactors = FALSE
+    )
+    if (!length(available_members)) {
+      base$group_y_axis_reason_code <- "no_group_member_with_available_log_display"
+      return(base)
+    }
+    values <- unlist(lapply(available_members, function(i) {
+      prefix <- manifest$prefix[[i]]
+      offset <- display_offset_qc[display_offset_qc$prefix == prefix, , drop = FALSE]
+      corrected <- corrections[[prefix]]
+      sample <- analysis$normalized_data[[prefix]]$data
+      if (nrow(offset) != 1L || !is.finite(offset$display_offset[[1L]]) ||
+          !is.data.frame(corrected) || !identical(corrected$event_row, seq_len(nrow(sample))) ||
+          !all(c("corrected_signal", "correction_status") %in% names(corrected)) ||
+          !all(corrected$correction_status == "available")) {
+        ph3_pilot_fail("invalid_group_y_axis_input",
+                       paste0("available log-display member lacks exact correction provenance for ", prefix))
+      }
+      in_window <- is.finite(sample$dna_norm) & sample$dna_norm >= x_limits[[1L]] &
+        sample$dna_norm <= x_limits[[2L]]
+      displayed <- corrected$corrected_signal[in_window] + offset$display_offset[[1L]]
+      displayed[is.finite(displayed) & displayed > 0]
+    }), use.names = FALSE)
+    expected_count <- sum(log_display_qc$positive_domain_display_event_count[available_members])
+    if (!identical(as.integer(length(values)), as.integer(expected_count)) || !length(values) ||
+        any(!is.finite(values)) || any(values <= 0)) {
+      ph3_pilot_fail("group_y_axis_event_reconciliation",
+                     paste0("positive display events must exactly reconcile for clone group ", group_index))
+    }
+    limits <- range(values, finite = TRUE)
+    # Padding is used only for a degenerate group range, where identical limits
+    # would not define a stable log-scale panel. It does not exclude any event.
+    if (identical(limits[[1L]], limits[[2L]])) {
+      log_center <- log10(limits[[1L]])
+      limits <- 10 ^ (log_center + c(-0.02, 0.02))
+    }
+    if (length(limits) != 2L || any(!is.finite(limits)) || any(limits <= 0) ||
+        !isTRUE(limits[[1L]] < limits[[2L]])) {
+      ph3_pilot_fail("invalid_group_y_axis_limits",
+                     paste0("finite, positive, ordered group limits are required for clone group ", group_index))
+    }
+    base$group_y_axis_status <- if (length(available_members) == length(members)) {
+      "available"
+    } else {
+      "available_partial_group_members"
+    }
+    base$group_y_axis_reason_code <- if (length(available_members) == length(members)) {
+      NA_character_
+    } else {
+      "one_or_more_group_members_log_display_unavailable"
+    }
+    base$group_y_axis_lower <- limits[[1L]]
+    base$group_y_axis_upper <- limits[[2L]]
+    base$group_y_axis_positive_event_count <- as.integer(length(values))
     base
   })
   result <- do.call(rbind, rows)
@@ -453,11 +556,12 @@ ph3_pilot_pseudocolor_panel <- function(analysis, metadata_row) {
   )
   display$density_color <- prepare_density_color(display$density)
   display <- display[order(display$density_color), , drop = FALSE]
-  y_limits <- range(display$displayed_signal, finite = TRUE)
+  y_limits <- c(metadata_row$group_y_axis_lower[[1L]],
+                metadata_row$group_y_axis_upper[[1L]])
   if (length(y_limits) != 2L || any(!is.finite(y_limits)) ||
       any(y_limits <= 0) || !isTRUE(y_limits[[1L]] < y_limits[[2L]])) {
     ph3_pilot_fail("invalid_log_display_y_limits",
-                   paste0("finite, positive, ordered log10 display limits are required for ", prefix))
+                   paste0("finite, positive, ordered group log10 display limits are required for ", prefix))
   }
   regions <- data.frame(
     xmin = c(bounds[[1L]], four_n_lower), xmax = c(four_n_lower, bounds[[3L]]),
@@ -480,6 +584,9 @@ ph3_pilot_pseudocolor_panel <- function(analysis, metadata_row) {
   if (identical(metadata_row$log_display_status[[1L]], "available_nonpositive_display_values_excluded")) {
     subtitle <- paste0(subtitle, " ", metadata_row$nonpositive_display_event_count[[1L]],
                        " nonpositive display value(s) excluded from this log10 plot only.")
+  }
+  if (identical(metadata_row$group_y_axis_status[[1L]], "available_partial_group_members")) {
+    subtitle <- paste0(subtitle, " Shared clone y-axis uses available group members only; one or more group members are unavailable.")
   }
   plot <- ggplot2::ggplot(display, ggplot2::aes(x = dna_norm, y = displayed_signal,
                                                   colour = density_color)) +
@@ -714,6 +821,9 @@ ph3_build_legacy_csv_pilot <- function(analysis) {
   cutoff_records <- do.call(rbind, cutoff_rows)
   display_offset_qc <- ph3_pilot_display_offset_qc(analysis, cutoff_records, corrections)
   log_display_qc <- ph3_pilot_log_display_qc(analysis, display_offset_qc, corrections)
+  group_y_axis_qc <- ph3_pilot_group_y_axis_qc(
+    analysis, display_offset_qc, log_display_qc, corrections
+  )
   analysis$ph3_legacy_pilot <- list(
     schema_version = "ph3-legacy-csv-pilot-1.0.0", provenance_label = ph3_pilot_label(analysis),
     limitations = c("Legacy FlowJo CSV exports: event identity and gate containment are unverified.",
@@ -725,8 +835,9 @@ ph3_build_legacy_csv_pilot <- function(analysis) {
     event_corrections = corrections, density_curves = do.call(rbind, density_rows),
     display_offset_qc = display_offset_qc,
     log_display_qc = log_display_qc,
+    group_y_axis_qc = group_y_axis_qc,
     pseudocolor_metadata = ph3_pilot_pseudocolor_metadata(
-      analysis, cutoff_records, display_offset_qc, log_display_qc
+      analysis, cutoff_records, display_offset_qc, log_display_qc, group_y_axis_qc
     ),
     biological_replicate_values = values, condition_summary = summary)
   analysis$warnings <- unique(c(analysis$warnings, paste0("PILOT / LIMITED-PROVENANCE: ", ph3_pilot_label(analysis))))
@@ -769,6 +880,9 @@ plot_ph3_legacy_pilot_report <- function(analysis) {
                          "display_offset", "displayed_cutoff_signal", "log_display_status",
                          "log_display_reason_code", "visual_window_finite_event_count",
                          "positive_domain_display_event_count", "nonpositive_display_event_count",
+                         "group_y_axis_method_id", "group_y_axis_status", "group_y_axis_reason_code",
+                         "group_y_axis_lower", "group_y_axis_upper", "group_y_axis_member_count",
+                         "group_y_axis_available_member_count", "group_y_axis_positive_event_count",
                          "signal_basis", "provenance_label")
   if (!is.data.frame(metadata) || !identical(names(metadata), expected_metadata) ||
       nrow(metadata) != nrow(analysis$sample_manifest) || anyDuplicated(metadata$prefix) ||
@@ -824,6 +938,27 @@ plot_ph3_legacy_pilot_report <- function(analysis) {
     ph3_pilot_fail("pseudocolor_log_display_provenance_mismatch",
                    "log-display metadata must exactly match its per-sample QC record")
   }
+  group_y_axis_qc <- pilot$group_y_axis_qc
+  expected_group_y_axis_qc <- c(
+    "prefix", "replicate", "replicate_index", "condition", "group_y_axis_method_id",
+    "group_y_axis_status", "group_y_axis_reason_code", "group_y_axis_lower",
+    "group_y_axis_upper", "group_y_axis_member_count",
+    "group_y_axis_available_member_count", "group_y_axis_positive_event_count"
+  )
+  if (!is.data.frame(group_y_axis_qc) || !identical(names(group_y_axis_qc), expected_group_y_axis_qc) ||
+      nrow(group_y_axis_qc) != nrow(metadata) || anyDuplicated(group_y_axis_qc$prefix) ||
+      !identical(group_y_axis_qc$prefix, metadata$prefix) ||
+      !identical(group_y_axis_qc$group_y_axis_method_id, metadata$group_y_axis_method_id) ||
+      !identical(group_y_axis_qc$group_y_axis_status, metadata$group_y_axis_status) ||
+      !identical(group_y_axis_qc$group_y_axis_reason_code, metadata$group_y_axis_reason_code) ||
+      !identical(group_y_axis_qc$group_y_axis_lower, metadata$group_y_axis_lower) ||
+      !identical(group_y_axis_qc$group_y_axis_upper, metadata$group_y_axis_upper) ||
+      !identical(group_y_axis_qc$group_y_axis_member_count, metadata$group_y_axis_member_count) ||
+      !identical(group_y_axis_qc$group_y_axis_available_member_count, metadata$group_y_axis_available_member_count) ||
+      !identical(group_y_axis_qc$group_y_axis_positive_event_count, metadata$group_y_axis_positive_event_count)) {
+    ph3_pilot_fail("pseudocolor_group_y_axis_provenance_mismatch",
+                   "group y-axis metadata must exactly match its per-sample QC record")
+  }
   pseudocolor_panels <- stats::setNames(lapply(seq_len(nrow(metadata)), function(i) {
     ph3_pilot_pseudocolor_panel(analysis, metadata[i, , drop = FALSE])
   }), metadata$prefix)
@@ -832,6 +967,7 @@ plot_ph3_legacy_pilot_report <- function(analysis) {
        provisional_background_qc = pilot$provisional_background_qc,
        display_offset_qc = pilot$display_offset_qc,
        log_display_qc = pilot$log_display_qc,
+       group_y_axis_qc = pilot$group_y_axis_qc,
        provisional_density_curves = pilot$provisional_density_curves, density_curves = pilot$density_curves,
        biological_replicate_values = values, condition_summary = summary, limitations = pilot$limitations)
 }

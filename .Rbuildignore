@@ -1,5 +1,6 @@
 ^facs_pseudocolor_workflow\.Rproj$
 ^\.Rproj\.user$
+^\.claude$
 ^\.R-library$
 ^\.git$
 ^\.github$

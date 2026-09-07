@@ -64,7 +64,6 @@ positivity calls and do not appear as final panel overlays.
 
 ```{r}
 pilot$provisional_background_qc
-pilot$provisional_density_curves
 ```
 
 ## Background-subtracted pH3-versus-DNA pseudocolor QC
@@ -118,4 +117,27 @@ for (prefix in names(pilot$pseudocolor_panels)) {
 
 ```{r}
 pilot$condition_summary
+```
+
+## Software and session information
+
+This report was rendered with Quarto. The table and session details below record
+the analysis and rendering software available at the time of this render.
+
+```{r}
+quarto_version <- Sys.getenv("QUARTO_VERSION", unset = "not reported to R")
+
+data.frame(
+  component = c("facspseudocolor", "R", "Quarto", "ggplot2", "knitr"),
+  version = c(
+    as.character(utils::packageVersion("facspseudocolor")),
+    R.version.string,
+    quarto_version,
+    as.character(utils::packageVersion("ggplot2")),
+    as.character(utils::packageVersion("knitr"))
+  ),
+  stringsAsFactors = FALSE
+)
+
+utils::sessionInfo()
 ```
