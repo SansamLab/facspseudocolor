@@ -43,6 +43,7 @@ Supplying both or neither is an error.
 | `facs_diagnostics.qmd` | Gate assignments, fits, input checks, and warnings. |
 | `facs_ph3_4n.qmd` | Exact FlowJo pH3 gate intersected with configured G2/M DNA, pseudocolor, and percentage. |
 | `facs_ph3_output_contract.qmd` | Canonical four-panel pH3 condition report for a completed production output-contract analysis. |
+| `facs_edu_pseudocolor_output_contract.qmd` | Every-sample EdU DNA-versus-signal panels with auditable per-sample display-only offsets. |
 
 ## Interactive configuration in RStudio
 

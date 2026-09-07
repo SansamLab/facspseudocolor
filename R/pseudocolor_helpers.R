@@ -818,6 +818,16 @@ fit_reference_negative_model <- function(
     ggplot2::theme_classic(base_size = 10)
 
   list(
+    # This is the immutable membership proof needed to reconstruct the
+    # display-only EdU offset later without selecting a new "negative"
+    # population. The indices refer to the unfiltered complete-event table
+    # returned by this same fit. The fingerprint makes a reordered or mutated
+    # event table fail visibly instead of receiving another sample's offset.
+    sample_prefix = prefix,
+    negative_event_index = which(is_negative),
+    negative_event_fingerprint = edu_negative_event_fingerprint(
+      complete$dna_norm[is_negative], complete$target_raw[is_negative]
+    ),
     replicate = replicate_label,
     reference_condition = condition_label,
     slope = reference_slope,

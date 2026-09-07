@@ -1,0 +1,36 @@
+---
+title: "EdU every-sample pseudocolor report"
+format: { html: { toc: true, embed-resources: true } }
+execute: { warning: false, message: false }
+params:
+  config: null
+  analysis_rds: null
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
+analysis <- facs_report_input(params$config, params$analysis_rds)
+report <- build_edu_pseudocolor_output_contract(analysis)
+```
+
+## Every-sample DNA-versus-EdU panels
+
+```{r}
+for (prefix in names(report$panels)) print(report$panels[[prefix]])
+```
+
+## Display-offset and panel QC
+
+```{r}
+report$display_offset_qc
+report$panel_qc
+```
+
+## Display provenance
+
+```{r}
+report$provenance
+```
