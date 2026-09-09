@@ -11,6 +11,22 @@ test_that("configuration validation applies centralized mode defaults", {
   expect_identical(edu$background_subtracted_offset, "auto")
 })
 
+test_that("EdU populations default together to model with explicit FlowJo opt-out", {
+  config <- minimal_config("edu")
+  config$g1_source <- NULL
+  config$edu_positive_source <- NULL
+  expect_error(validate_facs_config(config), "Default model-derived G1")
+  config$g1_model_manifest <- "SYNTHETIC/model-gating-manifest.json"
+  expect_identical(validate_facs_config(config)$g1_source, "model")
+  config$g1_source <- "flowjo"
+  config$edu_positive_source <- "flowjo"
+  expect_error(validate_facs_config(config), "must not declare")
+  config$g1_model_manifest <- NULL
+  expect_identical(validate_facs_config(config)$g1_source, "flowjo")
+  config$edu_positive_source <- "model"
+  expect_error(validate_facs_config(config), "must both")
+})
+
 test_that("pseudocolor signal and offset settings are validated", {
   config <- minimal_config("edu")
   config$pseudocolor_signal <- "background_subtracted"

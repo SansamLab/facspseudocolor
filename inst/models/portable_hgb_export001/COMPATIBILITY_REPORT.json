@@ -1,0 +1,34 @@
+{
+  "absolute_tolerance": 1e-12,
+  "models": [
+    {
+      "calls_exact": true,
+      "decision_threshold": "0x1.ae147ae147ae1p-2",
+      "max_abs_error": "0x1.0000000000000p-53",
+      "max_rel_error": "0x1.1d4c0baec4549p-52",
+      "model_id": "DNA_PROJECTED_G1_CLUSTER001",
+      "rejection_tests_passed": 5,
+      "repeated_original_exact": true,
+      "repeated_portable_exact": true,
+      "rows": 769,
+      "seed": 20260908,
+      "threshold_operator": ">="
+    },
+    {
+      "calls_exact": true,
+      "decision_threshold": "0x1.8a3d70a3d70a4p-2",
+      "max_abs_error": "0x1.0000000000000p-54",
+      "max_rel_error": "0x1.f2318b76f567ap-53",
+      "model_id": "EDU_POSITIVE_MODEL002",
+      "rejection_tests_passed": 5,
+      "repeated_original_exact": true,
+      "repeated_portable_exact": true,
+      "rows": 850,
+      "seed": 20260909,
+      "threshold_operator": ">="
+    }
+  ],
+  "protected_data_accessed": false,
+  "relative_tolerance": 1e-12,
+  "status": "passed"
+}

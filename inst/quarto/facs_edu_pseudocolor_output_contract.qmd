@@ -19,6 +19,11 @@ report <- build_edu_pseudocolor_output_contract(analysis)
 ## Every-sample DNA-versus-EdU panels
 
 ```{r}
+cat("**Single Cells / G1 source:** `", analysis$config$g1_source,
+    "`\n\n", sep = "")
+```
+
+```{r}
 for (prefix in names(report$panels)) print(report$panels[[prefix]])
 ```
 

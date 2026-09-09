@@ -6,6 +6,7 @@ facs_config_keys <- function() {
   c(
     "plot_type", "data_dir", "dna_channel", "target_channel", "target_name",
     "suffixes", "dna_2n_value", "normalize_target", "g1_anchor",
+    "g1_source", "edu_positive_source", "g1_model_manifest",
     "baseline_fit_x_range", "baseline_boundary_bins",
     "baseline_minimum_events_per_bin", "baseline_minimum_negative_events",
     "show_edu_apex_line", "edu_apex_x_range", "edu_apex_density_adjust",
@@ -33,6 +34,9 @@ facs_config_keys <- function() {
 
 facs_config_defaults <- function(plot_type) {
   list(
+    g1_source = if (identical(plot_type, "edu")) "model" else NULL,
+    edu_positive_source = if (identical(plot_type, "edu")) "model" else NULL,
+    g1_model_manifest = NULL,
     suffixes = if (identical(plot_type, "edu")) {
       list(complete = "_single_cells.csv", g1 = "_g1.csv",
            edu_positive = "_edu_positive.csv")
@@ -161,6 +165,30 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   }
 
   config <- utils::modifyList(facs_config_defaults(plot_type), config)
+
+  if (identical(plot_type, "edu")) {
+    if (!config_scalar_string(config$edu_positive_source) ||
+        !config$edu_positive_source %in% c("model", "flowjo")) {
+      errors <- config_add_error(errors,
+        "`edu_positive_source` must be 'model' or 'flowjo' for EdU analysis.")
+    } else if (!identical(config$edu_positive_source, config$g1_source)) {
+      errors <- config_add_error(errors,
+        "G1 and EdU-positive sources must both be model-derived or both be FlowJo.")
+    }
+    if (!config_scalar_string(config$g1_source) ||
+        !config$g1_source %in% c("model", "flowjo")) {
+      errors <- config_add_error(errors,
+        "`g1_source` must be 'model' or 'flowjo' for EdU analysis.")
+    } else if (identical(config$g1_source, "model") &&
+               !config_scalar_string(config$g1_model_manifest)) {
+      errors <- config_add_error(errors,
+        "Default model-derived G1 requires an explicit `g1_model_manifest` path.")
+    } else if (identical(config$g1_source, "flowjo") &&
+               !is.null(config$g1_model_manifest)) {
+      errors <- config_add_error(errors,
+        "FlowJo G1 must not declare `g1_model_manifest`.")
+    }
+  }
 
   if (!xor(is.null(config$samples), is.null(config$replicates))) {
     errors <- config_add_error(

@@ -40,6 +40,85 @@ flowjo_sample_id <- function(sample_ids, fcs) {
   hits[[1]]
 }
 
+prepare_edu_g1_inputs_external <- function(
+    config,
+    model_caller = "python/apply_model_only_edu_models.py",
+    verbose = TRUE
+) {
+  if (!inherits(config, "facs_config")) {
+    config <- facspseudocolor::validate_facs_config(config)
+  }
+  if (!identical(config$plot_type, "edu")) {
+    stop("G1-source orchestration is available only for EdU configurations.",
+         call. = FALSE)
+  }
+  if (identical(config$g1_source, "flowjo")) {
+    return(prepare_flowjo_csvs_external(config, verbose = verbose))
+  }
+  flowjo <- config$flowjo
+  if (!is.list(flowjo) || !is.character(flowjo$model_gating_config) ||
+      length(flowjo$model_gating_config) != 1L ||
+      !nzchar(flowjo$model_gating_config)) {
+    stop("Model-derived G1 orchestration requires `flowjo.model_gating_config`.",
+         call. = FALSE)
+  }
+  config_dir <- attr(config, "config_dir")
+  gating_config <- path.expand(flowjo$model_gating_config)
+  if (!grepl("^/", gating_config)) {
+    if (is.null(config_dir)) {
+      stop("Relative model-gating config requires a file-backed configuration.",
+           call. = FALSE)
+    }
+    gating_config <- file.path(config_dir, gating_config)
+  }
+  if (!file.exists(gating_config) || !file.exists(model_caller)) {
+    stop("Model-gating config or caller is missing.", call. = FALSE)
+  }
+  specification <- jsonlite::fromJSON(gating_config, simplifyVector = FALSE)
+  if (!identical(specification$flowjo_workspace_gate_used, FALSE) ||
+      !identical(specification$predicted_parent_authorization,
+        "OWNER_AUTHORIZED_PREDICTED_PARENT_EXPERIMENTAL_BRANCH_ONLY")) {
+    stop("Default EdU gating requires the authorized no-workspace model-only caller.",
+         call. = FALSE)
+  }
+  configured_samples <- do.call(c, lapply(config$replicates, `[[`, "samples"))
+  configured_prefixes <- vapply(configured_samples, `[[`, character(1), "prefix")
+  specified_prefixes <- vapply(specification$acquisitions, `[[`,
+                               character(1), "prefix")
+  if (anyDuplicated(specified_prefixes) ||
+      !identical(sort(specified_prefixes), sort(configured_prefixes))) {
+    stop("Model-gating acquisition prefixes do not exactly match the report config.",
+         call. = FALSE)
+  }
+  data_dir <- path.expand(config$data_dir)
+  if (!grepl("^/", data_dir)) {
+    if (is.null(config_dir)) {
+      stop("Relative data_dir requires a file-backed configuration.", call. = FALSE)
+    }
+    data_dir <- file.path(config_dir, data_dir)
+  }
+  data_dir <- normalizePath(data_dir, mustWork = FALSE)
+  if (!identical(normalizePath(specification$output_dir, mustWork = FALSE), data_dir)) {
+    stop("Model-gating output_dir must exactly equal the report data_dir.",
+         call. = FALSE)
+  }
+  python <- flowjo_or(flowjo$python, Sys.which("python3"))
+  if (!nzchar(python) || !file.exists(python)) {
+    stop("Python interpreter not found: ", python, call. = FALSE)
+  }
+  if (verbose) message("Running immutable model-only EdU population caller")
+  status <- system2(python, c(shQuote(model_caller), shQuote(gating_config)))
+  if (status != 0L) stop("Model-only EdU population calling failed.", call. = FALSE)
+  manifest <- file.path(data_dir, "model-gating-manifest.json")
+  if (!file.exists(manifest) ||
+      !identical(normalizePath(manifest, mustWork = TRUE),
+                 normalizePath(config$g1_model_manifest, mustWork = TRUE))) {
+    stop("Generated G1 manifest does not equal `g1_model_manifest`.",
+         call. = FALSE)
+  }
+  invisible(manifest)
+}
+
 prepare_flowjo_csvs_external <- function(
     config,
     exporter = "python/export_flowjo_populations.py",

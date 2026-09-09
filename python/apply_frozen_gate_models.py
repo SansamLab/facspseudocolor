@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 import warnings
 from pathlib import Path
@@ -45,6 +46,26 @@ def sha256_path(path: Path) -> str:
     return digest.hexdigest()
 
 
+def read_regular_bytes(path: Path, label: str) -> bytes:
+    """Read one non-symlink regular file once for hash-and-parse consistency."""
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ValueError("platform cannot enforce no-follow model reads")
+    try:
+        descriptor = os.open(path, flags | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise ValueError(f"{label} is missing or unsafe: {path}") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"{label} is not a regular file: {path}")
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            return handle.read()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def semantic_hash(rule: dict) -> str:
     payload = {key: value for key, value in rule.items() if key not in {
         "sha256", "solver", "selected_l2", "solver_iterations"
@@ -55,12 +76,11 @@ def semantic_hash(rule: dict) -> str:
 
 def load_rule(path: Path, expected_byte_sha256: str,
               expected_semantic_sha256: str, expected_target: str) -> dict:
-    if not path.is_file():
-        raise ValueError(f"model artifact is missing: {path}")
-    observed_byte = sha256_path(path)
+    content = read_regular_bytes(path, "model artifact")
+    observed_byte = hashlib.sha256(content).hexdigest()
     if observed_byte != expected_byte_sha256:
         raise ValueError(f"model artifact byte SHA-256 mismatch: {path}")
-    rule = json.loads(path.read_text(encoding="utf-8"))
+    rule = json.loads(content.decode("utf-8"))
     required = {"feature_names", "center", "scale", "coefficients", "intercept",
                 "threshold", "target", "schema_version", "sha256"}
     missing = sorted(required - set(rule))
@@ -430,7 +450,8 @@ def main() -> int:
                         artifacts["g1"]["semantic_sha256"], "g1_reference")
     output_dir.mkdir(parents=True)
     manifest = {"status_label": config["status_label"], "feature_schema_version":
-                FEATURE_SCHEMA_VERSION, "artifacts": artifacts, "acquisitions": []}
+                FEATURE_SCHEMA_VERSION, "single_cells_source": "model",
+                "g1_source": "model", "artifacts": artifacts, "acquisitions": []}
     try:
         for item in acquisitions:
             all_events, positive, source = raw_fcs_inputs(item)

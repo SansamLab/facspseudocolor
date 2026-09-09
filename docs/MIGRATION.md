@@ -1,5 +1,27 @@
 # Migration from the original Quarto workflow
 
+## EdU model-only population default
+
+EdU configurations now default to both `g1_source: model` and
+`edu_positive_source: model`. This is a provenance-
+gated pre-analysis operation: prepare immutable CSV inputs with
+`prepare_edu_g1_inputs_external()` and provide the resulting external
+`model-gating-manifest.json` as `g1_model_manifest`. The manifest is verified
+before normalization or quantitation. Model artifacts remain external and are
+never bundled with the package.
+
+To retain all three historical FlowJo populations, explicitly set:
+
+```yaml
+g1_source: flowjo
+edu_positive_source: flowjo
+```
+
+This compatibility option preserves the prior CSV behavior. Mixed provenance
+is rejected. Omission no
+longer means FlowJo. Existing EdU configurations must therefore either add the
+explicit FlowJo setting or complete the model-derived pre-analysis workflow.
+
 ## What changed
 
 The reusable analysis is now the `facspseudocolor` R package. The active Quarto
