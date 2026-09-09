@@ -4,7 +4,9 @@
   "functional_panel": "PANEL_FL2_DNA_FL4_EDU",
   "channel_roles": {
     "fsc_area": "FSC-A",
+    "fsc_height": "FSC-H",
     "ssc_area": "SSC-A",
+    "ssc_height": "SSC-H",
     "dna_area": "FL2-A",
     "dna_pulse": "FL2-H",
     "edu_area": "FL4-A"

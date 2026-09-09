@@ -36,37 +36,34 @@ EXPECTED_SINGLE_THRESHOLD = 0.205
 EXPECTED_SINGLE_BYTE_SHA256 = "71b459d8fb00930f31a6d289a21f587226fd2d6be4b31ebc782b7bae7839a376"
 EXPECTED_SINGLE_SEMANTIC_SHA256 = "f9a53e9fd78d2f39cf5980b8f470c3c44e7a187fa942cbcc0324c563fa68a31a"
 EXPECTED_SINGLE_SCHEMA = "fd-feature-v2"
-REQUIRED_ROLES = {"fsc_area", "ssc_area", "dna_area", "dna_pulse", "edu_area"}
+REQUIRED_ROLES = {"fsc_area", "fsc_height", "ssc_area", "ssc_height",
+                  "dna_area", "dna_pulse", "edu_area"}
 APPROVAL = "OWNER_AUTHORIZED_PREDICTED_PARENT_EXPERIMENTAL_BRANCH_ONLY"
-MAPPING_SHA256 = "a874815c83816d6d4291054fceeb08fa0df4b0c864499176dafe3a6a400597fb"
-G1_MODEL_ID = "DNA_PROJECTED_G1_CLUSTER001"
-G1_THRESHOLD = 0.42
-G1_FEATURES = ["dna_area_q", "dna_pulse_q", "tls_position",
-               "tls_signed_distance", "tls_abs_distance",
-               "dna_2d_log_density", "pulse_area_log_ratio"]
+MAPPING_SHA256 = "7aa668a606a02ea77a0d9a0a69d90ffdac91a37bda5642351283173b2ad6ab7d"
+G1_MODEL_ID = "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4"
+G1_PANEL_ID = "EDUPANEL001_generic_fl2_fl4"
+G1_THRESHOLD = 0.29
+G1_FEATURES = ["rank_fsc_a", "rank_fsc_h", "rank_ssc_a", "rank_ssc_h",
+               "rank_fl2_a", "rank_fl2_h", "dna_signed_log_area_minus_pulse",
+               "dna_rank_area_minus_pulse", "log_density_fsc_ssc",
+               "log_density_dna_geometry", "rank_edu_area",
+               "log_density_dna_edu"]
 EDU_MODEL_ID = "EDU_POSITIVE_MODEL002"
 EDU_THRESHOLD = 0.385
 EDU_FEATURES = ["dna_area_q", "dna_pulse_q", "dna_tls_position",
                 "dna_tls_distance", "dna_area_pulse_log_density",
                 "edu_area_q", "dna_edu_log_density"]
 ORIGINAL_MODEL_SHA256 = {
-    G1_MODEL_ID: "9ce7e448455e2d42090a86c80beb10d925a7c0e64e6261e678335385d9714af6",
+    G1_MODEL_ID: "1af119ba5b64c845ec99430667b202e50cf7d2fe66b53648eae25a086b833182",
     EDU_MODEL_ID: "6ef5603555a660b8503379cbbcab131b616336a64330ffd42f45dfaa182042cc",
 }
-G1_METADATA = {
-    "SUMMARY.json": "7a7446d61ca175e56964fc5ab6edbee081f2eb3f16e7925542157bc3719ddb10",
-    "PREFLIGHT.json": "bac957a8837774afee0faba2ff2e832d003f1e37586a68e6af4037083448ec80",
-    "per_unit_metrics.csv": "650076ecf722f165549731a0c84f1cbdde13d7cd36b53653da4a5b7b34b03792",
-    "model_comparison.csv": "54f538ddb00b28a932181d5cd57dda0b3bfe37786a7f4d3357e0a71e9c5c67d2",
-    "derived_label_summary.csv": "e60a3c24bd2ef5b80913d1cbb5387b74df0eef2ac4d67b1dfc5945162943380f",
-    "SCOPE.csv": "264b0ab4ef806933fc03eb66f644ed4405fe77d196bee516a7b32a98acc6c608",
-}
+G1_CONFIG_SHA256 = "f1a0e6e5327008a1da06ac912a2c25b95b060b579ea3bdf47540b7ca0dafbd88"
 EDU_METADATA = {
     "SUMMARY.json": "dcd16784a80b68070eeb42126d6411db148646af6acc69ded7fb6a529b39d22f",
     "PREFLIGHT.json": "9bee03f4b039d7645140df43ec03cd586ab7f6d620c0f359646caa65f49914db",
 }
 EDU_CONFIG_SHA256 = "624a839a38a464976b214afcf8964a5f54009ef7694d16d71a91ba20677d44f3"
-PORTABLE_PACKAGE_SHA256 = {
+EDU_PORTABLE_PACKAGE_SHA256 = {
     "MANIFEST.json": "c3885b0c49497672ad83657e2cd5a08beb219201039f5b26cffa002a4dd4fd7f",
     "COMPATIBILITY_REPORT.json": "60695bb0a5d3d728437aa89aa570b9ee9d2c7be7cacfbbb564ab43b4309f3b38",
     "DNA_PROJECTED_G1_CLUSTER001.portable.json": "7fe256e892adfef6415e3957231bf8f68b7ad401dc909ffd2a801fbde8f4b75d",
@@ -76,6 +73,16 @@ PORTABLE_PACKAGE_SHA256 = {
     "SYNTHETIC_EQUIVALENCE_FIXTURES.json": "ffdcdd99b295aa8d7ce946ccd901be1c6d15247f5c3c0726ef1c09eea05cddf4",
     "portable_hgb_predictor.py": "2edf1bbd529159e8752d01731e87f19efbc63b514409b1d246d7a4ffc266a2c3",
     "run_portable_selftest.py": "1d0584164fc36581fe0e2e958258b37ce2d72ec07f01cecbbbd7eabe54420fb4",
+}
+G1_PORTABLE_PACKAGE_SHA256 = {
+    "MANIFEST.json": "1964c6d976b4f25e9b6cfe9def0fb56d53b168fc5f8767ad8a29e7a4c430fe63",
+    "COMPATIBILITY_REPORT.json": "336a7ee3ec3516b6bdd2af1efd11e6300669a68bb335d7b2460096045f4db64f",
+    "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4.portable.json": "ea1ccd90328674fb8cc1b6802a66e194f49b3f9f9c1e03c6577ad01fe880c96e",
+    "EXPORT_PROVENANCE.json": "31d0e75b8d43da8a432a2e10580e7e2b620fcc9124288435822689bf019240a5",
+    "NO_PROTECTED_DATA_PROOF.json": "d81148613b5b31225537e16dd5fb74d70c4225df09203e111e8249fa382d8edb",
+    "SYNTHETIC_EQUIVALENCE_FIXTURES.json": "596125818978609b43c20fefe7a95acd739a01d7487b461074fde1b883a78793",
+    "portable_hgb_predictor.py": "2edf1bbd529159e8752d01731e87f19efbc63b514409b1d246d7a4ffc266a2c3",
+    "run_portable_documented_edu_g1_selftest.py": "8d4c0ff2a93add4302e33dcd9be2d4144bc3849dc12a70a785c333653104c37d",
 }
 
 
@@ -220,20 +227,35 @@ def density64(x: np.ndarray, y: np.ndarray, dtype=float) -> np.ndarray:
     return (np.log1p(histogram[i, j]) / np.log1p(len(x))).astype(dtype)
 
 
+def documented_edu_density64(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Frozen documented-EdU transformer: unnormalised log bin counts."""
+    histogram, _, _ = np.histogram2d(x, y, bins=64, range=((0, 1), (0, 1)))
+    i = np.minimum((x * 64).astype(int), 63)
+    j = np.minimum((y * 64).astype(int), 63)
+    return np.log1p(histogram[i, j]).astype(np.float32)
+
+
 def build_g1_features(parent: pd.DataFrame, roles: dict[str, str]) -> np.ndarray:
-    area = parent[roles["dna_area"]].to_numpy(float)
-    pulse = parent[roles["dna_pulse"]].to_numpy(float)
-    if not len(area) or not np.isfinite(area).all() or not np.isfinite(pulse).all():
-        raise ValueError("G1 parent DNA roles are empty or non-finite")
-    area_q, pulse_q = average_percentile_rank(area), average_percentile_rank(pulse)
-    centered = np.c_[area_q, pulse_q] - np.array([area_q.mean(), pulse_q.mean()])
-    _, _, axes = np.linalg.svd(centered, full_matrices=False)
-    axis = axes[0] * (1 if axes[0, 0] >= 0 else -1)
-    signed = centered @ np.array([-axis[1], axis[0]])
-    result = np.c_[area_q, pulse_q, centered @ axis, signed, np.abs(signed),
-                   density64(area_q, pulse_q),
-                   np.log(np.maximum(pulse, 1e-9)) - np.log(np.maximum(area, 1e-9))]
-    if result.shape != (len(parent), 7) or not np.isfinite(result).all():
+    keys = ["fsc_area", "fsc_height", "ssc_area", "ssc_height",
+            "dna_area", "dna_pulse", "edu_area"]
+    values = {key: parent[roles[key]].to_numpy(float) for key in keys}
+    if (not len(parent) or
+            not all(np.isfinite(value).all() for value in values.values())):
+        raise ValueError("documented-EdU G1 parent roles are empty or non-finite")
+    ranks = {key: average_percentile_rank(value, np.float32)
+             for key, value in values.items()}
+    signed_log = lambda value: (np.sign(value) * np.log1p(np.abs(value))).astype(np.float32)
+    result = np.column_stack([
+        ranks["fsc_area"], ranks["fsc_height"], ranks["ssc_area"],
+        ranks["ssc_height"], ranks["dna_area"], ranks["dna_pulse"],
+        signed_log(values["dna_area"]) - signed_log(values["dna_pulse"]),
+        ranks["dna_area"] - ranks["dna_pulse"],
+        documented_edu_density64(ranks["fsc_area"], ranks["ssc_area"]),
+        documented_edu_density64(ranks["dna_area"], ranks["dna_pulse"]),
+        ranks["edu_area"],
+        documented_edu_density64(ranks["dna_area"], ranks["edu_area"]),
+    ]).astype(np.float32)
+    if result.shape != (len(parent), len(G1_FEATURES)) or not np.isfinite(result).all():
         raise ValueError("G1 frozen feature construction failed")
     return result
 
@@ -256,28 +278,38 @@ def build_edu_features(frame: pd.DataFrame, roles: dict[str, str]) -> np.ndarray
 
 
 def load_portable_package(repository_root: Path):
-    root = repository_root / "inst/models/portable_hgb_export001"
-    captured = {}
-    for name, expected in PORTABLE_PACKAGE_SHA256.items():
-        content = read_regular_bytes(root / name)
-        if hashlib.sha256(content).hexdigest() != expected:
-            raise ValueError(f"portable package digest mismatch: {name}")
-        captured[name] = content
-    manifest = json.loads(captured["MANIFEST.json"])
-    ledger = {item["path"]: item["sha256"] for item in manifest.get("files", [])}
-    if (manifest.get("status") != "complete" or
-            manifest.get("portable_model_format") != "PORTABLE_HGB_V1" or
-            manifest.get("protected_data_present") is not False or
-            ledger != {key: value for key, value in PORTABLE_PACKAGE_SHA256.items()
-                       if key != "MANIFEST.json"}):
-        raise ValueError("portable package manifest contract mismatch")
+    edu_root = repository_root / "inst/models/portable_hgb_export001"
+    g1_root = repository_root / "inst/models/portable_documented_edu_g1_export001"
+    packages = ((edu_root, EDU_PORTABLE_PACKAGE_SHA256),
+                (g1_root, G1_PORTABLE_PACKAGE_SHA256))
+    captured_packages = []
+    for root, expected_files in packages:
+        captured = {}
+        for name, expected in expected_files.items():
+            content = read_regular_bytes(root / name)
+            if hashlib.sha256(content).hexdigest() != expected:
+                raise ValueError(f"portable package digest mismatch: {name}")
+            captured[name] = content
+        manifest = json.loads(captured["MANIFEST.json"])
+        ledger = {item["path"]: item["sha256"] for item in manifest.get("files", [])}
+        if (manifest.get("status") != "complete" or
+                manifest.get("portable_model_format") != "PORTABLE_HGB_V1" or
+                manifest.get("protected_data_present") is not False or
+                ledger != {key: value for key, value in expected_files.items()
+                           if key != "MANIFEST.json"}):
+            raise ValueError("portable package manifest contract mismatch")
+        captured_packages.append(captured)
+    edu_captured, g1_captured = captured_packages
     predictor = types.ModuleType("facspseudocolor_portable_hgb_predictor")
-    exec(compile(captured["portable_hgb_predictor.py"],
+    exec(compile(g1_captured["portable_hgb_predictor.py"],
                  "portable_hgb_predictor.py", "exec"), predictor.__dict__)
     models = {}
-    for model_id, filename, features, threshold in (
-        (G1_MODEL_ID, "DNA_PROJECTED_G1_CLUSTER001.portable.json", G1_FEATURES, G1_THRESHOLD),
-        (EDU_MODEL_ID, "EDU_POSITIVE_MODEL002.portable.json", EDU_FEATURES, EDU_THRESHOLD)):
+    for captured, model_id, filename, features, threshold in (
+        (g1_captured, G1_MODEL_ID,
+         "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4.portable.json",
+         G1_FEATURES, G1_THRESHOLD),
+        (edu_captured, EDU_MODEL_ID, "EDU_POSITIVE_MODEL002.portable.json",
+         EDU_FEATURES, EDU_THRESHOLD)):
         model = json.loads(captured[filename])
         # Validate the exact schema formerly enforced by load_model, but from
         # the same digest-verified bytes that are retained for inference.
@@ -298,7 +330,7 @@ def load_portable_package(repository_root: Path):
                 predictor._float(node["value"])
                 predictor._float(node["num_threshold"])
         models[model_id] = model
-    return predictor, models, root
+    return predictor, models, {"g1": g1_root, "edu_positive": edu_root}
 
 
 def verify_artifacts(config: dict):
@@ -321,22 +353,17 @@ def verify_artifacts(config: dict):
     g1 = artifacts["g1"]
     if (g1.get("model_id") != G1_MODEL_ID or
             g1.get("byte_sha256") != ORIGINAL_MODEL_SHA256[G1_MODEL_ID] or
-            g1.get("portable_sha256") != PORTABLE_PACKAGE_SHA256[
-                "DNA_PROJECTED_G1_CLUSTER001.portable.json"] or
+            g1.get("portable_sha256") != G1_PORTABLE_PACKAGE_SHA256[
+                "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4.portable.json"] or
             g1.get("threshold") != G1_THRESHOLD or
             g1.get("feature_schema") != G1_FEATURES or
-            g1.get("metadata_sha256") != G1_METADATA):
-        raise ValueError("DNA_PROJECTED_G1_CLUSTER001 artifact contract mismatch")
-    g1_path = Path(g1["path"])
-    if hashlib.sha256(read_regular_bytes(g1_path)).hexdigest() != g1["byte_sha256"]:
-        raise ValueError("DNA_PROJECTED_G1_CLUSTER001 original model digest mismatch")
-    for name, expected in G1_METADATA.items():
-        if hashlib.sha256(read_regular_bytes(g1_path.parent / name)).hexdigest() != expected:
-            raise ValueError(f"DNA_PROJECTED_G1_CLUSTER001 {name} digest mismatch")
+            g1.get("config_sha256") != G1_CONFIG_SHA256 or
+            g1.get("panel_id") != G1_PANEL_ID):
+        raise ValueError("documented-EdU G1 artifact contract mismatch")
     edu = artifacts["edu_positive"]
     if (edu.get("model_id") != EDU_MODEL_ID or
             edu.get("byte_sha256") != ORIGINAL_MODEL_SHA256[EDU_MODEL_ID] or
-            edu.get("portable_sha256") != PORTABLE_PACKAGE_SHA256[
+            edu.get("portable_sha256") != EDU_PORTABLE_PACKAGE_SHA256[
                 "EDU_POSITIVE_MODEL002.portable.json"] or
             edu.get("threshold") != EDU_THRESHOLD or
             edu.get("feature_schema") != EDU_FEATURES or
@@ -351,12 +378,12 @@ def verify_artifacts(config: dict):
     for name, expected in EDU_METADATA.items():
         if hashlib.sha256(read_regular_bytes(edu_path.parent / name)).hexdigest() != expected:
             raise ValueError(f"EDU_POSITIVE_MODEL002 {name} digest mismatch")
-    predictor, models, portable_root = load_portable_package(
+    predictor, models, portable_roots = load_portable_package(
         Path(__file__).resolve().parents[1])
     manifest_artifacts = {"single_cells": dict(single), "g1": {
-        **g1, "portable_path": str(portable_root /
-            "DNA_PROJECTED_G1_CLUSTER001.portable.json")}, "edu_positive": {
-        **edu, "portable_path": str(portable_root /
+        **g1, "portable_path": str(portable_roots["g1"] /
+            "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4.portable.json")}, "edu_positive": {
+        **edu, "portable_path": str(portable_roots["edu_positive"] /
             "EDU_POSITIVE_MODEL002.portable.json")}}
     return manifest_artifacts, single_rule, predictor, models
 
@@ -439,7 +466,7 @@ def score_acquisition(frame: pd.DataFrame, roles: dict[str, str],
         edu_features_full[single_mask], EDU_FEATURES)
     edu_mask = edu_probability >= EDU_THRESHOLD
     parent["model.single_cells.probability"] = single_probability[single_mask]
-    parent["model.dna_projected_g1_cluster001.probability"] = g1_probability
+    parent["model.documented_edu_g1_edupanel001_generic_fl2_fl4.probability"] = g1_probability
     parent["model.edu_positive_model002.probability"] = edu_probability
     g1 = parent.loc[g1_mask].copy(deep=True)
     positive = parent.loc[edu_mask].copy(deep=True)

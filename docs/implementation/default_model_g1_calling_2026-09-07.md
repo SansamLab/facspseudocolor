@@ -1,6 +1,9 @@
 # Default model-only population calling for EdU analysis
 
-**Status:** implemented; verification not run in this implementation turn.
+**Status:** superseded for G1 on 2026-09-08 by
+`model_only_edu_report_2026-09-08.md`. The architecture remains current, but
+the DNA-projected G1 identity and threshold below were replaced after the
+owner's visual review.
 
 ## Architecture decision
 
@@ -20,10 +23,12 @@ is selected.
 - The dispatcher invokes only `python/apply_model_only_edu_models.py` in model
   mode. The caller accepts exactly the eight acquisitions in the immutable
   owner-approved Figure 6 mapping and reads no workspace.
-- Single Cells uses the approved frozen development rule at 0.205. G1 uses
-  `DNA_PROJECTED_G1_CLUSTER001` at 0.42, and EdU Positive uses
-  `EDU_POSITIVE_MODEL002` at 0.385. Every artifact, metadata/configuration file,
-  schema, feature order, runtime, and threshold is digest-bound.
+- Single Cells uses the approved frozen development rule at 0.205. G1 now uses
+  `EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4`, panel
+  `EDUPANEL001_generic_fl2_fl4`, at 0.29, and EdU Positive uses
+  `EDU_POSITIVE_MODEL002` at 0.385. The 12-feature EdU-G1 schema and its
+  portable package/model/configuration provenance are digest-bound; the
+  original pickle digest is retained as provenance but is not deserialized.
 - G1 features are constructed within predicted Single Cells. EdU features are
   constructed on the complete frame and then scored only within that explicitly
   recorded parent under the branch-only authorization.

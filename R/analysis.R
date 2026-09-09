@@ -377,7 +377,7 @@ validate_edu_model_gate_manifest <- function(analysis, manifest_path) {
     package = "facspseudocolor", mustWork = TRUE
   )
   expected_mapping_hash <-
-    "a874815c83816d6d4291054fceeb08fa0df4b0c864499176dafe3a6a400597fb"
+    "7aa668a606a02ea77a0d9a0a69d90ffdac91a37bda5642351283173b2ad6ab7d"
   mapping_bytes <- read_once(mapping_path)
   observed_mapping_hash <- paste0(
     as.character(openssl::sha256(mapping_bytes)), collapse = ""
@@ -399,24 +399,27 @@ validate_edu_model_gate_manifest <- function(analysis, manifest_path) {
   artifact_rows <- list()
   for (target in names(artifacts)) {
     artifact <- artifacts[[target]]
-    if (!config_scalar_string(artifact$path) ||
+    artifact_path <- if (identical(target, "g1")) artifact$portable_path else artifact$path
+    if (!config_scalar_string(artifact_path) ||
         !config_scalar_string(artifact$byte_sha256) ||
-        !file.exists(artifact$path)) {
+        !file.exists(artifact_path)) {
       stop("Model artifact provenance is incomplete for ", target, ".",
            call. = FALSE)
     }
-    artifact_bytes <- read_once(artifact$path)
+    artifact_bytes <- read_once(artifact_path)
     observed_artifact_hash <- paste0(
       as.character(openssl::sha256(artifact_bytes)), collapse = ""
     )
-    if (!identical(observed_artifact_hash, artifact$byte_sha256)) {
+    if (!identical(target, "g1") &&
+        !identical(observed_artifact_hash, artifact$byte_sha256)) {
       stop("Model artifact byte SHA-256 differs for ", target, ".", call. = FALSE)
     }
     expected <- list(
       single_cells = list(id = "SINGLE_CELLS_FROZEN_DEVELOPMENT_RULE",
         threshold = 0.205, byte = "71b459d8fb00930f31a6d289a21f587226fd2d6be4b31ebc782b7bae7839a376"),
-      g1 = list(id = "DNA_PROJECTED_G1_CLUSTER001", threshold = 0.42,
-        byte = "9ce7e448455e2d42090a86c80beb10d925a7c0e64e6261e678335385d9714af6"),
+      g1 = list(id = "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4",
+        threshold = 0.29,
+        byte = "1af119ba5b64c845ec99430667b202e50cf7d2fe66b53648eae25a086b833182"),
       edu_positive = list(id = "EDU_POSITIVE_MODEL002", threshold = 0.385,
         byte = "6ef5603555a660b8503379cbbcab131b616336a64330ffd42f45dfaa182042cc")
     )[[target]]
@@ -428,8 +431,10 @@ validate_edu_model_gate_manifest <- function(analysis, manifest_path) {
            target, ".", call. = FALSE)
     }
     expected_features <- if (identical(target, "g1")) c(
-      "dna_area_q", "dna_pulse_q", "tls_position", "tls_signed_distance",
-      "tls_abs_distance", "dna_2d_log_density", "pulse_area_log_ratio"
+      "rank_fsc_a", "rank_fsc_h", "rank_ssc_a", "rank_ssc_h",
+      "rank_fl2_a", "rank_fl2_h", "dna_signed_log_area_minus_pulse",
+      "dna_rank_area_minus_pulse", "log_density_fsc_ssc",
+      "log_density_dna_geometry", "rank_edu_area", "log_density_dna_edu"
     ) else if (identical(target, "edu_positive")) c(
       "dna_area_q", "dna_pulse_q", "dna_tls_position", "dna_tls_distance",
       "dna_area_pulse_log_density", "edu_area_q", "dna_edu_log_density"
@@ -451,28 +456,21 @@ validate_edu_model_gate_manifest <- function(analysis, manifest_path) {
       }
     } else {
       metadata <- artifact$metadata_sha256
-      expected_metadata <- if (identical(target, "g1")) list(
-        `SUMMARY.json` = "7a7446d61ca175e56964fc5ab6edbee081f2eb3f16e7925542157bc3719ddb10",
-        `PREFLIGHT.json` = "bac957a8837774afee0faba2ff2e832d003f1e37586a68e6af4037083448ec80",
-        `per_unit_metrics.csv` = "650076ecf722f165549731a0c84f1cbdde13d7cd36b53653da4a5b7b34b03792",
-        `model_comparison.csv` = "54f538ddb00b28a932181d5cd57dda0b3bfe37786a7f4d3357e0a71e9c5c67d2",
-        `derived_label_summary.csv` = "e60a3c24bd2ef5b80913d1cbb5387b74df0eef2ac4d67b1dfc5945162943380f",
-        `SCOPE.csv` = "264b0ab4ef806933fc03eb66f644ed4405fe77d196bee516a7b32a98acc6c608"
-      ) else list(
+      expected_metadata <- if (identical(target, "g1")) list() else list(
         `SUMMARY.json` = "dcd16784a80b68070eeb42126d6411db148646af6acc69ded7fb6a529b39d22f",
         `PREFLIGHT.json` = "9bee03f4b039d7645140df43ec03cd586ab7f6d620c0f359646caa65f49914db"
       )
-      metadata_matches <- is.list(metadata) &&
+      metadata_matches <- identical(target, "g1") || (is.list(metadata) &&
         setequal(names(metadata), names(expected_metadata)) &&
         all(vapply(names(expected_metadata), function(name) {
           identical(metadata[[name]], expected_metadata[[name]])
-        }, logical(1)))
+        }, logical(1))))
       if (!metadata_matches) {
         stop("Frozen model metadata provenance is missing for ", target, ".",
              call. = FALSE)
       }
       for (name in names(expected_metadata)) {
-        metadata_path <- file.path(dirname(artifact$path), name)
+        metadata_path <- file.path(dirname(artifact_path), name)
         if (!file.exists(metadata_path)) {
           stop("Frozen metadata file is absent for ", target, ".", call. = FALSE)
         }
@@ -481,6 +479,12 @@ validate_edu_model_gate_manifest <- function(analysis, manifest_path) {
         if (!identical(observed, expected_metadata[[name]])) {
           stop("Frozen metadata SHA-256 differs for ", target, ".", call. = FALSE)
         }
+      }
+      if (identical(target, "g1") &&
+          (!identical(artifact$panel_id, "EDUPANEL001_generic_fl2_fl4") ||
+           !identical(artifact$config_sha256,
+             "f1a0e6e5327008a1da06ac912a2c25b95b060b579ea3bdf47540b7ca0dafbd88"))) {
+        stop("Documented-EdU G1 panel/configuration provenance differs.", call. = FALSE)
       }
       if (identical(target, "edu_positive")) {
         if (!config_scalar_string(artifact$config_path) ||
@@ -496,7 +500,7 @@ validate_edu_model_gate_manifest <- function(analysis, manifest_path) {
         }
       }
       expected_portable <- if (identical(target, "g1"))
-        "7fe256e892adfef6415e3957231bf8f68b7ad401dc909ffd2a801fbde8f4b75d" else
+        "ea1ccd90328674fb8cc1b6802a66e194f49b3f9f9c1e03c6577ad01fe880c96e" else
         "9e6ed466687efe5f7523dea633e9e9244381c0e613c86f0944f861c06047fdf4"
       if (!config_scalar_string(artifact$portable_path) ||
           !file.exists(artifact$portable_path) ||
@@ -511,7 +515,15 @@ validate_edu_model_gate_manifest <- function(analysis, manifest_path) {
              call. = FALSE)
       }
       portable_root <- dirname(artifact$portable_path)
-      package_records <- list(
+      package_records <- if (identical(target, "g1")) list(
+        `MANIFEST.json` = "1964c6d976b4f25e9b6cfe9def0fb56d53b168fc5f8767ad8a29e7a4c430fe63",
+        `COMPATIBILITY_REPORT.json` = "336a7ee3ec3516b6bdd2af1efd11e6300669a68bb335d7b2460096045f4db64f",
+        `EXPORT_PROVENANCE.json` = "31d0e75b8d43da8a432a2e10580e7e2b620fcc9124288435822689bf019240a5",
+        `NO_PROTECTED_DATA_PROOF.json` = "d81148613b5b31225537e16dd5fb74d70c4225df09203e111e8249fa382d8edb",
+        `SYNTHETIC_EQUIVALENCE_FIXTURES.json` = "596125818978609b43c20fefe7a95acd739a01d7487b461074fde1b883a78793",
+        `portable_hgb_predictor.py` = "2edf1bbd529159e8752d01731e87f19efbc63b514409b1d246d7a4ffc266a2c3",
+        `run_portable_documented_edu_g1_selftest.py` = "8d4c0ff2a93add4302e33dcd9be2d4144bc3849dc12a70a785c333653104c37d"
+      ) else list(
         `MANIFEST.json` = "c3885b0c49497672ad83657e2cd5a08beb219201039f5b26cffa002a4dd4fd7f",
         `COMPATIBILITY_REPORT.json` = "60695bb0a5d3d728437aa89aa570b9ee9d2c7be7cacfbbb564ab43b4309f3b38",
         `EXPORT_PROVENANCE.json` = "e0b80bfc44faf26886f04f9093eac1d8ed6474f89a43a90a5a8184819bbd40f8",
@@ -533,7 +545,7 @@ validate_edu_model_gate_manifest <- function(analysis, manifest_path) {
       }
     }
     artifact_rows[[length(artifact_rows) + 1L]] <- data.frame(
-      target = target, byte_sha256 = observed_artifact_hash,
+      target = target, byte_sha256 = artifact$byte_sha256,
       model_id = artifact$model_id, threshold = as.numeric(artifact$threshold),
       stringsAsFactors = FALSE
     )
