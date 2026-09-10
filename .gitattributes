@@ -1,0 +1,7 @@
+# These files are authenticated by byte-level SHA-256 digests. Keep their
+# repository and installed-package bytes identical on Windows, macOS, and Linux.
+inst/config/model_only_edu_figure6_mapping.json text eol=lf
+inst/models/portable_hgb_export001/**/*.json text eol=lf
+inst/models/portable_hgb_export001/**/*.py text eol=lf
+inst/models/portable_documented_edu_g1_export001/**/*.json text eol=lf
+inst/models/portable_documented_edu_g1_export001/**/*.py text eol=lf
