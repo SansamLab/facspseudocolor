@@ -221,3 +221,15 @@ The optional orchestration layer checks Python dependencies, workspace paths,
 population exports, detector columns, and FCS sample matching. The R package
 then independently validates expected filenames, required columns, numeric
 types, event counts, references, and configuration structure before analysis.
+
+For EdU, source `tools/flowjo-orchestration.R` and call
+`prepare_edu_g1_inputs_external(config)`. The default model mode routes only to
+`python/apply_model_only_edu_models.py`. It reads the exact eight digest-bound
+Figure 6 FCS acquisitions without opening a workspace and calls Single Cells,
+G1, and EdU Positive with three distinct frozen models. The versioned approved
+mapping fixes every acquisition identity, FCS basename and digest, functional
+panel, and channel role. G1 features are constructed within predicted Single
+Cells; EdU features are constructed over the full acquisition and then scored
+only within that same parent. Explicit legacy `g1_source: flowjo` and
+`edu_positive_source: flowjo` route to the prior exporter. This remains outside
+the installed analysis path so ordinary analysis never launches Python.

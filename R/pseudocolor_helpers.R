@@ -317,7 +317,8 @@ read_and_normalize_sample <- function(
     settings,
     baseline_slope = NULL,
     background_model = NULL,
-    normalization_method = NULL
+    normalization_method = NULL,
+    verified_frames = NULL
 ) {
   dna_channel <- settings$dna_channel
   target_channel <- settings$target_channel
@@ -342,7 +343,9 @@ read_and_normalize_sample <- function(
     required_files <- c(complete_file, g1_file)
   }
 
-  missing_files <- required_files[!file.exists(required_files)]
+  missing_files <- if (is.null(verified_frames)) {
+    required_files[!file.exists(required_files)]
+  } else character()
   if (length(missing_files) > 0) {
     stop(paste0(
       "Missing files for ", condition_label, ":\n",
@@ -350,7 +353,11 @@ read_and_normalize_sample <- function(
     ))
   }
 
-  dat <- utils::read.csv(complete_file, check.names = FALSE)
+  frame_key <- function(population) paste(prefix, population, sep = "\r")
+  dat <- if (!is.null(verified_frames)) {
+    verified_frames[[frame_key("complete")]]
+  } else utils::read.csv(complete_file, check.names = FALSE)
+  if (is.null(dat)) stop("Verified complete model frame is absent for ", prefix)
   required_channels <- c(dna_channel, target_channel)
   missing_channels <- setdiff(required_channels, names(dat))
   if (length(missing_channels) > 0) {
@@ -368,7 +375,10 @@ read_and_normalize_sample <- function(
   edu_positive_data <- NULL
 
   if (uses_g1) {
-    g1 <- utils::read.csv(g1_file, check.names = FALSE)
+    g1 <- if (!is.null(verified_frames)) {
+      verified_frames[[frame_key("g1")]]
+    } else utils::read.csv(g1_file, check.names = FALSE)
+    if (is.null(g1)) stop("Verified G1 model frame is absent for ", prefix)
     missing_g1 <- setdiff(required_channels, names(g1))
     if (length(missing_g1) > 0) {
       stop(paste0(
@@ -398,8 +408,10 @@ read_and_normalize_sample <- function(
       edu <- NULL
       if (!is.null(file_suffixes$edu_positive)) {
         edu_file <- file.path(data_dir, paste0(prefix, file_suffixes$edu_positive))
-        if (file.exists(edu_file)) {
-          edu <- utils::read.csv(edu_file, check.names = FALSE)
+        if (!is.null(verified_frames) || file.exists(edu_file)) {
+          edu <- if (!is.null(verified_frames)) {
+            verified_frames[[frame_key("edu_positive")]]
+          } else utils::read.csv(edu_file, check.names = FALSE)
         }
       }
       normalized <- normalize_edu(
@@ -681,7 +693,8 @@ fit_reference_negative_model <- function(
     replicate_label,
     data_dir,
     file_suffixes,
-    settings
+    settings,
+    verified_frames = NULL
 ) {
   dna_channel <- settings$dna_channel
   target_channel <- settings$target_channel
@@ -695,16 +708,19 @@ fit_reference_negative_model <- function(
   reference_data <- read_and_normalize_sample(
     prefix = prefix, condition_label = condition_label, data_dir = data_dir,
     file_suffixes = file_suffixes, settings = settings,
-    normalization_method = "g1_median"
+    normalization_method = "g1_median", verified_frames = verified_frames
   )
   complete <- reference_data$data
 
   # Read the EdU-positive events and DNA-normalize with the same G1 median.
   edu_file <- file.path(data_dir, paste0(prefix, file_suffixes$edu_positive))
-  if (!file.exists(edu_file)) {
+  if (is.null(verified_frames) && !file.exists(edu_file)) {
     stop(paste0("Missing EdU-positive file for ", condition_label, ":\n", edu_file))
   }
-  edu <- utils::read.csv(edu_file, check.names = FALSE)
+  edu <- if (!is.null(verified_frames)) {
+    verified_frames[[paste(prefix, "edu_positive", sep = "\r")]]
+  } else utils::read.csv(edu_file, check.names = FALSE)
+  if (is.null(edu)) stop("Verified EdU-positive model frame is absent for ", prefix)
   if (!all(c(dna_channel, target_channel) %in% names(edu))) {
     stop(paste("EdU-positive file is missing required channels for",
                condition_label))
@@ -869,7 +885,8 @@ fit_replicate_reference_models <- function(
 # Fit an independent EdU-negative model for every acquisition. EdU background
 # is intrinsic to each sample and does not require a separate control sample.
 fit_sample_reference_models <- function(
-    sample_manifest, data_dir, file_suffixes, settings) {
+    sample_manifest, data_dir, file_suffixes, settings,
+    verified_frames = NULL) {
   models <- lapply(seq_len(nrow(sample_manifest)), function(i) {
     fit_reference_negative_model(
       prefix = sample_manifest$prefix[[i]],
@@ -878,7 +895,8 @@ fit_sample_reference_models <- function(
         sample_manifest$replicate[[i]],
         sample_manifest$technical_replicate[[i]], sep = " / "
       ),
-      data_dir = data_dir, file_suffixes = file_suffixes, settings = settings
+      data_dir = data_dir, file_suffixes = file_suffixes, settings = settings,
+      verified_frames = verified_frames
     )
   })
   names(models) <- sample_manifest$prefix

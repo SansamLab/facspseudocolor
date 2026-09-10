@@ -1,0 +1,48 @@
+{
+  "files": [
+    {
+      "bytes": 987,
+      "path": "COMPATIBILITY_REPORT.json",
+      "sha256": "60695bb0a5d3d728437aa89aa570b9ee9d2c7be7cacfbbb564ab43b4309f3b38"
+    },
+    {
+      "bytes": 2579041,
+      "path": "DNA_PROJECTED_G1_CLUSTER001.portable.json",
+      "sha256": "7fe256e892adfef6415e3957231bf8f68b7ad401dc909ffd2a801fbde8f4b75d"
+    },
+    {
+      "bytes": 2026491,
+      "path": "EDU_POSITIVE_MODEL002.portable.json",
+      "sha256": "9e6ed466687efe5f7523dea633e9e9244381c0e613c86f0944f861c06047fdf4"
+    },
+    {
+      "bytes": 717,
+      "path": "EXPORT_PROVENANCE.json",
+      "sha256": "e0b80bfc44faf26886f04f9093eac1d8ed6474f89a43a90a5a8184819bbd40f8"
+    },
+    {
+      "bytes": 803,
+      "path": "NO_PROTECTED_DATA_PROOF.json",
+      "sha256": "f0b0b3aa0088c70e0f3e29cd75c5bc7e9fc8c809986b86f2ae73dbcb6301111b"
+    },
+    {
+      "bytes": 382035,
+      "path": "SYNTHETIC_EQUIVALENCE_FIXTURES.json",
+      "sha256": "ffdcdd99b295aa8d7ce946ccd901be1c6d15247f5c3c0726ef1c09eea05cddf4"
+    },
+    {
+      "bytes": 6018,
+      "path": "portable_hgb_predictor.py",
+      "sha256": "2edf1bbd529159e8752d01731e87f19efbc63b514409b1d246d7a4ffc266a2c3"
+    },
+    {
+      "bytes": 2196,
+      "path": "run_portable_selftest.py",
+      "sha256": "1d0584164fc36581fe0e2e958258b37ce2d72ec07f01cecbbbd7eabe54420fb4"
+    }
+  ],
+  "portable_model_format": "PORTABLE_HGB_V1",
+  "protected_data_present": false,
+  "schema": "PORTABLE_HGB_PACKAGE_MANIFEST_V1",
+  "status": "complete"
+}

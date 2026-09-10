@@ -1,0 +1,23 @@
+{
+  "allowed_files": [
+    "COMPATIBILITY_REPORT.json",
+    "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4.portable.json",
+    "EXPORT_PROVENANCE.json",
+    "SYNTHETIC_EQUIVALENCE_FIXTURES.json",
+    "portable_hgb_predictor.py",
+    "run_portable_documented_edu_g1_selftest.py"
+  ],
+  "claim": "Package contains no protected experimental data",
+  "forbidden_suffixes": [
+    ".csv",
+    ".fcs",
+    ".pickle",
+    ".pkl",
+    ".prism",
+    ".tsv",
+    ".wsp"
+  ],
+  "method": "closed regular-file allowlist and forbidden-suffix rejection",
+  "protected_data_accessed_by_job": false,
+  "source_pickle_packaged": false
+}

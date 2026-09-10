@@ -16,8 +16,8 @@ model_gate_inputs <- validate_edu_model_gate_manifest(analysis, params$model_gat
 report <- build_edu_pseudocolor_output_contract(analysis)
 ```
 
-> **EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.** Single Cells and G1 were
-> called with immutable development-only models, not FlowJo gates. This report
+> **EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.** Single Cells, G1, and EdU
+> Positive were called with immutable frozen models, not FlowJo gates. This report
 > does not establish biological ground truth, production performance, or broad
 > generalizability.
 
@@ -29,8 +29,9 @@ for (prefix in names(report$panels)) print(report$panels[[prefix]])
 
 ## EdU-positive percentages
 
-EdU positivity remains the explicitly mapped FlowJo annotation intersected by
-direct event identity with each model-derived Single Cells population.
+EdU positivity is the `EDU_POSITIVE_MODEL002` prediction, scored only within
+the explicitly recorded predicted Single Cells parent after full-source-frame
+feature construction.
 
 ```{r}
 print(report$positivity$panels$two_to_four_n)
@@ -49,12 +50,18 @@ print(report$intensity$panels$early_mid_late_s)
 ```{r}
 print(model_gate_inputs)
 print(attr(model_gate_inputs, "model_artifacts"))
+print(attr(model_gate_inputs, "qc_warnings"))
 ```
 
-The G1 model was developed within expert-reference Single Cells. Applying it
-after model-derived Single Cells changes its parent distribution; prior G1
-validation metrics therefore do not validate this composed use. The older G1
-rule also omits the second-marker axes used by the audited expert G1 gates.
+Model QC codes are visible review triggers, not biological cutoffs. Low event
+support, extreme predicted fractions, and zero predicted positives do not
+change a threshold or silently remove a sample. Any unknown warning, digest or
+identity mismatch, unsupported panel, or incomplete output stops the report.
+
+Both downstream models were developed within expert-reference Single Cells.
+Applying them after model-derived Single Cells changes their parent distribution;
+prior validation metrics therefore do not validate this composed, branch-only
+research use. No model-performance claim is made here.
 
 ## Software used
 

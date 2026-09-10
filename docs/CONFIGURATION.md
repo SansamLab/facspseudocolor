@@ -1,5 +1,26 @@
 # Configuration reference
 
+## EdU population sources
+
+`g1_source` and `edu_positive_source` accept `model` or `flowjo` in EdU mode,
+must agree, and default to `model`.
+Model mode requires `g1_model_manifest`, the exact external manifest produced
+by the hash-bound pre-analysis caller. The package verifies its model-derived
+Single Cells, G1, and EdU Positive declarations; the immutable eight-acquisition
+Figure 6 mapping; FCS and consumed-snapshot digests; exact panel/channel roles;
+artifact and metadata/configuration hashes; feature scopes; thresholds; row
+counts; containment; and event-identity digests before normalization. The
+default caller reads no workspace and never fits, tunes, or downloads a model.
+The only nonfatal model QC codes are `LOW_EVENT_SUPPORT`,
+`EXTREME_PREDICTED_FRACTION`, and `ZERO_PREDICTED_POSITIVES`; they are surfaced
+in analysis provenance, warnings, and the model-only report without changing a
+threshold. Unknown warnings, mapping/digest/runtime/schema mismatches,
+incomplete identities, unsupported panels, collisions, and containment failures
+stop analysis.
+
+Setting both sources to `flowjo` is the explicit legacy compatibility option
+and prohibits a model manifest, preventing ambiguous mixed provenance.
+
 `read_facs_config()` reads one explicit YAML file, rejects unknown top-level
 keys, applies centralized defaults, and validates the complete structure before
 experimental data are processed. Relative paths are resolved from the YAML

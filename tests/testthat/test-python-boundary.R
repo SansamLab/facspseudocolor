@@ -41,6 +41,9 @@ test_that("repository orchestration prohibits sequential identity fallback", {
     expect_match(text, '"--verify-operation"', fixed = TRUE)
     expect_match(text, "Finalized manifest or consumed population artifact verification failed",
                  fixed = TRUE)
+    expect_match(text, "prepare_edu_g1_inputs_external", fixed = TRUE)
+    expect_match(text, "Default EdU gating requires the authorized no-workspace model-only caller",
+                 fixed = TRUE)
   } else {
     expect_false(file.exists(orchestration_path))
     expect_identical(

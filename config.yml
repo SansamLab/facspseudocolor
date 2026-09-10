@@ -30,6 +30,11 @@
 #         cutoff line is drawn. No G1 or EdU-positive files are needed.
 # See config_poi.yml for a ready-to-run poi (Total MTBP) example.
 plot_type: "edu"
+# This historical example explicitly retains its existing FlowJo G1 CSVs.
+# New EdU configurations default to model; model mode also requires an external
+# hash-bound g1_model_manifest prepared before analysis.
+g1_source: "flowjo"
+edu_positive_source: "flowjo"
 
 
 # -----------------------------------------------------------------------------

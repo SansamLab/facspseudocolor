@@ -71,6 +71,12 @@ if (nrow(pre_results_findings)) {
 ## All-condition visual overview
 
 ```{r}
+#| label: gating-source
+cat("**Single Cells / G1 source:** `", analysis$config$g1_source,
+    "`\n\n", sep = "")
+```
+
+```{r}
 #| label: all-condition-matrix
 #| results: asis
 for (group in all_conditions$groups) {
