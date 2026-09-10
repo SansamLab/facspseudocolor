@@ -186,7 +186,8 @@ test_that("SYNTHETIC EdU intensity report uses the configured reference after ca
                       "unavailable_nonfinite_canonical_intensity"
                     )))
   expect_identical(intensity$provenance$signal, "background_subtracted")
-  expect_match(intensity$provenance$reference_normalization, "Untreated")
+  expect_match(intensity$provenance$reference_normalization,
+               "configured matched reference\\(s\\): Reference")
 })
 
 test_that("SYNTHETIC EdU intensity report rejects absent references and exposes an invalid denominator", {

@@ -596,8 +596,8 @@ edu_intensity_plot <- function(
 
 # Derive a report-only fold value from the retained biological-replicate
 # intensity table.  This intentionally happens after the established
-# acquisition-to-biological-replicate averaging, so each configured Untreated
-# sample is the within-biological-replicate denominator.  It neither refits a
+# acquisition-to-biological-replicate averaging, so each configured matched
+# reference sample is the within-biological-replicate denominator. It neither refits a
 # background model nor changes any canonical quantitative table.
 edu_reference_relative_intensity <- function(
     points, value_col, manifest, category_col = NULL
@@ -733,6 +733,20 @@ edu_build_intensity_report <- function(analysis) {
     regional, "positive_cell_regional_edu_bgsub_median",
     analysis$sample_manifest, category_col = "phase"
   )
+  reference_conditions <- unique(as.character(overall_relative$reference_condition))
+  regional_reference_conditions <- unique(as.character(
+    regional_relative$reference_condition
+  ))
+  if (!length(reference_conditions) || anyNA(reference_conditions) ||
+      any(!nzchar(reference_conditions)) ||
+      anyNA(regional_reference_conditions) ||
+      any(!nzchar(regional_reference_conditions)) ||
+      !setequal(reference_conditions, regional_reference_conditions)) {
+    edu_positivity_report_fail(
+      "invalid_reference_provenance",
+      "validated overall and regional intensity rows must identify the same configured matched reference conditions"
+    )
+  }
   list(
     schema_version = "edu-intensity-report-1.1.0",
     overall_canonical_biological_replicate = overall,
@@ -743,12 +757,12 @@ edu_build_intensity_report <- function(analysis) {
       all_computed_positive = edu_intensity_plot(
         overall_relative, "reference_relative_intensity", "population_label",
         "All computed EdU-positive", "Population",
-        "Median background-subtracted EdU fluorescence\n(relative to matched Untreated)", analysis
+        "Median background-subtracted EdU fluorescence\n(relative to configured matched reference)", analysis
       ),
       early_mid_late_s = edu_intensity_plot(
         regional_relative, "reference_relative_intensity", "phase_label",
         c("Early S", "Mid S", "Late S"), "S-phase region",
-        "Median background-subtracted EdU fluorescence\n(relative to matched Untreated)", analysis
+        "Median background-subtracted EdU fluorescence\n(relative to configured matched reference)", analysis
       )
     ),
     provenance = list(
@@ -756,7 +770,10 @@ edu_build_intensity_report <- function(analysis) {
       regional_source = "canonical_edu_positive_cell_regional_intensity_biological_replicate",
       signal = "background_subtracted",
       aggregation = "unweighted technical-acquisition mean within biological replicate",
-      reference_normalization = "canonical biological-replicate median divided by the explicitly configured matched Untreated reference"
+      reference_normalization = paste0(
+        "canonical biological-replicate median divided by the explicitly configured matched reference(s): ",
+        paste(reference_conditions, collapse = ", ")
+      )
     )
   )
 }

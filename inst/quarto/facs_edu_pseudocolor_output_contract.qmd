@@ -1,11 +1,42 @@
 ---
-title: "EdU every-sample pseudocolor report"
-format: { html: { toc: true, embed-resources: true } }
-execute: { warning: false, message: false }
+title: "EdU experiment report"
+subtitle: "FlowJo populations, quality checks, cell-cycle views, and quantitative results"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: false
+    embed-resources: true
+    code-fold: false
+    code-tools: false
+execute: { warning: false, message: false, echo: false }
 params:
   config: null
   analysis_rds: null
+  show_audit_tables: false
+  max_condition_columns: 4
+  min_panel_width: 220
 ---
+
+```{css}
+.quarto-title-block { margin-bottom: 2rem; }
+h2 { margin-top: 2.4rem; padding-top: .45rem; border-top: 2px solid #dce5e8; }
+h3 { margin-top: 1.7rem; }
+.report-card { border-left: .35rem solid #287c8e; background: #f5f9fa; padding: 1rem 1.2rem; margin: 1rem 0; }
+.report-alert { border-left-color: #b54708; background: #fff7ed; }
+.report-ok { border-left-color: #27864b; background: #f0f9f3; }
+.report-table { width: 100%; font-size: .9rem; }
+.report-table th { background: #eaf1f3; }
+.figure-caption, figcaption { color: #46565c; font-size: .9rem; }
+.overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--panel-min)), 1fr)); gap: 1rem; max-width: var(--panel-max); }
+.overview-card { min-width: 0; border: 1px solid #dce5e8; border-radius: .35rem; padding: .55rem; background: #fff; }
+.overview-card img { width: 100%; height: auto; }
+.overview-card h4 { margin: .5rem 0 .15rem; font-size: .95rem; }
+.overview-card .sample-caption { margin: 0; color: #46565c; font-size: .82rem; overflow-wrap: anywhere; }
+.overview-group { margin: 1.5rem 0 2.2rem; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+```
 
 ```{r}
 #| label: setup
@@ -14,55 +45,383 @@ library(facspseudocolor)
 source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
 analysis <- facs_report_input(params$config, params$analysis_rds)
 report <- build_edu_pseudocolor_output_contract(analysis)
+overview <- facs_report_edu_overview(analysis)
+qc_sections <- facs_report_edu_qc_sections(analysis, report)
+all_conditions <- facs_report_edu_responsive_groups(
+  analysis, report, params$max_condition_columns, params$min_panel_width
+)
 ```
 
-## Every-sample DNA-versus-EdU panels
+```{r}
+#| label: pre-results-qc
+#| results: asis
+pre_results_qc <- rbind(
+  qc_sections$data_input,
+  qc_sections$normalization
+)
+pre_results_findings <- pre_results_qc[pre_results_qc$level != "CLEAR", , drop = FALSE]
+if (nrow(pre_results_findings)) {
+  cat('<div class="report-card report-alert"><strong>Pre-results QC: review required.</strong> One or more retained data, input, normalization, or quantitation states are non-clear. Review the findings below before interpreting any plot.</div>\n')
+  cat(facs_report_compact_table(pre_results_findings))
+} else {
+  cat('<div class="report-card report-ok"><strong>Pre-results QC: retained checks are clear.</strong> Human inspection of every acquisition is still required before interpretation.</div>\n')
+}
+```
+
+## All-condition visual overview
 
 ```{r}
-for (prefix in names(report$panels)) print(report$panels[[prefix]])
+#| label: all-condition-matrix
+#| results: asis
+for (group in all_conditions$groups) {
+  cat('\n\n::: {.overview-group}\n')
+  cat("<h3>", facs_report_heading_label(group$replicate),
+      " · technical acquisition ",
+      facs_report_heading_label(group$technical_replicate),
+      "</h3>\n", sep = "")
+  cat("<p><strong>Paired acquisition group:</strong> ",
+      facs_report_heading_label(group$model_group),
+      " · <strong>Configured reference:</strong> ",
+      facs_report_heading_label(group$reference_condition), "</p>\n", sep = "")
+  if (!identical(group$legend_status, "available")) {
+    cat('<div class="report-card report-alert"><strong>Density legend unavailable:</strong> no available panel in this paired acquisition group supplied a legend. Every card remains represented.</div>\n')
+  }
+  maximum_width <- all_conditions$max_condition_columns *
+    all_conditions$min_panel_width + 16 * (all_conditions$max_condition_columns - 1L)
+  cat(sprintf(
+    '::: {.overview-grid style="--panel-min: %.0fpx; --panel-max: %.0fpx;"}\n',
+    all_conditions$min_panel_width, maximum_width
+  ))
+  for (card_index in seq_along(group$cards)) {
+    card <- group$cards[[card_index]]
+    card_title <- if (isTRUE(card$is_reference)) {
+      paste0(card$condition, " — configured reference")
+    } else card$condition
+    caption_id <- paste0("overview-card-", group$group_index, "-", card_index)
+    cat('::: {.overview-card role="group" aria-labelledby="', caption_id, '"}\n', sep = "")
+    cat(facs_report_knit_plot(
+      card$plot, width = 2.3, height = 2.15,
+      envir = environment(), dpi = 192L
+    ), sep = "\n")
+    cat('<h4 id="', caption_id, '">',
+        facs_report_heading_label(card_title), '</h4>\n', sep = "")
+    if (!is.na(card$prefix)) {
+      cat('<p class="sample-caption">Sample: ',
+          facs_report_heading_label(card$prefix), '</p>\n', sep = "")
+    }
+    cat(':::\n')
+  }
+  cat(':::\n')
+  if (!is.null(group$legend)) {
+    cat(facs_report_knit_plot(group$legend, width = 7, height = .7,
+                              envir = environment()), sep = "\n")
+  }
+  cat(':::\n')
+}
+```
+
+## Quantitation overview
+
+```{r}
+#| label: quantitation-overview
+#| results: asis
+quant_point_alt <- if (isTRUE(analysis$config$quant_show_points)) {
+  "Points are biological-replicate values. "
+} else {
+  "Biological-replicate points are disabled by configuration. "
+}
+quant_error_alt <- if (identical(analysis$config$quant_error_bar, "none")) {
+  "Error bars are disabled by configuration."
+} else {
+  paste0("Error bars use the configured ", analysis$config$quant_error_bar,
+         " display.")
+}
+quantitation_rows <- list(
+  list(
+    list(
+      title = "2N–4N EdU-positive percentage",
+      detail = "Absolute EdU-positive percentage among eligible Single Cell events in the inclusive 2N–4N interval",
+      alt = paste0("EdU-positive percentage among eligible Single Cell events in the inclusive 2N-to-4N DNA interval. ", quant_point_alt, "Bar heights are condition means. ", quant_error_alt),
+      y_label = "% EdU positive",
+      small_legend_keys = TRUE,
+      hide_single_category_x_tick = TRUE,
+      hide_x_title = TRUE,
+      plot = report$positivity$panels$two_to_four_n
+    ),
+    list(
+      title = "All computed-positive EdU intensity",
+      detail = "Established unweighted mean of technical-acquisition background-subtracted medians among all computed-positive eligible cells within each biological replicate, relative to its configured matched reference",
+      alt = paste0("EdU intensity for all computed-positive eligible cells, relative to each biological replicate's configured matched reference. ", quant_point_alt, "Horizontal marks are condition means. ", quant_error_alt),
+      y_label = "Relative EdU level",
+      small_legend_keys = FALSE,
+      hide_single_category_x_tick = TRUE,
+      hide_x_title = TRUE,
+      plot = report$intensity$panels$all_computed_positive
+    )
+  ),
+  list(
+    list(
+      title = "Regional S-phase percentage",
+      detail = "Absolute percentage within each established Early/Mid/Late-S DNA region",
+      alt = paste0("EdU-positive percentage within the established Early, Mid, and Late S-phase DNA regions. ", quant_point_alt, "Bar heights are condition means. ", quant_error_alt),
+      y_label = "% EdU positive",
+      small_legend_keys = TRUE,
+      hide_single_category_x_tick = FALSE,
+      hide_x_title = FALSE,
+      plot = report$positivity$panels$early_mid_late_s
+    ),
+    list(
+      title = "Regional S-phase EdU",
+      detail = "Established unweighted mean of technical-acquisition background-subtracted medians within each biological replicate and established S-phase region, relative to its configured matched reference",
+      alt = paste0("EdU intensity within the established Early, Mid, and Late S-phase regions, relative to each biological replicate's configured matched reference. ", quant_point_alt, "Horizontal marks are condition means. ", quant_error_alt),
+      y_label = "Relative EdU level",
+      small_legend_keys = FALSE,
+      hide_single_category_x_tick = FALSE,
+      hide_x_title = FALSE,
+      plot = report$intensity$panels$early_mid_late_s
+    )
+  )
+)
+quantitation_cards <- unlist(quantitation_rows, recursive = FALSE)
+quantitation_row_categories <- c(1L, 3L)
+quantitation_card_ids <- facs_report_card_ids(
+  "quantitation-card", length(quantitation_cards)
+)
+quantitation_condition_count <- length(unique(as.character(
+  analysis$sample_manifest$condition
+)))
+quantitation_legend <- facs_report_quantitation_legend_layout(
+  quantitation_condition_count
+)
+card_index <- 0L
+for (row_index in seq_along(quantitation_rows)) {
+  row <- quantitation_rows[[row_index]]
+  card_width <- facs_report_quantitation_card_width(
+    quantitation_condition_count,
+    quantitation_row_categories[[row_index]]
+  )
+  plot_width <- facs_report_quantitation_plot_width(card_width)
+  row_layout <- facs_report_quantitation_row_layout(
+    length(row), card_width
+  )
+  cat(sprintf(
+    '::: {.overview-grid .quantitation-row style="--panel-min: %.0fpx; --panel-max: %.0fpx;"}\n',
+    row_layout$min_panel_width, row_layout$maximum_width
+  ))
+  for (card in row) {
+    card_index <- card_index + 1L
+    caption_id <- quantitation_card_ids[[card_index]]
+    cat('::: {.overview-card role="group" aria-labelledby="', caption_id, '"}\n', sep = "")
+    compact_plot <- card$plot +
+      ggplot2::labs(
+        title = NULL, subtitle = NULL, caption = NULL, y = card$y_label,
+        fill = NULL, colour = NULL
+      ) +
+      ggplot2::theme(
+        legend.position = "bottom", legend.box = "vertical",
+        legend.box.just = "left"
+      ) +
+      facs_report_compact_typography(
+        title_size = 8, secondary_size = 7.5, legend_size = 7
+      ) +
+      ggplot2::theme(legend.title = ggplot2::element_blank()) +
+      ggplot2::guides(
+        fill = ggplot2::guide_legend(
+          title = NULL, ncol = quantitation_legend$columns, byrow = TRUE
+        ),
+        colour = ggplot2::guide_legend(
+          title = NULL, ncol = quantitation_legend$columns, byrow = TRUE
+        )
+      )
+    if (isTRUE(card$small_legend_keys)) {
+      compact_plot <- compact_plot +
+        facs_report_compact_legend_key_theme(0.28)
+    }
+    if (isTRUE(card$hide_single_category_x_tick)) {
+      compact_plot <- compact_plot + ggplot2::theme(
+        axis.text.x = ggplot2::element_blank(),
+        axis.ticks.x = ggplot2::element_blank()
+      )
+    }
+    if (isTRUE(card$hide_x_title)) {
+      compact_plot <- compact_plot + ggplot2::theme(
+        axis.title.x = ggplot2::element_blank()
+      )
+    }
+    cat(facs_report_knit_plot(
+      compact_plot,
+      width = plot_width, height = quantitation_legend$figure_height,
+      envir = environment(), dpi = 192L,
+      fig_alt = card$alt
+    ), sep = "\n")
+    cat('<h4 id="', caption_id, '">',
+        facs_report_heading_label(card$title), '</h4>\n', sep = "")
+    cat('<p class="sample-caption">',
+        facs_report_heading_label(card$detail), '</p>\n', sep = "")
+    cat(':::\n')
+  }
+  cat(':::\n')
+}
+```
+
+## Experiment overview
+
+::: {.report-card}
+This report follows the configured sample order and uses the established
+FlowJo-derived **Single Cells**, **G1**, and **EdU Positive** populations. It
+does not redraw gates or recalculate phase boundaries. The opening galleries
+provide rapid orientation; use this experiment summary and the pre-results QC
+status before interpreting the detailed results.
+:::
+
+```{r}
+#| label: overview-summary
+#| results: asis
+cat(facs_report_compact_table(overview$summary))
+```
+
+### Samples and replicate structure
+
+```{r}
+#| label: overview-samples
+#| results: asis
+cat(facs_report_compact_table(overview$samples))
+```
+
+## Every-sample DNA-versus-EdU plots
+
+Each panel represents one named acquisition. Color encodes local event density,
+not EdU amount. The y-axis uses the established background-subtracted signal
+plus a display-only, per-sample offset so it can be shown on the configured
+scale; the offset is never used for positivity or quantitative medians.
+
+```{r}
+#| label: every-sample-panels
+#| results: asis
+#| fig-cap: "DNA content versus EdU for every configured acquisition. Panel titles and subtitles preserve the sample, condition, biological replicate, and technical-acquisition identity."
+for (prefix in names(report$panels)) {
+  cat("\n\n<h3>", facs_report_heading_label(prefix), "</h3>\n\n", sep = "")
+  print(report$panels[[prefix]])
+}
+```
+
+## S-phase views
+
+Early, Mid, and Late S use the established DNA regions and their established
+regional denominators. These categories are shown separately to avoid implying
+that their denominator is the same as the inclusive 2N–4N result.
+
+```{r}
+#| label: s-phase-positivity
+#| fig-cap: "EdU-positive percentage within each established S-phase DNA region. Points are biological replicates; bars are condition means."
+print(report$positivity$panels$early_mid_late_s)
 ```
 
 ## EdU-positive percentages
 
-The 2N–4N panel uses all positivity-eligible events with DNA content from 2N
-through 4N, inclusive, as its denominator. The regional panel uses the
-established canonical Early/Mid/Late-S denominators; it is therefore reported
-separately rather than labeled “All S”.
+The 2N–4N result uses all positivity-eligible events with DNA content from 2N
+through 4N, inclusive, as its denominator. It is an absolute percentage and is
+not reference-normalized.
 
 ```{r}
+#| label: two-to-four-n-positivity
+#| fig-cap: "Computed EdU-positive events as a percentage of positivity-eligible Single Cell events in the inclusive 2N–4N DNA interval."
 print(report$positivity$panels$two_to_four_n)
-print(report$positivity$panels$early_mid_late_s)
 ```
 
-The positivity source tables are retained in the completed analysis artifact
-and are intentionally not printed in this reader-facing report.
-
-## EdU-positive intensity
+## Background-subtracted EdU measurements
 
 These figures use only the completed canonical background-subtracted EdU
 intensity tables. Within each biological replicate, each value is divided by
-the explicitly configured matched Untreated value; Untreated is therefore 1.
+the explicitly configured matched reference value; that reference is therefore 1.
 They do not re-fit background, re-call positivity, or change any event-level
 value. The percentage figures above remain absolute percentages.
 
-When a completed background-subtracted Untreated median is nonpositive or a
-canonical median is nonfinite, its reference-relative value is shown as
+When a completed background-subtracted matched-reference median is nonpositive
+or a canonical median is nonfinite, its reference-relative value is shown as
 unavailable rather than replaced by a direct, raw, or display-offset value.
 
 ```{r}
+#| label: positive-intensity-overall
+#| fig-cap: "Median background-subtracted EdU among all computed EdU-positive eligible cells, relative to the matched configured reference within each biological replicate."
 print(report$intensity$panels$all_computed_positive)
+```
+
+```{r}
+#| label: positive-intensity-regional
+#| fig-cap: "Median background-subtracted EdU among computed EdU-positive eligible cells in each established S-phase region, relative to the matched configured reference."
 print(report$intensity$panels$early_mid_late_s)
 ```
 
-The intensity source tables are retained in the completed analysis artifact
-and are intentionally not printed in this reader-facing report.
+## Methods
 
-## Display provenance
+- **Population inputs:** configured FlowJo Single Cells, G1, and EdU Positive
+  exports. The report does not redefine these gates.
+- **DNA coordinate:** each acquisition's G1-derived anchor, calculated using
+  the configured anchor method, is mapped to 2N; displayed 4N is twice that
+  value.
+- **EdU correction:** an independent EdU-negative baseline slope is fitted for
+  each acquisition and combined with that acquisition's G1-derived anchor using
+  the configured anchor method to form that acquisition's baseline, which is
+  subtracted. The event plots add a display-only offset; quantitative medians
+  use unoffset background-subtracted values.
+- **Percentages:** each percentage retains its named canonical numerator and
+  denominator. The 2N–4N interval is inclusive; regional S-phase denominators
+  remain separate.
+- **Replicates:** technical acquisitions are combined by the established
+  unweighted mean within biological replicate. Plot points represent biological
+  replicates; condition marks or bars summarize them using the configured error
+  display.
+- **Reference-relative intensity:** canonical biological-replicate medians are
+  divided by the explicitly configured matched reference. Invalid denominators
+  remain unavailable rather than being replaced.
 
-Display-offset, panel-QC, and provenance records remain in the completed
-analysis artifact for audit and are not printed here as source tables.
+## Provenance
 
-## Software used
+### Share-ready provenance
+
+This summary uses file names and configured identities only; it intentionally
+omits directory paths.
+
+```{r}
+#| label: share-provenance
+#| results: asis
+share_inputs <- unique(data.frame(
+  `Input file` = basename(as.character(overview$inputs$path)),
+  Population = as.character(overview$inputs$population),
+  check.names = FALSE, stringsAsFactors = FALSE
+))
+share_summary <- data.frame(
+  Item = c("Configuration", "Acquisitions", "Biological replicates", "Conditions", "Input files represented"),
+  Value = c(
+    overview$summary$value[overview$summary$item == "Configuration"],
+    nrow(analysis$sample_manifest), length(unique(analysis$sample_manifest$replicate_index)),
+    length(unique(analysis$sample_manifest$condition)), nrow(share_inputs)
+  ), stringsAsFactors = FALSE
+)
+cat(facs_report_compact_table(share_summary))
+cat("\n\n<details><summary>Named input files (paths omitted)</summary>\n\n")
+cat(facs_report_compact_table(share_inputs))
+cat("\n\n</details>")
+```
+
+```{r}
+#| label: provenance
+#| results: asis
+if (isTRUE(params$show_audit_tables)) {
+  cat("**Path disclosure enabled:** full validated input paths are shown because `show_audit_tables: true` was explicitly requested. Review the report before sharing it.\n\n")
+  cat("### Display-offset audit\n\n")
+  cat(facs_report_compact_table(report$display_offset_qc))
+  cat("\n\n### Panel audit\n\n")
+  cat(facs_report_compact_table(report$panel_qc))
+  cat("\n\n### Named input files\n\n")
+  cat(facs_report_compact_table(overview$inputs))
+} else {
+  cat("Detailed audit tables are hidden by report configuration; they remain in the completed analysis artifact.")
+}
+```
+
+### Software used
 
 This report was rendered with Quarto. The versions below identify the analysis
 and report-rendering software used for this report.
