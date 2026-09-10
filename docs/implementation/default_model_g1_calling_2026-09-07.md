@@ -3,7 +3,11 @@
 **Status:** superseded for G1 on 2026-09-08 by
 `model_only_edu_report_2026-09-08.md`. The architecture remains current, but
 the DNA-projected G1 identity and threshold below were replaced after the
-owner's visual review.
+owner's visual review. `DNA_PROJECTED_G1_CLUSTER001` is retained only as an
+audited historical artifact. The owner judged its G1 calls to align poorly
+with the apparent 2N population in the eight Figure 6 acquisitions; it must not
+be used operationally without replacement or a new, explicitly reviewed
+validation.
 
 ## Architecture decision
 

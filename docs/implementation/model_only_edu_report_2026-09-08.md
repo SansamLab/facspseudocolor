@@ -74,3 +74,14 @@ SHA-256 `7addba1ed8e7ad2c5f304323eac9b2c5b09d9f45ccf46e1409d1b54f9069acb8`.
 ## Scientific interpretation boundary
 
 The composed model pipeline changes the downstream parent distribution relative to the expert-reference parents used during model development. These results do not establish biological ground truth, production performance, or broad generalizability. No sample mapping, exclusion, normalization, statistical method, or biological claim was changed. The channel-role contract was extended only with the documented `FSC-H` and `SSC-H` inputs required by the frozen EdU-G1 model.
+
+## Superseded DNA-projected G1 model
+
+`DNA_PROJECTED_G1_CLUSTER001` remains in the portable export to preserve the
+original audited package and its provenance. It is not the G1 model selected by
+this workflow. Following visual review of the eight Figure 6 acquisitions, the
+scientific owner judged its G1 calls to align poorly with the apparent 2N
+population in this application. It is therefore superseded and must not be
+returned to active use without replacement or a new, explicitly reviewed
+validation. The active G1 model remains the documented EdU-specific model and
+threshold identified above.
