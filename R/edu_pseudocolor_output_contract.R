@@ -596,8 +596,8 @@ edu_intensity_plot <- function(
 
 # Derive a report-only fold value from the retained biological-replicate
 # intensity table.  This intentionally happens after the established
-# acquisition-to-biological-replicate averaging, so each configured Untreated
-# sample is the within-biological-replicate denominator.  It neither refits a
+# acquisition-to-biological-replicate averaging, so each configured matched
+# reference sample is the within-biological-replicate denominator. It neither refits a
 # background model nor changes any canonical quantitative table.
 edu_reference_relative_intensity <- function(
     points, value_col, manifest, category_col = NULL
@@ -743,12 +743,12 @@ edu_build_intensity_report <- function(analysis) {
       all_computed_positive = edu_intensity_plot(
         overall_relative, "reference_relative_intensity", "population_label",
         "All computed EdU-positive", "Population",
-        "Median background-subtracted EdU fluorescence\n(relative to matched Untreated)", analysis
+        "Median background-subtracted EdU fluorescence\n(relative to configured matched reference)", analysis
       ),
       early_mid_late_s = edu_intensity_plot(
         regional_relative, "reference_relative_intensity", "phase_label",
         c("Early S", "Mid S", "Late S"), "S-phase region",
-        "Median background-subtracted EdU fluorescence\n(relative to matched Untreated)", analysis
+        "Median background-subtracted EdU fluorescence\n(relative to configured matched reference)", analysis
       )
     ),
     provenance = list(
@@ -756,7 +756,7 @@ edu_build_intensity_report <- function(analysis) {
       regional_source = "canonical_edu_positive_cell_regional_intensity_biological_replicate",
       signal = "background_subtracted",
       aggregation = "unweighted technical-acquisition mean within biological replicate",
-      reference_normalization = "canonical biological-replicate median divided by the explicitly configured matched Untreated reference"
+      reference_normalization = "canonical biological-replicate median divided by the explicitly configured matched reference"
     )
   )
 }
