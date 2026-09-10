@@ -1,7 +1,17 @@
 # All analysis objects used here contain unmistakably SYNTHETIC test-only data.
 
+edu_report_resource <- function(...) {
+  relative <- file.path(...)
+  installed <- system.file("quarto", relative, package = "facspseudocolor")
+  if (nzchar(installed)) return(installed)
+  source_path <- testthat::test_path("..", "..", "inst", "quarto", relative)
+  if (file.exists(source_path)) return(source_path)
+  stop("Required installed or source-tree report resource is unavailable: ",
+       relative, call. = FALSE)
+}
+
 sys.source(
-  testthat::test_path("..", "..", "inst", "quarto", "_report-setup.R"),
+  edu_report_resource("_report-setup.R"),
   envir = environment()
 )
 
@@ -50,10 +60,7 @@ synthetic_edu_report_analysis <- function() {
 }
 
 test_that("standard EdU report preserves the reader-facing section contract", {
-  path <- system.file(
-    "quarto", "facs_edu_pseudocolor_output_contract.qmd",
-    package = "facspseudocolor"
-  )
+  path <- edu_report_resource("facs_edu_pseudocolor_output_contract.qmd")
   text <- readLines(path, warn = FALSE)
   headings <- trimws(text[grepl("^## ", text)])
   expect_identical(headings, c(
@@ -290,12 +297,8 @@ test_that("compact quantitation typography enforces readable reduced sizes", {
   expect_error(facs_report_compact_typography(8, NA_real_), "at least 8 pt")
   expect_error(facs_report_compact_typography(8, 7.5, 6.9), "at least 7 pt")
 
-  source <- readLines(
-    testthat::test_path("..", "..", "R", "edu_pseudocolor_output_contract.R"),
-    warn = FALSE
-  )
-  expect_true(any(grepl("theme_classic(base_size = 10)", source,
-                        fixed = TRUE)))
+  intensity_plot_body <- paste(deparse(body(edu_intensity_plot)), collapse = "\n")
+  expect_match(intensity_plot_body, "theme_classic\\(base_size = 10\\)")
 })
 
 test_that("compact legend key theme validates and reduces overview keys", {
@@ -724,12 +727,11 @@ test_that("report-generated headings escape markup without changing labels", {
 
 test_that("report plots use Knitr child chunks with explicit dimensions", {
   helper <- readLines(
-    testthat::test_path("..", "..", "inst", "quarto", "_report-setup.R"),
+    edu_report_resource("_report-setup.R"),
     warn = FALSE
   )
   qmd <- readLines(
-    testthat::test_path("..", "..", "inst", "quarto",
-                       "facs_edu_pseudocolor_output_contract.qmd"),
+    edu_report_resource("facs_edu_pseudocolor_output_contract.qmd"),
     warn = FALSE
   )
   expect_true(any(grepl("knitr::knit_child", helper, fixed = TRUE)))
@@ -771,7 +773,7 @@ test_that("report helpers resolve package internals across the sourced-file boun
   report <- build_edu_pseudocolor_output_contract(analysis)
   helper_environment <- new.env(parent = baseenv())
   sys.source(
-    testthat::test_path("..", "..", "inst", "quarto", "_report-setup.R"),
+    edu_report_resource("_report-setup.R"),
     envir = helper_environment
   )
 

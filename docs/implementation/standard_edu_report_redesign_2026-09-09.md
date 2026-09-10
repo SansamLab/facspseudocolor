@@ -1,6 +1,6 @@
 # Standard EdU report redesign implementation record
 
-**Date:** 2026-09-09  
+**Date:** 2026-09-09
 **Verification:** focused report-contract test PASS and corrected real-data
 render PASS; broader package verification remains local execution required
 
@@ -364,6 +364,27 @@ interpretations. Focused structural tests assert the retained heading order,
 the absent sections and chunks, the lack of an orphan Export subsection, and
 that each gallery heading is followed directly by its rendering chunk.
 Verification is **NOT RUN — local execution required**.
+
+### PR 28 macOS CI corrections
+
+The macOS CI log exposed two contract defects. First, intensity provenance had
+been generalized so far that it no longer named the actual configured matched
+reference. The report model now retains the generic calculation description
+and appends the configured reference condition name or names taken from the
+already validated overall intensity rows. It verifies that overall and
+regional rows expose the same nonmissing reference set before recording that
+provenance. No reference is hard-coded, selected, or changed, and intensity
+values and normalization calculations are untouched. The focused synthetic
+contract now expects its arbitrary configured reference, `Reference`.
+
+Second, the new report-contract test assumed a source-checkout path for files
+under `inst/quarto`, which is unavailable in the installed layout used by
+`R CMD check`. A test resource resolver now uses `system.file(..., package =
+"facspseudocolor")` first and falls back to the relative source-tree resource
+only when necessary. All helper sourcing and QMD/helper reads use this resolver;
+the prior R-source literal inspection was replaced by inspection of the loaded
+plot helper body. No absolute path or platform-specific separator is used.
+Verification after these corrections is **NOT RUN — local execution required**.
 
 ### Condition-aware compact quantitation card width
 

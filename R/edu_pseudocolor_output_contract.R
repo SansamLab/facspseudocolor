@@ -733,6 +733,20 @@ edu_build_intensity_report <- function(analysis) {
     regional, "positive_cell_regional_edu_bgsub_median",
     analysis$sample_manifest, category_col = "phase"
   )
+  reference_conditions <- unique(as.character(overall_relative$reference_condition))
+  regional_reference_conditions <- unique(as.character(
+    regional_relative$reference_condition
+  ))
+  if (!length(reference_conditions) || anyNA(reference_conditions) ||
+      any(!nzchar(reference_conditions)) ||
+      anyNA(regional_reference_conditions) ||
+      any(!nzchar(regional_reference_conditions)) ||
+      !setequal(reference_conditions, regional_reference_conditions)) {
+    edu_positivity_report_fail(
+      "invalid_reference_provenance",
+      "validated overall and regional intensity rows must identify the same configured matched reference conditions"
+    )
+  }
   list(
     schema_version = "edu-intensity-report-1.1.0",
     overall_canonical_biological_replicate = overall,
@@ -756,7 +770,10 @@ edu_build_intensity_report <- function(analysis) {
       regional_source = "canonical_edu_positive_cell_regional_intensity_biological_replicate",
       signal = "background_subtracted",
       aggregation = "unweighted technical-acquisition mean within biological replicate",
-      reference_normalization = "canonical biological-replicate median divided by the explicitly configured matched reference"
+      reference_normalization = paste0(
+        "canonical biological-replicate median divided by the explicitly configured matched reference(s): ",
+        paste(reference_conditions, collapse = ", ")
+      )
     )
   )
 }
