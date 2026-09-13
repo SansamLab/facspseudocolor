@@ -1,5 +1,27 @@
 # Configuration reference
 
+## EdU population sources
+
+Use the `gating` block shown below for new EdU configurations. Omitting it
+retains historical FlowJo behavior. Legacy paired `g1_source` and
+`edu_positive_source` fields remain accepted only for backward compatibility.
+Paired `model` values require `g1_model_manifest` and normalize to the
+`documented_edu_g1_v1` profile. The package verifies that profile's model-derived
+Single Cells, G1, and EdU Positive declarations; the immutable eight-acquisition
+Figure 6 mapping; FCS and consumed-snapshot digests; exact panel/channel roles;
+artifact and metadata/configuration hashes; feature scopes; thresholds; row
+counts; containment; and event-identity digests before normalization. The
+default caller reads no workspace and never fits, tunes, or downloads a model.
+The only nonfatal model QC codes are `LOW_EVENT_SUPPORT`,
+`EXTREME_PREDICTED_FRACTION`, and `ZERO_PREDICTED_POSITIVES`; they are surfaced
+in analysis provenance, warnings, and the model-only report without changing a
+threshold. Unknown warnings, mapping/digest/runtime/schema mismatches,
+incomplete identities, unsupported panels, collisions, and containment failures
+stop analysis.
+
+Setting both legacy sources to `flowjo` selects FlowJo compatibility behavior.
+Legacy source fields cannot be mixed with a modern `gating` block.
+
 `read_facs_config()` reads one explicit YAML file, rejects unknown top-level
 keys, applies centralized defaults, and validates the complete structure before
 experimental data are processed. Relative paths are resolved from the YAML
@@ -219,3 +241,17 @@ PyYAML remain pipeline dependencies.
 The generated manifest records `derived_from_reference_sha256` for the external
 validated predictor source; that digest describes the implementation lineage
 and is not presented as a hash of the embedded predictor code.
+
+The separately preserved documented profile is selected as follows:
+
+```yaml
+gating:
+  mode: "model_experimental"
+  profile: "documented_edu_g1_v1"
+  status_label: "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION"
+  manifest: "/absolute/path/to/model-gating-manifest.json"
+```
+
+It validates the provenance-bound documented model operation and its 0.29 G1
+threshold. It does not apply the frozen profile's 0.255 G1 threshold or 35%
+acquisition-relative DNA minimum. The two profiles are intentionally distinct.

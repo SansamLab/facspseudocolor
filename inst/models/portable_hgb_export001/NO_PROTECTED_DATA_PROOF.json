@@ -1,0 +1,25 @@
+{
+  "allowed_files": [
+    "COMPATIBILITY_REPORT.json",
+    "DNA_PROJECTED_G1_CLUSTER001.portable.json",
+    "EDU_POSITIVE_MODEL002.portable.json",
+    "EXPORT_PROVENANCE.json",
+    "SYNTHETIC_EQUIVALENCE_FIXTURES.json",
+    "portable_hgb_predictor.py",
+    "run_portable_selftest.py"
+  ],
+  "claim": "Package contains no protected experimental data",
+  "forbidden_suffixes": [
+    ".csv",
+    ".fcs",
+    ".pickle",
+    ".pkl",
+    ".prism",
+    ".tsv",
+    ".wsp"
+  ],
+  "method": "closed allowlist of seven generated JSON/Python files; recursive regular-file inventory; forbidden experimental/model-pickle suffix rejection",
+  "protected_data_accessed_by_job": false,
+  "runtime_archive_sha256": "9ad409408066d8459ab70084210b80c8b78c070a1411c76d2f1c9a1d4c20c6f8",
+  "source_pickle_packaged": false
+}

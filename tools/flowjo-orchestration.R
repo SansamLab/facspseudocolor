@@ -40,6 +40,73 @@ flowjo_sample_id <- function(sample_ids, fcs) {
   hits[[1]]
 }
 
+prepare_edu_g1_inputs_external <- function(
+    config,
+    frozen_model_caller = "python/apply_frozen_gate_models.py",
+    verbose = TRUE
+) {
+  if (!inherits(config, "facs_config")) {
+    config <- facspseudocolor::validate_facs_config(config)
+  }
+  if (!identical(config$plot_type, "edu")) {
+    stop("G1-source orchestration is available only for EdU configurations.",
+         call. = FALSE)
+  }
+  route <- if (identical(config$gating$mode, "flowjo")) {
+    "flowjo"
+  } else if (identical(config$gating$profile, "documented_edu_g1_v1")) {
+    "documented_edu_g1_v1"
+  } else if (identical(config$gating$profile, "single_g1_edu_frozen_v1")) {
+    "single_g1_edu_frozen_v1"
+  } else {
+    stop("Validated EdU gating profile is unsupported by orchestration.", call. = FALSE)
+  }
+  if (identical(route, "flowjo")) {
+    return(prepare_flowjo_csvs_external(config, verbose = verbose))
+  }
+  flowjo <- config$flowjo
+  if (identical(route, "documented_edu_g1_v1")) {
+    manifest <- path.expand(config$gating$manifest)
+    if (!grepl("^/", manifest)) {
+      config_path <- attr(config, "config_path")
+      if (!is.character(config_path) || length(config_path) != 1L) {
+        stop("Relative documented-profile manifest requires a file-backed config.",
+             call. = FALSE)
+      }
+      manifest <- file.path(dirname(config_path), manifest)
+    }
+    if (!file.exists(manifest)) {
+      stop("Documented model profile requires its existing exported manifest; run the pinned operation separately before analysis.",
+           call. = FALSE)
+    }
+    return(invisible(normalizePath(manifest, mustWork = TRUE)))
+  }
+  if (identical(route, "single_g1_edu_frozen_v1")) {
+    python <- flowjo_or(flowjo$python, Sys.which("python3"))
+    if (!nzchar(python) || !file.exists(python)) {
+      stop("Python interpreter not found: ", python, call. = FALSE)
+    }
+    config_path <- attr(config, "config_path")
+    if (!is.character(config_path) || length(config_path) != 1L ||
+        !file.exists(config_path) || !file.exists(frozen_model_caller)) {
+      stop("Frozen model gating requires its file-backed config and caller.",
+           call. = FALSE)
+    }
+    if (verbose) message("Running immutable frozen-profile EdU population caller")
+    status <- system2(python, c(shQuote(frozen_model_caller), shQuote(config_path)))
+    if (status != 0L) stop("Frozen-profile EdU population calling failed.", call. = FALSE)
+    output_dir <- config$gating$output_dir
+    if (!grepl("^/", output_dir)) {
+      output_dir <- file.path(dirname(config_path), output_dir)
+    }
+    manifest <- file.path(output_dir, "model-gating-manifest.json")
+    if (!file.exists(manifest)) {
+      stop("Frozen-profile model-gating manifest was not created.", call. = FALSE)
+    }
+    return(invisible(normalizePath(manifest, mustWork = TRUE)))
+  }
+}
+
 prepare_flowjo_csvs_external <- function(
     config,
     exporter = "python/export_flowjo_populations.py",

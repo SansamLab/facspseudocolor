@@ -1,0 +1,29 @@
+{
+  "models": [
+    {
+      "iterations": 300,
+      "model_id": "DNA_PROJECTED_G1_CLUSTER001",
+      "path": "DNA_PROJECTED_G1_CLUSTER001.portable.json",
+      "sha256": "7fe256e892adfef6415e3957231bf8f68b7ad401dc909ffd2a801fbde8f4b75d"
+    },
+    {
+      "iterations": 200,
+      "model_id": "EDU_POSITIVE_MODEL002",
+      "path": "EDU_POSITIVE_MODEL002.portable.json",
+      "sha256": "9e6ed466687efe5f7523dea633e9e9244381c0e613c86f0944f861c06047fdf4"
+    }
+  ],
+  "network_used": false,
+  "protected_data_accessed": false,
+  "runtime": {
+    "numpy": "2.2.6",
+    "python": [
+      3,
+      10,
+      12
+    ],
+    "scipy": "1.15.3",
+    "sklearn": "1.7.2"
+  },
+  "status": "exported_pending_equivalence_tests"
+}

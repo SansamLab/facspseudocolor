@@ -14,7 +14,7 @@ reports:
     file: facs_edu_model_gated.qmd
     status: experimental
     package_line: 0.2.x
-    description: Compact report for the explicitly experimental frozen model-gating workflow.
+    description: Compact report supporting the separately validated single_g1_edu_frozen_v1 and documented_edu_g1_v1 experimental model-gating profiles.
   - id: edu_configurator_experimental
     file: facs_configurator.qmd
     status: unfinished

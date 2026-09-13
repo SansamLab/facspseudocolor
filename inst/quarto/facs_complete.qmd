@@ -49,6 +49,13 @@ facs_report_save_artifacts(analysis, bundle, params$output_analysis_rds,
 ## Analysis summary
 
 ```{r}
+if (analysis$config$plot_type == "edu") {
+  cat("**Single Cells / G1 source:** `", analysis$config$g1_source,
+      "`\n\n", sep = "")
+}
+```
+
+```{r}
 analysis
 ```
 

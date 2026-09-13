@@ -1,5 +1,27 @@
 # Migration from the original Quarto workflow
 
+## EdU gating profiles
+
+Configurations without a `gating` block retain the historical FlowJo behavior.
+New configurations should make the choice explicit:
+
+```yaml
+gating:
+  mode: flowjo
+```
+
+Two separately named experimental model profiles are also supported:
+`single_g1_edu_frozen_v1` (thresholds 0.205/0.255/0.385, EdU+ exclusion before
+background fitting, and an acquisition-relative 35% G1 DNA minimum) and
+`documented_edu_g1_v1` (the provenance-bound documented model operation with a
+0.29 G1 threshold). Their thresholds and contracts are never combined.
+
+Legacy paired `g1_source`/`edu_positive_source` fields remain readable for
+backward compatibility. Paired `flowjo` values normalize to FlowJo gating;
+paired `model` values plus `g1_model_manifest` normalize to
+`documented_edu_g1_v1`. Mixing legacy fields with a modern `gating` block is
+rejected.
+
 ## What changed
 
 The reusable analysis is now the `facspseudocolor` R package. The active Quarto

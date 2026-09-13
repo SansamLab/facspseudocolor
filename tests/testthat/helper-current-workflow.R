@@ -53,6 +53,8 @@ minimal_config <- function(plot_type = "edu") {
   )
   if (identical(plot_type, "ph3")) {
     config$ph3_input_profile <- "legacy_count_only_unverified_v1"
+  } else if (identical(plot_type, "edu")) {
+    config$gating <- list(mode = "flowjo")
   }
   config
 }

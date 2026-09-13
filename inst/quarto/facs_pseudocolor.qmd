@@ -49,6 +49,9 @@ bundle$pseudocolor
 ## Normalization and provenance
 
 ```{r}
+if (analysis$config$plot_type == "edu") {
+  cat("Single Cells / G1 source: ", analysis$config$g1_source, "\n", sep = "")
+}
 analysis$models
 analysis$warnings
 analysis$provenance

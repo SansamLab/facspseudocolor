@@ -1,0 +1,19 @@
+{
+  "configuration_sha256": "f1a0e6e5327008a1da06ac912a2c25b95b060b579ea3bdf47540b7ca0dafbd88",
+  "model_id": "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4",
+  "model_sha256": "ea1ccd90328674fb8cc1b6802a66e194f49b3f9f9c1e03c6577ad01fe880c96e",
+  "network_used": false,
+  "protected_data_accessed": false,
+  "runtime": {
+    "numpy": "2.2.6",
+    "python": [
+      3,
+      10,
+      12
+    ],
+    "scipy": "1.15.3",
+    "sklearn": "1.7.2"
+  },
+  "source_pickle_sha256": "1af119ba5b64c845ec99430667b202e50cf7d2fe66b53648eae25a086b833182",
+  "status": "exported_pending_equivalence_tests"
+}

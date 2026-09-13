@@ -79,15 +79,22 @@ if (!is.null(analysis$config$report)) {
   params$embed_pseudocolor_pdf_downloads <- report_config$embed_pseudocolor_pdf_downloads
 }
 is_model_derived <- identical(analysis$config$gating$mode, "model_experimental")
+model_profile <- if (is_model_derived) analysis$config$gating$profile else NULL
+is_frozen_profile <- identical(model_profile, "single_g1_edu_frozen_v1")
+is_documented_profile <- identical(model_profile, "documented_edu_g1_v1")
 model_gate_inputs <- NULL
 model_all_events <- NULL
 flowjo_all_events <- NULL
 if (is_model_derived) {
-  if (is.null(params$model_gate_manifest)) {
+  model_manifest_path <- params$model_gate_manifest
+  if (is.null(model_manifest_path) && is_documented_profile) {
+    model_manifest_path <- analysis$config$gating$manifest
+  }
+  if (is.null(model_manifest_path)) {
     stop("`model_gate_manifest` is required for model-derived gating.")
   }
   model_gate_inputs <- validate_edu_model_gate_manifest(
-    analysis, params$model_gate_manifest
+    analysis, model_manifest_path
   )
   model_all_events <- attr(model_gate_inputs, "all_events")
 } else if (!is.null(params$model_gate_manifest)) {
@@ -204,7 +211,10 @@ if (nrow(pre_results_findings)) {
 #| label: gating-status
 #| results: asis
 if (is_model_derived) {
-  cat('<div class="report-card report-alert"><strong>EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.</strong> Single Cells, G1, and EdU-positive populations were called from raw FCS events with immutable frozen models. No FlowJo workspace or FlowJo gate was used. These outputs do not establish biological ground truth, production performance, or broad generalizability.</div>\n')
+  cat('<div class="report-card report-alert"><strong>EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.</strong> Single Cells, G1, and EdU-positive populations use the explicitly configured <code>',
+      facs_report_html_escape(model_profile),
+      '</code> profile. No FlowJo gate is substituted. These outputs do not establish biological ground truth, production performance, or broad generalizability.</div>\n',
+      sep = '')
 } else {
   cat('<div class="report-card report-alert"><strong>FlowJo workspace gates re-evaluated by FlowKit.</strong> The saved FlowJo gate definitions supply population membership, but the export is not necessarily event-identical to a native FlowJo CSV export. Review the export count audit and provenance before treating it as an exact FlowJo reproduction.</div>\n')
 }
@@ -631,13 +641,15 @@ for (row_index in seq_along(quantitation_rows)) {
 }
 
 cat('<h3>Gating by sample</h3>\n')
-if (is_model_derived || !is.null(flowjo_all_events)) {
-  if (is_model_derived) {
+if (!is.null(model_all_events) || !is.null(flowjo_all_events)) {
+  if (is_frozen_profile) {
     cat('<p>Each gating card shows selected Single Cells shaded over all acquisition events on DNA-H versus DNA-A, followed by G1 and EdU+ shaded over all retained Single Cells on raw EdU versus DNA. For model gating, EdU+ cells are excluded from G1, then the final G1 population requires raw DNA-A to be at least 35% of the median positive DNA-A among preliminary G1 candidates. Both steps occur before G1-based normalization and background calculation. Raw EdU is displayed on a log10 scale; nonpositive raw values cannot be displayed on that axis but remain unchanged in the analysis.</p>\n')
+  } else if (is_documented_profile) {
+    cat('<p>Each gating card displays the provenance-validated documented-model populations. This profile retains its own approved G1 definition and does not apply the separate 0.255/35% frozen-profile rule.</p>\n')
   } else {
     cat('<p>Each gating card shows FlowJo-selected Single Cells shaded over all acquisition events on DNA-H versus DNA-A, followed by FlowJo G1 and EdU+ populations shaded over all retained Single Cells on raw EdU versus DNA. Raw EdU is displayed on a log10 scale; nonpositive raw values cannot be displayed on that axis but remain unchanged in the analysis.</p>\n')
   }
-  if (is_model_derived) {
+  if (!is.null(model_all_events)) {
     cat('<p>These membership overlays use the provenance-validated all-events export; they do not reconstruct a geometric boundary for the multifeature frozen models.</p>\n')
   } else {
     cat('<p>The Single Cells panel uses explicit raw all-events coordinates for display and the saved FlowJo membership exported for that acquisition. It does not reconstruct a new Single Cells gate.</p>\n')
@@ -652,7 +664,7 @@ if (is_model_derived || !is.null(flowjo_all_events)) {
 cat('<p>For display size only, each layer is deterministically limited to 3,000 evenly spaced retained rows.</p>\n')
 gating_cards <- facs_report_edu_gating_cards(
   analysis,
-  all_events = if (is_model_derived) model_all_events else flowjo_all_events,
+  all_events = if (!is.null(model_all_events)) model_all_events else flowjo_all_events,
   dna_height_channel = if (is_model_derived) NULL else
     params$flowjo_dna_height_channel,
   display_offsets = stats::setNames(
@@ -824,7 +836,7 @@ cat(facs_report_compact_table(overview$samples))
 #| label: population-method
 #| results: asis
 if (is_model_derived) {
-  cat("- **Population inputs:** Single Cells, G1, and EdU Positive CSVs derived directly from the configured raw FCS acquisitions using the provenance-bound frozen model profile. The report validates the model-gating manifest and does not redefine or substitute these calls.\n")
+  cat("- **Population inputs:** Single Cells, G1, and EdU Positive CSVs from the explicitly selected `", model_profile, "` model profile. The report validates that profile's manifest and does not redefine, combine, or substitute calls from the other model profile.\n", sep = "")
 } else {
   cat("- **Population inputs:** configured FlowJo Single Cells, G1, and EdU Positive exports. The report does not redefine these gates.\n")
 }

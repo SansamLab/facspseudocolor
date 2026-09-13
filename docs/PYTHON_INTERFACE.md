@@ -221,3 +221,19 @@ The optional orchestration layer checks Python dependencies, workspace paths,
 population exports, detector columns, and FCS sample matching. The R package
 then independently validates expected filenames, required columns, numeric
 types, event counts, references, and configuration structure before analysis.
+
+For EdU, source `tools/flowjo-orchestration.R` and call
+`prepare_edu_g1_inputs_external(config)`. The documented experimental profile
+reuses the existing manifest named by `gating.manifest`; regeneration is a
+separate, explicit invocation of `python/apply_model_only_edu_models.py` with
+its pinned operation configuration. That operation reads the exact eight digest-bound
+Figure 6 FCS acquisitions without opening a workspace and calls Single Cells,
+G1, and EdU Positive with three distinct frozen models. The versioned approved
+mapping fixes every acquisition identity, FCS basename and digest, functional
+panel, and channel role. G1 features are constructed within predicted Single
+Cells; EdU features are constructed over the full acquisition and then scored
+only within that same parent. The separate `single_g1_edu_frozen_v1` profile
+routes to `python/apply_frozen_gate_models.py`; its distinct thresholds and G1
+DNA-minimum contract are not combined with the documented profile. Explicit
+FlowJo gating routes to the prior exporter. This remains outside the installed
+analysis path so ordinary analysis never launches Python.

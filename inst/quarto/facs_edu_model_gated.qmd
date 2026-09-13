@@ -10,23 +10,26 @@ params: { config: null, analysis_rds: null, model_gate_manifest: null }
 #| include: false
 library(facspseudocolor)
 source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
-if (is.null(params$model_gate_manifest)) stop("`model_gate_manifest` is required.")
 analysis <- facs_report_input(params$config, params$analysis_rds)
-model_gate_inputs <- validate_edu_model_gate_manifest(analysis, params$model_gate_manifest)
+model_profile <- analysis$config$gating$profile
+model_manifest_path <- params$model_gate_manifest
+if (is.null(model_manifest_path) && identical(model_profile, "documented_edu_g1_v1")) {
+  model_manifest_path <- analysis$config$gating$manifest
+}
+if (is.null(model_manifest_path)) stop("`model_gate_manifest` is required.")
+model_gate_inputs <- validate_edu_model_gate_manifest(analysis, model_manifest_path)
 report <- build_edu_pseudocolor_output_contract(analysis)
 ```
 
 > **EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.** Single Cells, G1, and EdU+
-> were called from raw FCS events with immutable frozen models. No FlowJo
-> workspace or FlowJo gate was used. This report
+> use the explicitly configured model profile `r model_profile`. No FlowJo gate
+> is substituted. This report
 > does not establish biological ground truth, production performance, or broad
 > generalizability.
 
-The EdU classifier is the validated `PORTABLE_HGB_V1` export of
-`EDU_POSITIVE_MODEL002`. It preserves the frozen model, feature order, and
-calls without pickle deserialization or a scikit-learn/Python-version dependency.
-The manifest's `derived_from_reference_sha256` records the validated predictor
-source used to derive the embedded traversal; it is not an embedded-code digest.
+The report validates the selected profile's immutable model identities,
+thresholds, feature order, event identities, and provenance. It does not mix
+artifacts or thresholds from the other available model profile.
 
 ## Every-sample DNA-versus-EdU panels
 
@@ -36,8 +39,9 @@ for (prefix in names(report$panels)) print(report$panels[[prefix]])
 
 ## EdU-positive percentages
 
-EdU positivity is a model call at the frozen 0.385 threshold, intersected by
-direct event identity with each model-derived Single Cells population.
+EdU positivity uses the selected profile's approved classifier and is
+intersected by direct event identity with each model-derived Single Cells
+population.
 
 ```{r}
 print(report$positivity$panels$two_to_four_n)
@@ -58,21 +62,12 @@ print(model_gate_inputs)
 print(attr(model_gate_inputs, "model_artifacts"))
 ```
 
-The G1 model was developed within expert-reference Single Cells. Applying it
-after model-derived Single Cells changes its parent distribution; prior G1
-validation metrics therefore do not validate this composed use. The older G1
-rule also omits the second-marker axes used by the audited expert G1 gates.
-For EdU experiments, model-called EdU+ events are excluded from the final G1
-population before that G1 table is used for normalization or background fitting.
-The operation also requires raw DNA-A to be at least 35% of the median positive
-DNA-A among preliminary EdU-negative G1 candidates. This acquisition-specific
-minimum adapts to detector scale and is recorded in the gating manifest.
-
-The EdU model was validated only within expert-gated Single Cells. Its use here
-within model-derived Single Cells changes the parent distribution and is an
-explicitly approved experimental extension; its earlier validation metrics do
-not validate this composed use. Frozen thresholds are Single Cells 0.205, G1
-0.255, and EdU+ 0.385. These outputs must not be represented as biological
+Both profiles are experimental and retain their separately approved G1
+definitions. `single_g1_edu_frozen_v1` excludes model-called EdU+ events before
+background calculation and applies its acquisition-relative DNA minimum;
+`documented_edu_g1_v1` retains the documented G1 model and 0.29 threshold.
+These definitions are not combined. Both operate outside their original
+expert-gated parent distributions and must not be represented as biological
 ground truth or production gating.
 
 ## Software used

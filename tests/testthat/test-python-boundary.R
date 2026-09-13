@@ -41,6 +41,9 @@ test_that("repository orchestration prohibits sequential identity fallback", {
     expect_match(text, '"--verify-operation"', fixed = TRUE)
     expect_match(text, "Finalized manifest or consumed population artifact verification failed",
                  fixed = TRUE)
+    expect_match(text, "prepare_edu_g1_inputs_external", fixed = TRUE)
+    expect_match(text, "Documented model profile requires its existing exported manifest",
+                 fixed = TRUE)
   } else {
     expect_false(file.exists(orchestration_path))
     expect_identical(
@@ -48,4 +51,71 @@ test_that("repository orchestration prohibits sequential identity fallback", {
       ""
     )
   }
+})
+
+test_that("repository orchestration dispatches validated FlowJo configs canonically", {
+  orchestration_path <- test_path("..", "..", "tools", "flowjo-orchestration.R")
+  skip_if_not(file.exists(orchestration_path))
+  orchestration <- new.env(parent = globalenv())
+  sys.source(orchestration_path, envir = orchestration)
+  called <- FALSE
+  orchestration$prepare_flowjo_csvs_external <- function(config, verbose = TRUE) {
+    called <<- TRUE
+    invisible("flowjo")
+  }
+  config <- structure(list(
+    plot_type = "edu", gating = list(mode = "flowjo")
+  ), class = c("facs_config", "list"))
+  expect_identical(
+    orchestration$prepare_edu_g1_inputs_external(config, verbose = FALSE),
+    "flowjo"
+  )
+  expect_true(called)
+})
+
+test_that("repository orchestration reuses a documented-profile manifest", {
+  orchestration_path <- test_path("..", "..", "tools", "flowjo-orchestration.R")
+  skip_if_not(file.exists(orchestration_path))
+  orchestration <- new.env(parent = globalenv())
+  sys.source(orchestration_path, envir = orchestration)
+  manifest <- tempfile(fileext = ".json")
+  writeLines("{}", manifest)
+  config <- structure(list(
+    plot_type = "edu",
+    gating = list(mode = "model_experimental", profile = "documented_edu_g1_v1",
+                  manifest = manifest)
+  ), class = c("facs_config", "list"))
+  expect_identical(
+    orchestration$prepare_edu_g1_inputs_external(config, verbose = FALSE),
+    normalizePath(manifest)
+  )
+})
+
+test_that("repository orchestration invokes the frozen profile caller", {
+  orchestration_path <- test_path("..", "..", "tools", "flowjo-orchestration.R")
+  skip_if_not(file.exists(orchestration_path))
+  orchestration <- new.env(parent = globalenv())
+  sys.source(orchestration_path, envir = orchestration)
+  output_dir <- tempfile("frozen-output-")
+  dir.create(output_dir)
+  config_path <- tempfile(fileext = ".yml")
+  caller <- tempfile(fileext = ".py")
+  writeLines("plot_type: edu", config_path)
+  writeLines("# test caller", caller)
+  orchestration$system2 <- function(command, args) {
+    writeLines("{}", file.path(output_dir, "model-gating-manifest.json"))
+    0L
+  }
+  config <- structure(list(
+    plot_type = "edu", flowjo = list(python = Sys.which("python3")),
+    gating = list(mode = "model_experimental", profile = "single_g1_edu_frozen_v1",
+                  output_dir = output_dir)
+  ), class = c("facs_config", "list"))
+  attr(config, "config_path") <- config_path
+  expect_identical(
+    orchestration$prepare_edu_g1_inputs_external(
+      config, frozen_model_caller = caller, verbose = FALSE
+    ),
+    normalizePath(file.path(output_dir, "model-gating-manifest.json"))
+  )
 })

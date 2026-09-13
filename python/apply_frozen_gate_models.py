@@ -230,7 +230,7 @@ def validate_frozen_artifact_config(artifacts: Any) -> None:
             raise ValueError(f"{target} artifact must contain exact frozen provenance fields")
         if any(artifacts[target][field] != expected
                for field, expected in FROZEN_RULE_HASHES[target].items()):
-            raise ValueError(f"{target} artifact hashes differ from the frozen profile")
+            raise ValueError(f"{target} artifact differs from the frozen profile")
     edu = artifacts["edu_positive"]
     if not isinstance(edu, dict) or set(edu) != {"path", "byte_sha256"}:
         raise ValueError("edu_positive artifact must contain exact portable provenance fields")

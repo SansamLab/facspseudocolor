@@ -1,0 +1,17 @@
+{
+  "absolute_tolerance": 1e-12,
+  "calls_exact": true,
+  "decision_threshold": "0x1.28f5c28f5c28fp-2",
+  "max_abs_error": "0x1.0000000000000p-53",
+  "max_rel_error": "0x1.7e2751bbc4996p-52",
+  "model_id": "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4",
+  "protected_data_accessed": false,
+  "rejection_tests_passed": 5,
+  "relative_tolerance": 1e-12,
+  "repeated_original_exact": true,
+  "repeated_portable_exact": true,
+  "rows": 860,
+  "seed": 20260908,
+  "status": "passed",
+  "threshold_operator": ">="
+}

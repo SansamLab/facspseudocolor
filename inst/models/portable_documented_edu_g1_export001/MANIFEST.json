@@ -1,0 +1,43 @@
+{
+  "files": [
+    {
+      "bytes": 522,
+      "path": "COMPATIBILITY_REPORT.json",
+      "sha256": "336a7ee3ec3516b6bdd2af1efd11e6300669a68bb335d7b2460096045f4db64f"
+    },
+    {
+      "bytes": 4259830,
+      "path": "EDU_DOCUMENTED_EDU_G1_RUN001_EDUPANEL001_GENERIC_FL2_FL4.portable.json",
+      "sha256": "ea1ccd90328674fb8cc1b6802a66e194f49b3f9f9c1e03c6577ad01fe880c96e"
+    },
+    {
+      "bytes": 601,
+      "path": "EXPORT_PROVENANCE.json",
+      "sha256": "31d0e75b8d43da8a432a2e10580e7e2b620fcc9124288435822689bf019240a5"
+    },
+    {
+      "bytes": 630,
+      "path": "NO_PROTECTED_DATA_PROOF.json",
+      "sha256": "d81148613b5b31225537e16dd5fb74d70c4225df09203e111e8249fa382d8edb"
+    },
+    {
+      "bytes": 246182,
+      "path": "SYNTHETIC_EQUIVALENCE_FIXTURES.json",
+      "sha256": "596125818978609b43c20fefe7a95acd739a01d7487b461074fde1b883a78793"
+    },
+    {
+      "bytes": 6018,
+      "path": "portable_hgb_predictor.py",
+      "sha256": "2edf1bbd529159e8752d01731e87f19efbc63b514409b1d246d7a4ffc266a2c3"
+    },
+    {
+      "bytes": 1392,
+      "path": "run_portable_documented_edu_g1_selftest.py",
+      "sha256": "8d4c0ff2a93add4302e33dcd9be2d4144bc3849dc12a70a785c333653104c37d"
+    }
+  ],
+  "portable_model_format": "PORTABLE_HGB_V1",
+  "protected_data_present": false,
+  "schema": "PORTABLE_HGB_PACKAGE_MANIFEST_V1",
+  "status": "complete"
+}

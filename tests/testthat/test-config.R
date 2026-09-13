@@ -50,6 +50,31 @@ test_that("experimental model gating is explicit and has no FlowJo fallback", {
   expect_error(validate_facs_config(config), "no fallback input")
 })
 
+test_that("legacy EdU source fields map to explicit profiles", {
+  config <- minimal_config("edu")
+  config$gating <- NULL
+  config$g1_source <- "model"
+  config$edu_positive_source <- "model"
+  config$g1_model_manifest <- "SYNTHETIC/model-gating-manifest.json"
+  documented <- validate_facs_config(config)
+  expect_identical(documented$gating$profile, "documented_edu_g1_v1")
+  expect_identical(documented$gating$manifest,
+                   "SYNTHETIC/model-gating-manifest.json")
+  expect_null(documented$g1_source)
+
+  mixed <- config
+  mixed$gating <- list(mode = "flowjo")
+  expect_error(validate_facs_config(mixed), "Do not mix legacy")
+
+  config$g1_source <- "flowjo"
+  config$edu_positive_source <- "flowjo"
+  expect_error(validate_facs_config(config), "must not declare")
+  config$g1_model_manifest <- NULL
+  expect_identical(validate_facs_config(config)$gating, list(mode = "flowjo"))
+  config$edu_positive_source <- "model"
+  expect_error(validate_facs_config(config), "same `model` or `flowjo`")
+})
+
 test_that("pseudocolor signal and offset settings are validated", {
   config <- minimal_config("edu")
   config$pseudocolor_signal <- "background_subtracted"

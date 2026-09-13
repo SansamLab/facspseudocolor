@@ -6,6 +6,7 @@ facs_config_keys <- function() {
   c(
     "plot_type", "data_dir", "dna_channel", "target_channel", "target_name",
     "suffixes", "dna_2n_value", "normalize_target", "g1_anchor",
+    "g1_source", "edu_positive_source", "g1_model_manifest",
     "baseline_fit_x_range", "baseline_boundary_bins",
     "baseline_minimum_events_per_bin", "baseline_minimum_negative_events",
     "show_edu_apex_line", "edu_apex_x_range", "edu_apex_density_adjust",
@@ -129,6 +130,19 @@ validate_edu_gating_config <- function(gating, replicates, data_dir, config_path
       stop("FlowJo gating accepts only `gating.mode`; model settings cannot be mixed in.")
     return(gating)
   }
+  if (identical(gating$profile, "documented_edu_g1_v1")) {
+    required <- c("mode", "profile", "status_label", "manifest")
+    if (!setequal(names(gating), required)) {
+      stop("The documented EdU G1 profile requires exactly: ",
+           paste(required, collapse = ", "), ".")
+    }
+    if (!identical(gating$status_label,
+                   "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION") ||
+        !config_scalar_string(gating$manifest)) {
+      stop("The documented EdU G1 profile requires its exact non-production status and manifest path.")
+    }
+    return(gating)
+  }
   required <- c("mode", "profile", "status_label", "output_dir", "artifacts", "acquisitions")
   if (!setequal(names(gating), required))
     stop("Experimental model gating requires exactly: ", paste(required, collapse = ", "), ".")
@@ -224,6 +238,10 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   }
 
   errors <- character()
+  legacy_edu_fields <- c("g1_source", "edu_positive_source", "g1_model_manifest")
+  supplied_legacy_edu <- legacy_edu_fields[!vapply(
+    config[legacy_edu_fields], is.null, logical(1)
+  )]
   unknown <- setdiff(names(config), facs_config_keys())
   if (length(unknown)) {
     errors <- config_add_error(
@@ -252,6 +270,46 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   if (!config_scalar_string(plot_type) ||
       !plot_type %in% c("edu", "poi", "ph3")) {
     plot_type <- "edu"
+  }
+
+  if (identical(plot_type, "edu") && length(supplied_legacy_edu)) {
+    if (!is.null(config$gating)) {
+      errors <- config_add_error(
+        errors,
+        "Do not mix legacy EdU source fields with the explicit `gating` block."
+      )
+    } else if (!config_scalar_string(config$g1_source) ||
+               !config_scalar_string(config$edu_positive_source) ||
+               !identical(config$g1_source, config$edu_positive_source) ||
+               !config$g1_source %in% c("model", "flowjo")) {
+      errors <- config_add_error(
+        errors,
+        "Legacy EdU source fields must explicitly select the same `model` or `flowjo` source."
+      )
+    } else if (identical(config$g1_source, "model")) {
+      if (!config_scalar_string(config$g1_model_manifest)) {
+        errors <- config_add_error(
+          errors,
+          "Legacy model-derived EdU configuration requires `g1_model_manifest`."
+        )
+      } else {
+        config$gating <- list(
+          mode = "model_experimental",
+          profile = "documented_edu_g1_v1",
+          status_label = "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION",
+          manifest = config$g1_model_manifest
+        )
+      }
+    } else if (!is.null(config$g1_model_manifest)) {
+      errors <- config_add_error(
+        errors, "Legacy FlowJo EdU configuration must not declare `g1_model_manifest`."
+      )
+    } else {
+      config$gating <- list(mode = "flowjo")
+    }
+    config$g1_source <- NULL
+    config$edu_positive_source <- NULL
+    config$g1_model_manifest <- NULL
   }
 
   config <- utils::modifyList(facs_config_defaults(plot_type), config)

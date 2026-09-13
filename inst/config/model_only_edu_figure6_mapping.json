@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "status": "OWNER-APPROVED IMMUTABLE FIGURE6 MODEL-ONLY RUN MAPPING",
+  "functional_panel": "PANEL_FL2_DNA_FL4_EDU",
+  "channel_roles": {
+    "fsc_area": "FSC-A",
+    "fsc_height": "FSC-H",
+    "ssc_area": "SSC-A",
+    "ssc_height": "SSC-H",
+    "dna_area": "FL2-A",
+    "dna_pulse": "FL2-H",
+    "edu_area": "FL4-A"
+  },
+  "acquisitions": [
+    {"prefix":"jul28_nt","acquisition_id":"FIG6-EDU-2025-07-28-NT","fcs_basename":"HCT mAC Rif1 CDK1as 7 NT.fcs","fcs_sha256":"37f3a6c13794cc6540e6de48c28213e9927b44fdba9493a08edae6491c55799f"},
+    {"prefix":"jul28_auxin","acquisition_id":"FIG6-EDU-2025-07-28-AUXIN","fcs_basename":"HCT mAC Rif1 CDK1as 7 5h Auxin.fcs","fcs_sha256":"19a4685cfd3d80d701ee99fd4ab5031719addbc150e2e73306c2459480af1d0e"},
+    {"prefix":"jul28_nmpp1","acquisition_id":"FIG6-EDU-2025-07-28-NMPP1","fcs_basename":"HCT mAC Rif1 CDK1as 7 3h NMPP1.fcs","fcs_sha256":"dacb8242abe6182f281a9f24b45016e38713ffee9b9f42f59c59a9dbe5fdbfd4"},
+    {"prefix":"jul28_auxin_nmpp1","acquisition_id":"FIG6-EDU-2025-07-28-AUXIN-NMPP1","fcs_basename":"HCT mAC Rif1 CDK1as 7 5h Auxin + 3h NMPP1.fcs","fcs_sha256":"f778bc6946d0c61ad364d4bc3a5cb5cb9f3cdecd51589bc5a46d9516dc8a776f"},
+    {"prefix":"jul30_nt","acquisition_id":"FIG6-EDU-2025-07-30-NT","fcs_basename":"HCT mAC Rif1 CDK1as 7 NT.fcs","fcs_sha256":"53c8c38d911f36e7f9c8da676f2c50f9868d5fd7c6fb2bf6c236454580b7f4fd"},
+    {"prefix":"jul30_auxin","acquisition_id":"FIG6-EDU-2025-07-30-AUXIN","fcs_basename":"HCT mAC Rif1 CDK1as 7 5h Auxin.fcs","fcs_sha256":"c2a71e38abd95610db869448341a7b2c48c847cfad988bab7a1c58429f8d4af5"},
+    {"prefix":"jul30_nmpp1","acquisition_id":"FIG6-EDU-2025-07-30-NMPP1","fcs_basename":"HCT mAC Rif1 CDK1as 7 3h NMPP1.fcs","fcs_sha256":"fe48af2c4bec940de8eafd3f6915e1188d7a520268367d7f0156bbd3f31d0136"},
+    {"prefix":"jul30_auxin_nmpp1","acquisition_id":"FIG6-EDU-2025-07-30-AUXIN-NMPP1","fcs_basename":"HCT mAC Rif1 CDK1as 7 5h Auxin + 3h NMPP1.fcs","fcs_sha256":"b97e70e1f611ef8fff1763ce82e8aa9b985818fcf233f819db141969e128b219"}
+  ]
+}
