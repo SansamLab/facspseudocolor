@@ -1,5 +1,13 @@
 # Standard EdU report redesign implementation record
 
+> **Versioning note (2026-09-13):** This is a historical implementation record.
+> The enhanced report described here is now installed as
+> `facs_edu_standard_v2.qmd`. The established
+> `facs_edu_pseudocolor_output_contract.qmd` filename has been restored to the
+> legacy-compatible report so old render commands retain their original report.
+> Replace the template filename in historical commands below with
+> `facs_edu_standard_v2.qmd` when rendering the enhanced version.
+
 **Date:** 2026-09-09
 **Verification:** focused report-contract test PASS and corrected real-data
 render PASS; broader package verification remains local execution required

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply immutable development-only Single Cells and G1 rules to raw FCS events.
+"""Apply the approved immutable experimental Single Cells, G1, and EdU rules.
 
 The caller supplies explicit event identities, channel-role mappings, artifact
 paths and both artifact hashes.  This program never fits or adjusts a model.
@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import os
+import math
 import re
 import tempfile
 import warnings
@@ -25,6 +26,29 @@ from scipy.spatial import cKDTree
 
 
 FEATURE_SCHEMA_VERSION = "fd-feature-v2"
+PROFILE = "single_g1_edu_frozen_v1"
+STATUS = "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION"
+FROZEN_THRESHOLDS = {"single_cells": 0.205, "g1": 0.255, "edu_positive": 0.385}
+G1_DNA_MINIMUM_FRACTION = 0.35
+MAX_ALL_EVENT_ROWS = 5_000_000
+MAX_ALL_EVENT_BYTES = 512 * 1024 * 1024
+EDU_PORTABLE_SHA256 = "9e6ed466687efe5f7523dea633e9e9244381c0e613c86f0944f861c06047fdf4"
+EDU_SOURCE_PICKLE_SHA256 = "6ef5603555a660b8503379cbbcab131b616336a64330ffd42f45dfaa182042cc"
+PORTABLE_PREDICTOR_REFERENCE_SHA256 = "2edf1bbd529159e8752d01731e87f19efbc63b514409b1d246d7a4ffc266a2c3"
+FROZEN_RULE_HASHES = {
+    "single_cells": {
+        "byte_sha256": "71b459d8fb00930f31a6d289a21f587226fd2d6be4b31ebc782b7bae7839a376",
+        "semantic_sha256": "f9a53e9fd78d2f39cf5980b8f470c3c44e7a187fa942cbcc0324c563fa68a31a",
+    },
+    "g1": {
+        "byte_sha256": "d653d388d15af3bd22185cb9c8e1addea132e0b5d1d18e60e37c65a7548163b7",
+        "semantic_sha256": "32723ccc768ed517affa040f2ce62a125dad465399d869f471bc331549f47f6a",
+    },
+}
+EDU_FEATURES = (
+    "dna_area_q", "dna_pulse_q", "dna_tls_position", "dna_tls_distance",
+    "dna_area_pulse_log_density", "edu_area_q", "dna_edu_log_density",
+)
 FEATURES = (
     "knn25_log_density_2d__fsc_ssc",
     "asinh150__dna_area",
@@ -45,6 +69,16 @@ def sha256_path(path: Path) -> str:
     return digest.hexdigest()
 
 
+def require_regular_file(path: Path, label: str) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"{label} must be an existing regular non-symlink file: {path}")
+
+
+def validate_all_event_export_size(path: Path) -> None:
+    if path.stat().st_size > MAX_ALL_EVENT_BYTES:
+        raise ValueError("all-events export exceeds the 512 MiB safety limit")
+
+
 def semantic_hash(rule: dict) -> str:
     payload = {key: value for key, value in rule.items() if key not in {
         "sha256", "solver", "selected_l2", "solver_iterations"
@@ -54,9 +88,9 @@ def semantic_hash(rule: dict) -> str:
 
 
 def load_rule(path: Path, expected_byte_sha256: str,
-              expected_semantic_sha256: str, expected_target: str) -> dict:
-    if not path.is_file():
-        raise ValueError(f"model artifact is missing: {path}")
+              expected_semantic_sha256: str, expected_target: str,
+              expected_threshold: float) -> dict:
+    require_regular_file(path, "model artifact")
     observed_byte = sha256_path(path)
     if observed_byte != expected_byte_sha256:
         raise ValueError(f"model artifact byte SHA-256 mismatch: {path}")
@@ -84,7 +118,149 @@ def load_rule(path: Path, expected_byte_sha256: str,
         raise ValueError("model artifact contains invalid numeric parameters")
     if not 0 < float(rule["threshold"]) < 1:
         raise ValueError("model threshold must be strictly between zero and one")
+    if not np.isclose(float(rule["threshold"]), expected_threshold,
+                      rtol=0.0, atol=1e-12):
+        raise ValueError(f"{expected_target} threshold differs from frozen profile")
     return rule
+
+
+def encoded_float(value: Any) -> float:
+    if not isinstance(value, str):
+        raise ValueError("portable model encoded float is not a string")
+    result = float.fromhex(value)
+    if not math.isfinite(result):
+        raise ValueError("portable model contains a non-finite float")
+    return result
+
+
+def load_edu_model(model_path: Path) -> dict:
+    """Load and validate the exact approved PORTABLE_HGB_V1 EdU model."""
+    require_regular_file(model_path, "EdU model artifact")
+    if sha256_path(model_path) != EDU_PORTABLE_SHA256:
+        raise ValueError("EdU model artifact byte SHA-256 mismatch")
+    model = json.loads(model_path.read_text(encoding="utf-8"))
+    required = {
+        "format": "PORTABLE_HGB_V1", "model_id": "EDU_POSITIVE_MODEL002",
+        "source_pickle_sha256": EDU_SOURCE_PICKLE_SHA256,
+        "feature_order": list(EDU_FEATURES), "winner": "hgb_small",
+        "task": "binary_classification", "link": "logit",
+        "decision_rule": "positive_probability >= decision_threshold",
+        "authoritative_decimal_decision_threshold": "0.385",
+    }
+    for key, value in required.items():
+        if model.get(key) != value:
+            raise ValueError(f"frozen portable EdU model field mismatch: {key}")
+    if model.get("n_features_in") != len(EDU_FEATURES) or model.get("classes") != [0, 1]:
+        raise ValueError("portable EdU model dimensions or classes differ")
+    if not np.isclose(encoded_float(model.get("decision_threshold")),
+                      FROZEN_THRESHOLDS["edu_positive"], rtol=0.0, atol=1e-15):
+        raise ValueError("portable EdU model threshold differs from frozen profile")
+    encoded_float(model.get("baseline_raw"))
+    iterations = model.get("iterations")
+    if not isinstance(iterations, list) or len(iterations) != model.get("n_iterations"):
+        raise ValueError("portable EdU model iteration count differs")
+    for iteration in iterations:
+        if not isinstance(iteration, list) or len(iteration) != 1:
+            raise ValueError("portable EdU binary iteration must contain one tree")
+        nodes = iteration[0].get("nodes")
+        if not isinstance(nodes, list) or not nodes:
+            raise ValueError("portable EdU tree has no nodes")
+        for index, node in enumerate(nodes):
+            if node.get("index") != index:
+                raise ValueError("portable EdU tree node indexes are not contiguous")
+            encoded_float(node.get("value"))
+            encoded_float(node.get("num_threshold"))
+    return model
+
+
+def portable_tree_value(tree: dict, row: list[float], known: list[set[float]]) -> float:
+    nodes, index = tree["nodes"], 0
+    while True:
+        node = nodes[index]
+        if node["is_leaf"]:
+            return encoded_float(node["value"])
+        feature, value = node["feature_idx"], row[node["feature_idx"]]
+        if math.isnan(value):
+            go_left = node["missing_go_to_left"]
+        elif node["is_categorical"]:
+            integer = int(value)
+            if value < 0:
+                go_left = node["missing_go_to_left"]
+            elif integer == value and 0 <= integer < 256:
+                words = tree["raw_left_cat_bitsets"][node["bitset_idx"]]
+                if bool((words[integer >> 5] >> (integer & 31)) & 1):
+                    go_left = True
+                elif value in known[feature]:
+                    go_left = False
+                else:
+                    go_left = node["missing_go_to_left"]
+            elif value in known[feature]:
+                go_left = False
+            else:
+                go_left = node["missing_go_to_left"]
+        else:
+            go_left = value <= encoded_float(node["num_threshold"])
+        index = node["left"] if go_left else node["right"]
+
+
+def portable_predict_positive(model: dict, rows: np.ndarray) -> np.ndarray:
+    if rows.ndim != 2 or rows.shape[1] != len(EDU_FEATURES) or not np.isfinite(rows).all():
+        raise ValueError("portable EdU input differs from frozen feature schema")
+    known = [set(encoded_float(value) for value in values)
+             for values in model["bin_mapper"]["known_categories"]]
+    probabilities = []
+    for row in rows:
+        raw = encoded_float(model["baseline_raw"])
+        converted = [float(value) for value in row]
+        for iteration in model["iterations"]:
+            raw += portable_tree_value(iteration[0], converted, known)
+        probabilities.append(1.0 / (1.0 + math.exp(-raw)) if raw >= 0 else
+                             math.exp(raw) / (1.0 + math.exp(raw)))
+    return np.asarray(probabilities, dtype=float)
+
+
+def validate_frozen_artifact_config(artifacts: Any) -> None:
+    """Reject any artifact provenance outside the approved frozen profile."""
+    if not isinstance(artifacts, dict) or set(artifacts) != {
+            "single_cells", "g1", "edu_positive"}:
+        raise ValueError("profile requires exactly three frozen model artifacts")
+    for target in ("single_cells", "g1"):
+        if not isinstance(artifacts[target], dict) or set(artifacts[target]) != {
+                "path", "byte_sha256", "semantic_sha256"}:
+            raise ValueError(f"{target} artifact must contain exact frozen provenance fields")
+        if any(artifacts[target][field] != expected
+               for field, expected in FROZEN_RULE_HASHES[target].items()):
+            raise ValueError(f"{target} artifact hashes differ from the frozen profile")
+    edu = artifacts["edu_positive"]
+    if not isinstance(edu, dict) or set(edu) != {"path", "byte_sha256"}:
+        raise ValueError("edu_positive artifact must contain exact portable provenance fields")
+    if edu["byte_sha256"] != EDU_PORTABLE_SHA256:
+        raise ValueError("edu_positive artifact hash differs from the frozen profile")
+
+
+def edu_features(events: pd.DataFrame, roles: dict[str, str]) -> np.ndarray:
+    columns = [roles[key] for key in ("dna_area", "dna_height", "edu")]
+    raw = events.loc[:, columns].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+    if not np.isfinite(raw).all():
+        raise ValueError("EdU model channels contain non-finite values")
+    ranked = [pd.Series(raw[:, i]).rank(method="average", pct=True).to_numpy(np.float32)
+              for i in range(3)]
+    dna_area, dna_pulse, edu_area = ranked
+    centered = np.c_[dna_area - dna_area.mean(), dna_pulse - dna_pulse.mean()]
+    _, _, vt = np.linalg.svd(centered, full_matrices=False)
+    axis = vt[0] * (1 if vt[0, 0] >= 0 else -1)
+    def density(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        histogram, _, _ = np.histogram2d(x, y, bins=64, range=((0, 1), (0, 1)))
+        i = np.minimum((x * 64).astype(int), 63)
+        j = np.minimum((y * 64).astype(int), 63)
+        return (np.log1p(histogram[i, j]) / np.log1p(len(x))).astype(np.float32)
+    result = np.c_[dna_area, dna_pulse, centered @ axis,
+                   centered @ np.array([-axis[1], axis[0]]),
+                   density(dna_area, dna_pulse), edu_area,
+                   density(dna_area, edu_area)].astype(np.float32)
+    if result.shape != (len(events), len(EDU_FEATURES)) or not np.isfinite(result).all():
+        raise ValueError("EdU feature construction failed")
+    return result
 
 
 def robust_z(values: np.ndarray) -> np.ndarray:
@@ -173,32 +349,45 @@ def validate_identity(frame: pd.DataFrame, label: str) -> str:
     return acquisition_id
 
 
-def model_gate_tables(all_events: pd.DataFrame, edu_positive: pd.DataFrame,
-                      roles: dict[str, str], single_rule: dict,
-                      g1_rule: dict) -> tuple[dict[str, pd.DataFrame], dict]:
+def model_gate_tables(all_events: pd.DataFrame, roles: dict[str, str],
+                      single_rule: dict, g1_rule: dict,
+                      edu_model: Any) -> tuple[dict[str, pd.DataFrame], dict]:
     all_acquisition = validate_identity(all_events, "all-events input")
-    positive_acquisition = validate_identity(edu_positive, "EdU-positive input")
-    if positive_acquisition != all_acquisition:
-        raise ValueError("all-events and EdU-positive inputs name different acquisitions")
-    if not set(edu_positive["event_identity"]).issubset(set(all_events["event_identity"])):
-        raise ValueError("EdU-positive event identities are not a subset of all events")
     features = extract_frozen_features(all_events, roles)
     single_probability, single_mask = predict(features, single_rule)
     g1_probability, raw_g1_mask = predict(features, g1_rule)
-    g1_mask = single_mask & raw_g1_mask
     scored = all_events.copy()
     scored["model_single_cells_probability"] = single_probability
     scored["model_g1_probability"] = g1_probability
+    edu_probability = portable_predict_positive(edu_model, edu_features(all_events, roles))
+    if edu_probability.shape != (len(all_events),) or not np.isfinite(edu_probability).all():
+        raise ValueError("EdU model returned invalid probabilities")
+    scored["model_edu_positive_probability"] = edu_probability
+    positive_mask = single_mask & (edu_probability >= FROZEN_THRESHOLDS["edu_positive"])
+    # In EdU experiments, G1 is the non-replicating reference population.
+    # Exclude EdU-positive events before this table is used for normalization.
+    preliminary_g1_mask = single_mask & raw_g1_mask & ~positive_mask
+    dna_area = pd.to_numeric(all_events[roles["dna_area"]], errors="coerce").to_numpy()
+    positive_candidate_dna = dna_area[
+        preliminary_g1_mask & np.isfinite(dna_area) & (dna_area > 0)
+    ]
+    if not len(positive_candidate_dna):
+        raise ValueError("preliminary EdU-negative G1 population has no positive DNA-A values")
+    g1_dna_center = float(np.median(positive_candidate_dna))
+    g1_dna_minimum = G1_DNA_MINIMUM_FRACTION * g1_dna_center
+    if not np.isfinite(g1_dna_center) or g1_dna_center <= 0:
+        raise ValueError("preliminary EdU-negative G1 DNA-A center is invalid")
+    g1_mask = (preliminary_g1_mask & np.isfinite(dna_area) &
+               (dna_area >= g1_dna_minimum))
     single = scored.loc[single_mask].copy()
     g1 = scored.loc[g1_mask].copy()
-    positive = edu_positive.loc[
-        edu_positive["event_identity"].isin(set(single["event_identity"]))
-    ].copy()
+    positive = scored.loc[positive_mask].copy()
     report_columns = {
         roles["dna_area"]: "DNA content",
         roles["edu"]: "EdU",
     }
     tables = {
+        "all_events": scored.rename(columns=report_columns),
         "single_cells": single.rename(columns=report_columns),
         "g1": g1.rename(columns=report_columns),
         "edu_positive": positive.rename(columns=report_columns),
@@ -207,10 +396,16 @@ def model_gate_tables(all_events: pd.DataFrame, edu_positive: pd.DataFrame,
         "all_event_count": int(len(all_events)),
         "model_single_cells_count": int(len(single)),
         "model_g1_count": int(len(g1)),
-        "source_edu_positive_count": int(len(edu_positive)),
-        "model_parent_intersected_edu_positive_count": int(len(positive)),
+        "model_edu_positive_count": int(len(positive)),
         "g1_subset_single_cells": bool(set(g1.event_identity).issubset(set(single.event_identity))),
         "edu_positive_subset_single_cells": bool(set(positive.event_identity).issubset(set(single.event_identity))),
+        "g1_excludes_edu_positive": bool(set(g1.event_identity).isdisjoint(set(positive.event_identity))),
+        "preliminary_g1_count": int(preliminary_g1_mask.sum()),
+        "g1_dna_positive_candidate_count": int(len(positive_candidate_dna)),
+        "g1_dna_2n_center_raw": g1_dna_center,
+        "g1_dna_minimum_fraction": G1_DNA_MINIMUM_FRACTION,
+        "g1_dna_minimum_raw": g1_dna_minimum,
+        "g1_dna_minimum_excluded_count": int(preliminary_g1_mask.sum() - g1_mask.sum()),
     }
     return tables, audit
 
@@ -329,82 +524,50 @@ def validate_unloaded_sample_warnings(caught: list[warnings.WarningMessage],
     return messages
 
 
-def raw_fcs_inputs(item: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    """Read one exact FCS and its explicitly named FlowJo EdU-positive gate."""
+def raw_fcs_inputs(item: dict[str, Any]) -> tuple[pd.DataFrame, dict]:
+    """Read one exact immutable FCS with no workspace or FlowJo dependency."""
     try:
         import flowkit as fk
-        from lxml import etree
     except ImportError as exc:
-        raise RuntimeError("raw-FCS gating requires flowkit and lxml") from exc
-    fcs_path, workspace_path = Path(item["fcs_path"]), Path(item["workspace_path"])
-    for path, key in ((fcs_path, "fcs_sha256"), (workspace_path, "workspace_sha256")):
-        if not path.is_file():
-            raise ValueError(f"required immutable input is missing: {path}")
-        if sha256_path(path) != item[key]:
-            raise ValueError(f"immutable input SHA-256 mismatch: {path}")
+        raise RuntimeError("raw-FCS model gating requires flowkit") from exc
+    fcs_path = Path(item["fcs_path"])
+    require_regular_file(fcs_path, "immutable FCS")
+    if sha256_path(fcs_path) != item["fcs_sha256"]:
+        raise ValueError(f"immutable FCS is missing or has a SHA-256 mismatch: {fcs_path}")
     acquisition_id = item.get("acquisition_id")
     if not isinstance(acquisition_id, str) or not acquisition_id:
         raise ValueError("each raw-FCS acquisition requires an explicit acquisition_id")
-    population = item.get("edu_positive_population")
-    if not isinstance(population, str) or not population:
-        raise ValueError("each acquisition requires an explicit EdU-positive population")
-    with tempfile.TemporaryDirectory(prefix="model_gate_wsp_") as directory:
-        adapted = Path(directory) / workspace_path.name
-        tree = etree.parse(str(workspace_path))
-        attribute = "{http://www.isac-net.org/std/Gating-ML/v2.0/transformations}minRange"
-        for element in tree.xpath(
-                "//transforms:linear",
-                namespaces={"transforms": "http://www.isac-net.org/std/Gating-ML/v2.0/transformations"}):
-            value = float(element.get(attribute, "0"))
-            if value > 0:
-                element.set(attribute, str(-value))
-        tree.write(str(adapted), encoding="UTF-8", xml_declaration=True)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            workspace = fk.Workspace(str(adapted), fcs_samples=[str(fcs_path)],
-                                     filename_as_id=True)
-            sample_ids = workspace.get_sample_ids()
-            if sample_ids != [fcs_path.name]:
-                raise ValueError("workspace did not resolve exactly the explicitly mapped FCS")
-            workspace.analyze_samples(use_mp=False)
-        unloaded_warnings = validate_unloaded_sample_warnings(caught, fcs_path.name)
-        paths = workspace.find_matching_gate_paths(fcs_path.name, population)
-        if len(paths) != 1:
-            raise ValueError("EdU-positive population is missing or ambiguous")
-        gate_path = paths[0]
-        sample = workspace.get_sample(fcs_path.name)
-        all_events = normalize_flowkit_raw_columns(
-            sample.as_dataframe(source="raw")
-        )
-        gate_events = workspace.get_gate_events(
-            fcs_path.name, population, gate_path, source="raw"
-        )
-        positive = positive_from_gate_indices(all_events, gate_events.index)
-    for frame in (all_events, positive):
-        event_index = canonical_source_indices(frame.index, "FlowKit raw table")
-        frame.insert(0, "event_index", event_index)
-        frame.insert(0, "event_identity", [
-            f"{acquisition_id}:event_index:{value}" for value in event_index
-        ])
-        frame.insert(0, "acquisition_id", acquisition_id)
-        frame.reset_index(drop=True, inplace=True)
+    sample = fk.Sample(str(fcs_path))
+    all_events = normalize_flowkit_raw_columns(sample.as_dataframe(source="raw"))
+    event_index = canonical_source_indices(all_events.index, "FlowKit raw table")
+    all_events.insert(0, "event_index", event_index)
+    all_events.insert(0, "event_identity", [
+        f"{acquisition_id}:event_index:{value}" for value in event_index])
+    all_events.insert(0, "acquisition_id", acquisition_id)
+    all_events.reset_index(drop=True, inplace=True)
     source = {
         "source_fcs": str(fcs_path.resolve()), "source_fcs_sha256": item["fcs_sha256"],
-        "source_workspace": str(workspace_path.resolve()),
-        "source_workspace_sha256": item["workspace_sha256"],
-        "edu_positive_population": population,
-        "edu_positive_gate_path": "/".join((*gate_path, population)),
-        "validated_unloaded_workspace_sample_warnings": unloaded_warnings,
+        "workspace_used": False,
     }
-    return all_events, positive, source
+    return all_events, source
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", type=Path, help="explicit model-gating JSON config")
     args = parser.parse_args()
-    config = json.loads(args.config.read_text(encoding="utf-8"))
-    if config.get("status_label") != "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION":
+    if args.config.suffix.lower() in (".yml", ".yaml"):
+        try:
+            import yaml
+        except ImportError as exc:
+            raise RuntimeError("YAML configuration requires PyYAML") from exc
+        root_config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+        config = root_config.get("gating", {}) if isinstance(root_config, dict) else {}
+    else:
+        config = json.loads(args.config.read_text(encoding="utf-8"))
+    if config.get("mode") != "model_experimental" or config.get("profile") != PROFILE:
+        parser.error(f"gating must select mode=model_experimental and profile={PROFILE}")
+    if config.get("status_label") != STATUS:
         parser.error("config must carry the exact experimental/non-production status label")
     try:
         output_dir = validate_output_dir(
@@ -420,28 +583,61 @@ def main() -> int:
         parser.error("each prefix must be an explicit path-free string")
     if len(prefixes) != len(set(prefixes)):
         parser.error("acquisition prefixes must be unique")
+    for item in acquisitions:
+        if set(item) != {"prefix", "acquisition_id", "fcs_path", "fcs_sha256",
+                         "channel_roles"}:
+            parser.error("each acquisition must contain only the exact required fields")
+        if not Path(item["fcs_path"]).is_absolute():
+            parser.error("each fcs_path must be absolute")
+        if re.fullmatch(r"[0-9a-f]{64}", item["fcs_sha256"]) is None:
+            parser.error("each fcs_sha256 must be lowercase hexadecimal SHA-256")
+        if tuple(item["channel_roles"]) != REQUIRED_ROLES or len(set(
+                item["channel_roles"].values())) != len(REQUIRED_ROLES):
+            parser.error("channel_roles must contain the five ordered, distinct frozen roles")
     artifacts = config["artifacts"]
+    try:
+        validate_frozen_artifact_config(artifacts)
+    except ValueError as exc:
+        parser.error(str(exc))
     single_rule = load_rule(Path(artifacts["single_cells"]["path"]),
                             artifacts["single_cells"]["byte_sha256"],
                             artifacts["single_cells"]["semantic_sha256"],
-                            "single_cells_reference")
+                            "single_cells_reference", FROZEN_THRESHOLDS["single_cells"])
     g1_rule = load_rule(Path(artifacts["g1"]["path"]),
                         artifacts["g1"]["byte_sha256"],
-                        artifacts["g1"]["semantic_sha256"], "g1_reference")
+                        artifacts["g1"]["semantic_sha256"], "g1_reference",
+                        FROZEN_THRESHOLDS["g1"])
+    edu_model = load_edu_model(Path(artifacts["edu_positive"]["path"]))
     output_dir.mkdir(parents=True)
-    manifest = {"status_label": config["status_label"], "feature_schema_version":
-                FEATURE_SCHEMA_VERSION, "artifacts": artifacts, "acquisitions": []}
+    manifest = {"status_label": config["status_label"], "gating_mode": config["mode"],
+                "profile": config["profile"], "feature_schema_version":
+                FEATURE_SCHEMA_VERSION, "frozen_thresholds": FROZEN_THRESHOLDS,
+                "g1_dna_minimum": {
+                    "method": "median_positive_dna_area_of_preliminary_edu_negative_g1",
+                    "fraction": G1_DNA_MINIMUM_FRACTION,
+                },
+                "edu_predictor": {"format": "PORTABLE_HGB_V1",
+                                  "implementation": "embedded dependency-free reference",
+                                  "derived_from_reference_sha256":
+                                  PORTABLE_PREDICTOR_REFERENCE_SHA256},
+                "artifacts": artifacts,
+                "acquisitions": []}
     try:
         for item in acquisitions:
-            all_events, positive, source = raw_fcs_inputs(item)
-            tables, audit = model_gate_tables(all_events, positive, item["channel_roles"],
-                                              single_rule, g1_rule)
+            all_events, source = raw_fcs_inputs(item)
+            if len(all_events) > MAX_ALL_EVENT_ROWS:
+                raise ValueError("all-events export exceeds the five-million-row safety limit")
+            tables, audit = model_gate_tables(all_events, item["channel_roles"],
+                                              single_rule, g1_rule, edu_model)
             records = {}
-            for key, suffix in (("single_cells", "_single_cells.csv"),
+            for key, suffix in (("all_events", "_all_events.csv"),
+                                ("single_cells", "_single_cells.csv"),
                                 ("g1", "_g1.csv"),
                                 ("edu_positive", "_edu_positive.csv")):
                 path = output_dir / f"{item['prefix']}{suffix}"
                 write_csv_absent(tables[key], path)
+                if key == "all_events":
+                    validate_all_event_export_size(path)
                 records[key] = {"path": path.name, "sha256": sha256_path(path),
                                 "rows": int(len(tables[key]))}
             manifest["acquisitions"].append({

@@ -65,8 +65,9 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
 - `pseudocolor_plots.qmd` — a thin report that calls the installed package.
 - `inst/quarto/` — focused complete, pseudocolor, quantitation, cell-cycle,
   diagnostics, exact-gate pH3, and interactive configurator templates. The
-  configurator supports guided entry or an Excel table prepopulated from the
-  selected FlowJo workspace.
+  EdU reports are retained as a versioned series; see
+  `docs/EDU_REPORT_VERSIONS.md`. The configurator is currently an unfinished,
+  experimental interface.
 - `examples/appearance/` — optional presentation-only YAML examples.
 - `R/` — the `facspseudocolor` package implementation.
 - `python/export_flowjo_populations.py` — the optional contract-aware event exporter.
@@ -234,13 +235,16 @@ explicitly. Deprecated `phase_percentages`, `phase_medians`, and `whole_medians`
 aliases retain their original meanings for one major-release window. Reference
 normalization, when requested, is reported separately.
 
-To configure an experiment with a GUI, set RStudio's working directory to the
-folder containing the exported CSVs, run
+An unfinished experimental configurator is available for FlowJo-gated EdU
+experiments. To evaluate it, set RStudio's
+working directory to the experiment folder, run
 `facspseudocolor::set_facs_configurator_directory()`, then open
 `inst/quarto/facs_configurator.qmd` and click **Run Document**. It starts from a
-FlowJo `.wsp`, discovers its FCS samples, populations, and channels, and can set the overall
-analysis type, assign sample roles and replicates, set order, validate the
-configuration, and download the resulting YAML file.
+FlowJo `.wsp`, discovers its FCS samples, populations, and channels, and lets a
+user include or exclude acquisitions, assign conditions and replicates, confirm
+the DNA-H channel used by the all-events display, validate the result, and
+download a current `config.yml` without editing YAML. This first version does
+not perform the prerequisite FlowJo population and all-events CSV exports.
 
 Analysis RDS files are the durable scientific source of truth. Figure-bundle
 RDS files contain editable individual ggplots, plot-ready summaries, and

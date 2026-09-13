@@ -99,7 +99,8 @@ test_that("reader-facing pH3 and EdU reports hide source tables and end with sof
     "facs_ph3_legacy_pilot.qmd",
     "facs_ph3_output_contract.qmd",
     "facs_ph3_4n.qmd",
-    "facs_edu_pseudocolor_output_contract.qmd"
+    "facs_edu_pseudocolor_output_contract.qmd",
+    "facs_edu_standard_v2.qmd"
   )
   documents <- lapply(templates, function(template) {
     path <- system.file("quarto", template, package = "facspseudocolor")
@@ -116,7 +117,7 @@ test_that("reader-facing pH3 and EdU reports hide source tables and end with sof
   expect_false(grepl("pilot\\$cutoff_records", documents$facs_ph3_legacy_pilot.qmd))
   expect_false(grepl("report_model\\$qc_flags", documents$facs_ph3_output_contract.qmd))
   expect_false(grepl("report\\$positivity\\$overall_2to4n_biological_replicate",
-                     documents$facs_edu_pseudocolor_output_contract.qmd))
+                     documents$facs_edu_standard_v2.qmd))
   expect_false(grepl("unique\\(geometry", documents$facs_ph3_4n.qmd))
 
   helper <- system.file("quarto", "_report-setup.R", package = "facspseudocolor")
@@ -144,6 +145,46 @@ test_that("interactive configurator retains mode and sample-role controls", {
   expect_match(document, 'paste0("role_", i)', fixed = TRUE)
   expect_match(document, "validate_facs_config(candidate_config())", fixed = TRUE)
   expect_match(document, "downloadHandler", fixed = TRUE)
+  expect_match(document, 'gating = list(mode = "flowjo")', fixed = TRUE)
+  expect_match(document, 'data_dir = "flowjo_gated_csv"', fixed = TRUE)
+  expect_match(document, 'selectInput("dna_height_channel"', fixed = TRUE)
+  expect_match(document, "suggested_names <- make.unique", fixed = TRUE)
+  expect_match(document, "selected = selected_file", fixed = TRUE)
+  expect_match(document, "Clear Use to exclude", fixed = TRUE)
+  expect_match(document, 'checkboxInput("confirm_sample_mapping"', fixed = TRUE)
+  expect_match(document, "confirm_config_inputs()", fixed = TRUE)
+  expect_match(document, "sample_mapping_confirmation()", fixed = TRUE)
+  expect_match(document, "confirm_spreadsheet_inputs()", fixed = TRUE)
+  expect_match(document, "config$report <- list", fixed = TRUE)
+  expect_match(document, 'system.file(\n    "quarto", "facs_edu_standard_v2.qmd"', fixed = TRUE)
+  expect_match(document, 'verbatimTextOutput("render_command")', fixed = TRUE)
+  expect_match(document,
+               'downloadButton("download_config", "Download config.yml")',
+               fixed = TRUE)
+})
+
+test_that("EdU report catalog preserves legacy and versioned templates", {
+  catalog_path <- system.file("quarto", "report-catalog.yml",
+                              package = "facspseudocolor")
+  expect_true(nzchar(catalog_path))
+  catalog <- yaml::read_yaml(catalog_path)
+  expect_identical(catalog$schema_version, 1L)
+
+  ids <- vapply(catalog$reports, `[[`, character(1), "id")
+  files <- vapply(catalog$reports, `[[`, character(1), "file")
+  statuses <- vapply(catalog$reports, `[[`, character(1), "status")
+  expect_identical(anyDuplicated(ids), 0L)
+  expect_identical(anyDuplicated(files), 0L)
+  expect_identical(files[ids == "edu_legacy_v1"],
+                   "facs_edu_pseudocolor_output_contract.qmd")
+  expect_identical(statuses[ids == "edu_legacy_v1"],
+                   "stable_compatibility")
+  expect_identical(files[ids == "edu_standard_v2"],
+                   "facs_edu_standard_v2.qmd")
+  expect_identical(statuses[ids == "edu_configurator_experimental"],
+                   "unfinished")
+  expect_true(all(file.exists(system.file("quarto", files,
+                                          package = "facspseudocolor"))))
 })
 
 test_that("configurator directory captures the current working directory", {

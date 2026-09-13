@@ -154,9 +154,68 @@ uses `source_dir`, `workspace`, `python`, `dna_source_channel`,
 `target_source_channel`, `populations`, and `rebuild`. See
 `PYTHON_INTERFACE.md`.
 
+## Optional EdU report block
+
+An EdU configuration may preserve settings needed by the optimized HTML report:
+
+```yaml
+report:
+  all_events_dir: all_events_csv
+  dna_height_channel: FL2-H
+  show_apex_comparison_toggle: true
+  show_phase_gate_toggle: true
+  embed_pseudocolor_pdf_downloads: true
+```
+
+`all_events_dir` is resolved relative to the configuration file. The report
+uses `dna_height_channel` only for the DNA-H-versus-DNA-A all-events view. These
+settings do not create or validate FlowJo exports.
+
 ## Output policy
 
 The package never invents missing output destinations and refuses to overwrite
 existing files unless explicitly authorized. `output_pdf` and `output_png` are
 used by the Quarto front end. An analysis RDS requires an explicit `output_rds`
 argument to `save_facs_results()`.
+# EdU gating source
+
+EdU configurations select one explicit, fail-closed gating source:
+
+```yaml
+gating:
+  mode: "flowjo"
+```
+
+or the owner-approved experimental FCS-only profile:
+
+```yaml
+gating:
+  mode: "model_experimental"
+  profile: "single_g1_edu_frozen_v1"
+  status_label: "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION"
+  output_dir: "/absolute/new/model-output-directory"
+  artifacts: # exact paths and frozen hashes for Single Cells, G1, and EdU+
+  acquisitions: # exact FCS paths, hashes, identities, and channel roles
+```
+
+Model mode uses no FlowJo workspace and never falls back to FlowJo or existing
+CSVs. It calls Single Cells, G1, and EdU+ at frozen thresholds 0.205, 0.255, and
+0.385. For EdU experiments, the final G1 population excludes every model-called
+EdU+ event before the G1 table is used to calculate the normalization anchor or
+background. It then calculates the median positive raw DNA-A value among those
+preliminary G1 candidates and requires final G1 events to have DNA-A at least
+35% of that acquisition-specific center. The operation records the center,
+minimum, and excluded-event count in its unified hash/count/containment manifest. The output directory
+must not already exist. This profile is **EXPERIMENTAL MODEL-DERIVED
+NON-PRODUCTION**: the G1 and EdU models were originally evaluated within
+expert-gated Single Cells, so their composition after model-derived Single
+Cells is not validated biological ground truth.
+
+The EdU artifact is the exact SHA-256-pinned `PORTABLE_HGB_V1` JSON export of
+`EDU_POSITIVE_MODEL002`. It retains the original model, ordered features, and
+0.385 threshold while removing pickle loading and the exact Python 3.10.12 /
+scikit-learn 1.7.2 runtime requirement. NumPy, pandas, SciPy, FlowKit, and
+PyYAML remain pipeline dependencies.
+The generated manifest records `derived_from_reference_sha256` for the external
+validated predictor source; that digest describes the implementation lineage
+and is not presented as a hash of the embedded predictor code.

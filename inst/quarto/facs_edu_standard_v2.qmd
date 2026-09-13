@@ -1,0 +1,921 @@
+---
+title: "EdU experiment report — Standard v2"
+subtitle: "Validated populations, quality checks, cell-cycle views, and quantitative results"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: false
+    embed-resources: true
+    code-fold: false
+    code-tools: false
+execute: { warning: false, message: false, echo: false }
+params:
+  config: null
+  analysis_rds: null
+  model_gate_manifest: null
+  flowjo_all_events_dir: null
+  flowjo_dna_height_channel: null
+  show_audit_tables: false
+  show_apex_comparison_toggle: false
+  show_phase_gate_toggle: false
+  embed_pseudocolor_pdf_downloads: false
+  max_condition_columns: 4
+  min_panel_width: 220
+---
+
+```{css}
+.quarto-title-block { margin-bottom: 2rem; }
+h2 { margin-top: 2.4rem; padding-top: .45rem; border-top: 2px solid #dce5e8; }
+h3 { margin-top: 1.7rem; }
+.report-card { border-left: .35rem solid #287c8e; background: #f5f9fa; padding: 1rem 1.2rem; margin: 1rem 0; }
+.report-alert { border-left-color: #b54708; background: #fff7ed; }
+.report-ok { border-left-color: #27864b; background: #f0f9f3; }
+.report-table { width: 100%; font-size: .9rem; }
+.report-table th { background: #eaf1f3; }
+.figure-caption, figcaption { color: #46565c; font-size: .9rem; }
+.overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--panel-min)), 1fr)); gap: 1rem; max-width: var(--panel-max); }
+.overview-card { min-width: 0; border: 1px solid #dce5e8; border-radius: .35rem; padding: .55rem; background: #fff; }
+.overview-card img { width: 100%; height: auto; }
+.overview-card h4 { margin: .5rem 0 .15rem; font-size: .95rem; }
+.overview-card .sample-caption { margin: 0; color: #46565c; font-size: .82rem; overflow-wrap: anywhere; }
+.overview-group { margin: 1.5rem 0 2.2rem; }
+.apex-toggle { border: 1px solid #2166ac; border-radius: .3rem; background: #f4f8fc; color: #174b7a; padding: .5rem .8rem; font-weight: 600; cursor: pointer; }
+.apex-toggle:focus-visible { outline: 3px solid #f0b429; outline-offset: 2px; }
+.phase-toggle { border: 1px solid #1a1a1a; border-radius: .3rem; background: #f7f7f7; color: #1a1a1a; padding: .5rem .8rem; font-weight: 600; cursor: pointer; }
+.phase-toggle:focus-visible { outline: 3px solid #f0b429; outline-offset: 2px; }
+.apex-controls { display: flex; flex-direction: column; align-items: flex-start; gap: .55rem; margin-bottom: 1rem; }
+.apex-view[hidden] { display: none !important; }
+.apex-line-key { display: inline-block; width: 2.2rem; margin: 0 .35rem 0 .8rem; vertical-align: middle; border-top-width: 3px; }
+.apex-reference-key { border-top-style: dashed; border-top-color: #2166ac; }
+.apex-sample-key { border-top-style: solid; border-top-color: #b2182b; }
+.plot-pdf-download { display: inline-block; margin-top: .45rem; border: 1px solid #287c8e; border-radius: .25rem; padding: .3rem .55rem; color: #185d6b; background: #f5f9fa; font-size: .82rem; font-weight: 600; text-decoration: none; }
+.plot-pdf-download:hover { background: #e5f1f3; }
+.plot-pdf-download:focus-visible { outline: 3px solid #f0b429; outline-offset: 2px; }
+.quantitation-download-all { margin: 0 0 1rem; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+```
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
+analysis <- facs_report_input(params$config, params$analysis_rds)
+if (!is.null(analysis$config$report)) {
+  report_config <- analysis$config$report
+  all_events_dir <- report_config$all_events_dir
+  if (!grepl("^/", all_events_dir) &&
+      is.character(params$config) && length(params$config) == 1L &&
+      !is.na(params$config) && nzchar(params$config)) {
+    all_events_dir <- file.path(dirname(normalizePath(params$config, mustWork = FALSE)),
+                                all_events_dir)
+  }
+  params$flowjo_all_events_dir <- all_events_dir
+  params$flowjo_dna_height_channel <- report_config$dna_height_channel
+  params$show_apex_comparison_toggle <- report_config$show_apex_comparison_toggle
+  params$show_phase_gate_toggle <- report_config$show_phase_gate_toggle
+  params$embed_pseudocolor_pdf_downloads <- report_config$embed_pseudocolor_pdf_downloads
+}
+is_model_derived <- identical(analysis$config$gating$mode, "model_experimental")
+model_gate_inputs <- NULL
+model_all_events <- NULL
+flowjo_all_events <- NULL
+if (is_model_derived) {
+  if (is.null(params$model_gate_manifest)) {
+    stop("`model_gate_manifest` is required for model-derived gating.")
+  }
+  model_gate_inputs <- validate_edu_model_gate_manifest(
+    analysis, params$model_gate_manifest
+  )
+  model_all_events <- attr(model_gate_inputs, "all_events")
+} else if (!is.null(params$model_gate_manifest)) {
+  stop("`model_gate_manifest` may be supplied only with model-derived gating.")
+}
+if (!is_model_derived && !is.null(params$flowjo_all_events_dir)) {
+  if (!is.character(params$flowjo_dna_height_channel) ||
+      length(params$flowjo_dna_height_channel) != 1L ||
+      is.na(params$flowjo_dna_height_channel) ||
+      !nzchar(params$flowjo_dna_height_channel)) {
+    stop("`flowjo_dna_height_channel` is required with `flowjo_all_events_dir`.")
+  }
+  prefixes <- as.character(analysis$sample_manifest$prefix)
+  configured_samples <- unlist(lapply(
+    analysis$config$replicates, `[[`, "samples"
+  ), recursive = FALSE)
+  configured_prefixes <- vapply(configured_samples, `[[`, character(1), "prefix")
+  configured_fcs <- vapply(configured_samples, function(sample) {
+    value <- sample$fcs
+    if (!is.character(value) || length(value) != 1L || is.na(value) ||
+        !nzchar(value) || basename(value) != value) {
+      stop("FlowJo all-events display requires one basename-only `fcs` value per sample.")
+    }
+    value
+  }, character(1))
+  if (!identical(configured_prefixes, prefixes)) {
+    stop("FlowJo all-events sample configuration differs from report sample order.")
+  }
+  names(configured_fcs) <- configured_prefixes
+  paths <- file.path(params$flowjo_all_events_dir,
+                     paste0(prefixes, "_all_events.csv"))
+  missing_paths <- paths[!file.exists(paths)]
+  if (length(missing_paths)) {
+    stop("Missing explicit FlowJo all-events display file(s): ",
+         paste(basename(missing_paths), collapse = ", "))
+  }
+  root <- normalizePath(params$flowjo_all_events_dir, mustWork = TRUE)
+  path_info <- file.info(paths)
+  if (any(!file_test("-f", paths)) || any(path_info$isdir) ||
+      any(nzchar(Sys.readlink(paths))) ||
+      any(path_info$size > 512 * 1024^2) ||
+      any(dirname(normalizePath(paths, mustWork = TRUE)) != root)) {
+    stop("FlowJo all-events display files must be confined regular files no larger than 512 MiB.")
+  }
+  flowjo_all_events <- lapply(paths, utils::read.csv, check.names = FALSE,
+                              colClasses = c(event_index = "character",
+                                             sample_id = "character"))
+  names(flowjo_all_events) <- prefixes
+  for (prefix in prefixes) {
+    frame <- flowjo_all_events[[prefix]]
+    if (nrow(frame) > 5000000L ||
+        !all(c("sample_id", "event_index") %in% names(frame)) ||
+        anyNA(frame$sample_id) ||
+        !identical(unique(frame$sample_id), unname(configured_fcs[[prefix]]))) {
+      stop("FlowJo all-events display provenance differs from configured acquisition for ",
+           prefix, ".")
+    }
+  }
+}
+report <- build_edu_pseudocolor_output_contract(analysis)
+overview <- facs_report_edu_overview(analysis)
+qc_sections <- facs_report_edu_qc_sections(analysis, report)
+all_conditions <- facs_report_edu_responsive_groups(
+  analysis, report, params$max_condition_columns, params$min_panel_width
+)
+apex_comparison <- NULL
+apex_conditions <- NULL
+if (isTRUE(params$show_apex_comparison_toggle)) {
+  apex_comparison <- facs_report_edu_apex_comparison(analysis, report)
+  apex_conditions <- facs_report_edu_responsive_groups(
+    analysis, apex_comparison$report,
+    params$max_condition_columns, params$min_panel_width
+  )
+}
+phase_comparison <- NULL
+phase_conditions <- NULL
+apex_phase_comparison <- NULL
+apex_phase_conditions <- NULL
+if (isTRUE(params$show_phase_gate_toggle)) {
+  phase_comparison <- facs_report_edu_phase_gate_comparison(analysis, report)
+  phase_conditions <- facs_report_edu_responsive_groups(
+    analysis, phase_comparison$report,
+    params$max_condition_columns, params$min_panel_width
+  )
+  if (isTRUE(params$show_apex_comparison_toggle)) {
+    apex_phase_comparison <- facs_report_edu_phase_gate_comparison(
+      analysis, apex_comparison$report
+    )
+    apex_phase_conditions <- facs_report_edu_responsive_groups(
+      analysis, apex_phase_comparison$report,
+      params$max_condition_columns, params$min_panel_width
+    )
+  }
+}
+```
+
+```{r}
+#| label: pre-results-qc
+#| results: asis
+pre_results_qc <- rbind(
+  qc_sections$data_input,
+  qc_sections$normalization
+)
+pre_results_findings <- pre_results_qc[pre_results_qc$level != "CLEAR", , drop = FALSE]
+if (nrow(pre_results_findings)) {
+  cat('<div class="report-card report-alert"><strong>Pre-results QC: review required.</strong> One or more retained data, input, normalization, or quantitation states are non-clear. Review the findings below before interpreting any plot.</div>\n')
+  cat(facs_report_compact_table(pre_results_findings))
+} else {
+  cat('<div class="report-card report-ok"><strong>Pre-results QC: retained checks are clear.</strong> Human inspection of every acquisition is still required before interpretation.</div>\n')
+}
+```
+
+```{r}
+#| label: gating-status
+#| results: asis
+if (is_model_derived) {
+  cat('<div class="report-card report-alert"><strong>EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.</strong> Single Cells, G1, and EdU-positive populations were called from raw FCS events with immutable frozen models. No FlowJo workspace or FlowJo gate was used. These outputs do not establish biological ground truth, production performance, or broad generalizability.</div>\n')
+} else {
+  cat('<div class="report-card report-alert"><strong>FlowJo workspace gates re-evaluated by FlowKit.</strong> The saved FlowJo gate definitions supply population membership, but the export is not necessarily event-identical to a native FlowJo CSV export. Review the export count audit and provenance before treating it as an exact FlowJo reproduction.</div>\n')
+}
+if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+  cat('<div class="report-card report-alert"><strong>Embedded vector-PDF downloads enabled.</strong> These downloads increase the HTML file size and preserve plotted event coordinates at higher fidelity than the overview images. Share this report only where that experimental-data detail is approved.</div>\n')
+}
+```
+
+## All-condition visual overview
+
+```{r}
+#| label: all-condition-matrix
+#| results: asis
+embedded_pdf_total_bytes <- 0
+embedded_pdf_max_total_bytes <- if (isTRUE(params$show_phase_gate_toggle)) {
+  96 * 1024^2
+} else {
+  64 * 1024^2
+}
+all_canvas_pdf_links <- NULL
+if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+  canvas_reports <- list(plain = report)
+  if (isTRUE(params$show_apex_comparison_toggle)) {
+    canvas_reports$apex <- apex_comparison$report
+  }
+  if (isTRUE(params$show_phase_gate_toggle)) {
+    canvas_reports$phase <- phase_comparison$report
+  }
+  if (isTRUE(params$show_apex_comparison_toggle) &&
+      isTRUE(params$show_phase_gate_toggle)) {
+    canvas_reports$apex_phase <- apex_phase_comparison$report
+  }
+  canvas_filenames <- c(
+    plain = "all-pseudocolor-plots.pdf",
+    apex = "all-pseudocolor-plots-apex-comparison.pdf",
+    phase = "all-pseudocolor-plots-cell-cycle-gates.pdf",
+    apex_phase = "all-pseudocolor-plots-apex-and-cell-cycle-gates.pdf"
+  )
+  canvas_links <- lapply(names(canvas_reports), function(variant) {
+    canvas <- facs_report_edu_all_panels_canvas(
+      canvas_reports[[variant]], params$max_condition_columns
+    )
+    link <- facs_report_embedded_plot_pdf_link(
+      canvas$plot, canvas_filenames[[variant]],
+      width = canvas$width, height = canvas$height,
+      label = "Download all PDF", maximum_bytes = 32 * 1024^2
+    )
+    embedded_pdf_total_bytes <<- embedded_pdf_total_bytes +
+      attr(link, "pdf_bytes")
+    id <- paste0("download-all-pdf-", gsub("_", "-", variant))
+    prefix <- if (identical(variant, "plain")) {
+      paste0('<a id="', id, '" class=')
+    } else {
+      paste0('<a id="', id, '" hidden class=')
+    }
+    sub('<a class=', prefix, link, fixed = TRUE)
+  })
+  if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+    stop("Embedded overview PDFs exceed the configured total safety limit.")
+  }
+  all_canvas_pdf_links <- paste(canvas_links, collapse = "\n")
+}
+render_overview_groups <- function(overview_groups, id_prefix,
+                                   include_downloads = TRUE) {
+for (group in overview_groups$groups) {
+  cat('\n\n::: {.overview-group}\n')
+  cat("<h3>", facs_report_heading_label(group$replicate),
+      " · technical acquisition ",
+      facs_report_heading_label(group$technical_replicate),
+      "</h3>\n", sep = "")
+  cat("<p><strong>Paired acquisition group:</strong> ",
+      facs_report_heading_label(group$model_group),
+      " · <strong>Configured reference:</strong> ",
+      facs_report_heading_label(group$reference_condition), "</p>\n", sep = "")
+  if (!identical(group$legend_status, "available")) {
+    cat('<div class="report-card report-alert"><strong>Density legend unavailable:</strong> no available panel in this paired acquisition group supplied a legend. Every card remains represented.</div>\n')
+  }
+  maximum_width <- overview_groups$max_condition_columns *
+    overview_groups$min_panel_width + 16 * (overview_groups$max_condition_columns - 1L)
+  cat(sprintf(
+    '::: {.overview-grid style="--panel-min: %.0fpx; --panel-max: %.0fpx;"}\n',
+    overview_groups$min_panel_width, maximum_width
+  ))
+  for (card_index in seq_along(group$cards)) {
+    card <- group$cards[[card_index]]
+    card_title <- if (isTRUE(card$is_reference)) {
+      paste0(card$condition, " — configured reference")
+    } else card$condition
+    caption_id <- paste0(id_prefix, "-", group$group_index, "-", card_index)
+    cat('::: {.overview-card role="group" aria-labelledby="', caption_id, '"}\n', sep = "")
+    cat(facs_report_knit_plot(
+      card$plot, width = 2.3, height = 2.15,
+      envir = environment(), dpi = 192L
+    ), sep = "\n")
+    cat('<h4 id="', caption_id, '">',
+        facs_report_heading_label(card_title), '</h4>\n', sep = "")
+    if (!is.na(card$prefix)) {
+      cat('<p class="sample-caption">Sample: ',
+          facs_report_heading_label(card$prefix), '</p>\n', sep = "")
+      if (isTRUE(params$embed_pseudocolor_pdf_downloads) &&
+          isTRUE(include_downloads)) {
+        variant <- switch(
+          id_prefix,
+          "apex-overview-card" = "apex-comparison",
+          "phase-overview-card" = "cell-cycle-gates",
+          "apex-phase-overview-card" = "apex-and-cell-cycle-gates",
+          "plain"
+        )
+        filename <- paste(card$prefix, variant, "pseudocolor.pdf", sep = "-")
+        download_plot <- switch(
+          variant,
+          "apex-comparison" = apex_comparison$report$panels[[card$prefix]],
+          "cell-cycle-gates" = phase_comparison$report$panels[[card$prefix]],
+          "apex-and-cell-cycle-gates" =
+            apex_phase_comparison$report$panels[[card$prefix]],
+          report$panels[[card$prefix]]
+        )
+        download_plot <- card$plot + ggplot2::labs(
+          title = download_plot$labels$title,
+          subtitle = download_plot$labels$subtitle,
+          y = download_plot$labels$y
+        )
+        pdf_link <- facs_report_embedded_plot_pdf_link(
+          download_plot, filename, width = 3, height = 3,
+          label = paste("Download", card$prefix, variant, "PDF")
+        )
+        embedded_pdf_total_bytes <<- embedded_pdf_total_bytes +
+          attr(pdf_link, "pdf_bytes")
+        if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+          stop("Embedded overview PDFs exceed the configured total safety limit.")
+        }
+        cat(pdf_link, "\n", sep = "")
+      }
+    }
+    cat(':::\n')
+  }
+  cat(':::\n')
+  if (!is.null(group$legend)) {
+    cat(facs_report_knit_plot(group$legend, width = 7, height = .7,
+                              envir = environment()), sep = "\n")
+  }
+  cat(':::\n')
+}
+}
+if (isTRUE(params$show_apex_comparison_toggle) ||
+    isTRUE(params$show_phase_gate_toggle)) {
+  cat('<div class="apex-controls">\n')
+  if (isTRUE(params$show_apex_comparison_toggle)) cat('<button type="button" id="apex-overview-toggle" class="apex-toggle" aria-pressed="false">Show apex comparison lines</button>\n')
+  if (isTRUE(params$show_phase_gate_toggle)) cat('<button type="button" id="phase-gate-toggle" class="phase-toggle" aria-pressed="false">Show cell-cycle gate boxes</button>\n')
+  if (!is.null(all_canvas_pdf_links)) cat(all_canvas_pdf_links, "\n", sep = "")
+  cat('</div>\n')
+  if (isTRUE(params$show_apex_comparison_toggle)) cat('<span id="apex-line-legend" hidden><span class="apex-line-key apex-reference-key"></span>Configured reference apex <span class="apex-line-key apex-sample-key"></span>Current acquisition apex</span>\n')
+  if (isTRUE(params$show_phase_gate_toggle)) cat('<span id="phase-gate-legend" hidden>Dashed labeled outlines show the established G1, Early S, Mid S, Late S, and G2/M display gates.</span>\n')
+  cat('<div id="overview-plain" class="apex-view">\n')
+  render_overview_groups(all_conditions, "overview-card")
+  cat('</div>\n')
+  if (isTRUE(params$show_apex_comparison_toggle)) {
+    cat('<div id="overview-apex" class="apex-view" hidden>\n')
+    render_overview_groups(apex_conditions, "apex-overview-card")
+    cat('</div>\n')
+  }
+  if (isTRUE(params$show_phase_gate_toggle)) {
+    cat('<div id="overview-phase" class="apex-view" hidden>\n')
+    render_overview_groups(phase_conditions, "phase-overview-card")
+    cat('</div>\n')
+  }
+  if (isTRUE(params$show_apex_comparison_toggle) &&
+      isTRUE(params$show_phase_gate_toggle)) {
+    cat('<div id="overview-apex-phase" class="apex-view" hidden>\n')
+    render_overview_groups(apex_phase_conditions, "apex-phase-overview-card")
+    cat('</div>\n')
+  }
+  if (isTRUE(params$show_apex_comparison_toggle)) {
+  cat('<div id="apex-values" hidden>\n')
+  cat('<h3>Apex comparison values</h3>\n')
+  cat('<p>The apex is the mode of log10 positive background-subtracted EdU signal within the configured normalized-DNA window. Both values are translated by the destination panel\'s display-only offset when drawn, so the line separation remains the background-subtracted apex difference and does not alter quantitative results.</p>\n')
+  cat(facs_report_compact_table(apex_comparison$apex))
+  cat('</div>\n')
+  }
+} else {
+  render_overview_groups(all_conditions, "overview-card")
+}
+```
+
+```{=html}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const apexButton = document.getElementById("apex-overview-toggle");
+  const phaseButton = document.getElementById("phase-gate-toggle");
+  if (!apexButton && !phaseButton) return;
+  const views = {
+    plain: document.getElementById("overview-plain"),
+    apex: document.getElementById("overview-apex"),
+    phase: document.getElementById("overview-phase"),
+    apexPhase: document.getElementById("overview-apex-phase")
+  };
+  const apexLegend = document.getElementById("apex-line-legend");
+  const phaseLegend = document.getElementById("phase-gate-legend");
+  const apexValues = document.getElementById("apex-values");
+  const plainDownload = document.getElementById("download-all-pdf-plain");
+  const apexDownload = document.getElementById("download-all-pdf-apex");
+  const phaseDownload = document.getElementById("download-all-pdf-phase");
+  const apexPhaseDownload = document.getElementById("download-all-pdf-apex-phase");
+  function update() {
+    const apex = apexButton && apexButton.getAttribute("aria-pressed") === "true";
+    const phase = phaseButton && phaseButton.getAttribute("aria-pressed") === "true";
+    Object.keys(views).forEach(function (key) {
+      if (views[key]) views[key].hidden =
+        key !== (apex && phase ? "apexPhase" : apex ? "apex" : phase ? "phase" : "plain");
+    });
+    if (apexLegend) apexLegend.hidden = !apex;
+    if (phaseLegend) phaseLegend.hidden = !phase;
+    if (apexValues) apexValues.hidden = !apex;
+    if (plainDownload) plainDownload.hidden = apex || phase;
+    if (apexDownload) apexDownload.hidden = !apex || phase;
+    if (phaseDownload) phaseDownload.hidden = apex || !phase;
+    if (apexPhaseDownload) apexPhaseDownload.hidden = !apex || !phase;
+    if (apexButton) apexButton.textContent = apex ? "Hide apex comparison lines" : "Show apex comparison lines";
+    if (phaseButton) phaseButton.textContent = phase ? "Hide cell-cycle gate boxes" : "Show cell-cycle gate boxes";
+  }
+  if (apexButton) apexButton.addEventListener("click", function () {
+    apexButton.setAttribute("aria-pressed",
+      String(apexButton.getAttribute("aria-pressed") !== "true")); update();
+  });
+  if (phaseButton) phaseButton.addEventListener("click", function () {
+    phaseButton.setAttribute("aria-pressed",
+      String(phaseButton.getAttribute("aria-pressed") !== "true")); update();
+  });
+  update();
+});
+</script>
+```
+
+## Quantitation overview
+
+These cards are the report's quantitative figure set. Percentages retain their
+named canonical denominators. Reference-relative EdU measurements use the
+completed background-subtracted values and explicitly configured matched
+reference; invalid reference values remain unavailable.
+
+```{r}
+#| label: quantitation-overview
+#| results: asis
+quant_point_alt <- if (isTRUE(analysis$config$quant_show_points)) {
+  "Points are biological-replicate values. "
+} else {
+  "Biological-replicate points are disabled by configuration. "
+}
+quant_error_alt <- if (identical(analysis$config$quant_error_bar, "none")) {
+  "Error bars are disabled by configuration."
+} else {
+  paste0("Error bars use the configured ", analysis$config$quant_error_bar,
+         " display.")
+}
+quantitation_rows <- list(
+  list(
+    list(
+      title = "2N–4N EdU-positive percentage",
+      detail = "Absolute EdU-positive percentage among eligible Single Cell events in the inclusive 2N–4N interval",
+      alt = paste0("EdU-positive percentage among eligible Single Cell events in the inclusive 2N-to-4N DNA interval. ", quant_point_alt, "Bar heights are condition means. ", quant_error_alt),
+      y_label = "% EdU positive",
+      small_legend_keys = TRUE,
+      hide_single_category_x_tick = TRUE,
+      hide_x_title = TRUE,
+      plot = report$positivity$panels$two_to_four_n
+    ),
+    list(
+      title = "All computed-positive EdU intensity",
+      detail = "Established unweighted mean of technical-acquisition background-subtracted medians among all computed-positive eligible cells within each biological replicate, relative to its configured matched reference",
+      alt = paste0("EdU intensity for all computed-positive eligible cells, relative to each biological replicate's configured matched reference. ", quant_point_alt, "Horizontal marks are condition means. ", quant_error_alt),
+      y_label = "Relative EdU level",
+      small_legend_keys = FALSE,
+      hide_single_category_x_tick = TRUE,
+      hide_x_title = TRUE,
+      plot = report$intensity$panels$all_computed_positive
+    )
+  ),
+  list(
+    list(
+      title = "Regional S-phase percentage",
+      detail = "Absolute percentage within each established Early/Mid/Late-S DNA region",
+      alt = paste0("EdU-positive percentage within the established Early, Mid, and Late S-phase DNA regions. ", quant_point_alt, "Bar heights are condition means. ", quant_error_alt),
+      y_label = "% EdU positive",
+      small_legend_keys = TRUE,
+      hide_single_category_x_tick = FALSE,
+      hide_x_title = FALSE,
+      plot = report$positivity$panels$early_mid_late_s
+    ),
+    list(
+      title = "Regional S-phase EdU",
+      detail = "Established unweighted mean of technical-acquisition background-subtracted medians within each biological replicate and established S-phase region, relative to its configured matched reference",
+      alt = paste0("EdU intensity within the established Early, Mid, and Late S-phase regions, relative to each biological replicate's configured matched reference. ", quant_point_alt, "Horizontal marks are condition means. ", quant_error_alt),
+      y_label = "Relative EdU level",
+      small_legend_keys = FALSE,
+      hide_single_category_x_tick = FALSE,
+      hide_x_title = FALSE,
+      plot = report$intensity$panels$early_mid_late_s
+    )
+  )
+)
+quantitation_cards <- unlist(quantitation_rows, recursive = FALSE)
+quantitation_row_categories <- c(1L, 3L)
+quantitation_card_ids <- facs_report_card_ids(
+  "quantitation-card", length(quantitation_cards)
+)
+quantitation_condition_count <- length(unique(as.character(
+  analysis$sample_manifest$condition
+)))
+quantitation_legend <- facs_report_quantitation_legend_layout(
+  quantitation_condition_count
+)
+prepare_quantitation_plot <- function(card) {
+  compact_plot <- card$plot +
+    ggplot2::labs(
+      title = NULL, subtitle = NULL, caption = NULL, y = card$y_label,
+      fill = NULL, colour = NULL
+    ) +
+    ggplot2::theme(
+      legend.position = "bottom", legend.box = "vertical",
+      legend.box.just = "left"
+    ) +
+    facs_report_compact_typography(
+      title_size = 8, secondary_size = 7.5, legend_size = 7
+    ) +
+    ggplot2::theme(legend.title = ggplot2::element_blank()) +
+    ggplot2::guides(
+      fill = ggplot2::guide_legend(
+        title = NULL, ncol = quantitation_legend$columns, byrow = TRUE
+      ),
+      colour = ggplot2::guide_legend(
+        title = NULL, ncol = quantitation_legend$columns, byrow = TRUE
+      )
+    )
+  if (isTRUE(card$small_legend_keys)) {
+    compact_plot <- compact_plot +
+      facs_report_compact_legend_key_theme(0.28)
+  }
+  if (isTRUE(card$hide_single_category_x_tick)) {
+    compact_plot <- compact_plot + ggplot2::theme(
+      axis.text.x = ggplot2::element_blank(),
+      axis.ticks.x = ggplot2::element_blank()
+    )
+  }
+  if (isTRUE(card$hide_x_title)) {
+    compact_plot <- compact_plot + ggplot2::theme(
+      axis.title.x = ggplot2::element_blank()
+    )
+  }
+  compact_plot
+}
+quantitation_plot_widths <- unlist(lapply(seq_along(quantitation_rows), function(row_index) {
+  card_width <- facs_report_quantitation_card_width(
+    quantitation_condition_count,
+    quantitation_row_categories[[row_index]]
+  )
+  rep(facs_report_quantitation_plot_width(card_width),
+      length(quantitation_rows[[row_index]]))
+}))
+quantitation_plots <- lapply(quantitation_cards, prepare_quantitation_plot)
+if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+  quantitation_canvas <- cowplot::plot_grid(
+    plotlist = quantitation_plots, ncol = 2L, align = "hv"
+  )
+  quantitation_all_link <- facs_report_embedded_plot_pdf_link(
+    quantitation_canvas, "all-quantitation-plots.pdf",
+    width = 2 * max(quantitation_plot_widths),
+    height = 2 * quantitation_legend$figure_height,
+    label = "Download all PDF", maximum_bytes = 32 * 1024^2
+  )
+  embedded_pdf_total_bytes <- embedded_pdf_total_bytes +
+    attr(quantitation_all_link, "pdf_bytes")
+  if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+    stop("Embedded report PDFs exceed the configured total safety limit.")
+  }
+  cat('<div class="quantitation-download-all">', quantitation_all_link,
+      '</div>\n', sep = "")
+}
+card_index <- 0L
+for (row_index in seq_along(quantitation_rows)) {
+  row <- quantitation_rows[[row_index]]
+  card_width <- facs_report_quantitation_card_width(
+    quantitation_condition_count,
+    quantitation_row_categories[[row_index]]
+  )
+  row_layout <- facs_report_quantitation_row_layout(
+    length(row), card_width
+  )
+  cat(sprintf(
+    '::: {.overview-grid .quantitation-row style="--panel-min: %.0fpx; --panel-max: %.0fpx;"}\n',
+    row_layout$min_panel_width, row_layout$maximum_width
+  ))
+  for (card in row) {
+    card_index <- card_index + 1L
+    caption_id <- quantitation_card_ids[[card_index]]
+    compact_plot <- quantitation_plots[[card_index]]
+    plot_width <- quantitation_plot_widths[[card_index]]
+    cat('::: {.overview-card role="group" aria-labelledby="', caption_id, '"}\n', sep = "")
+    cat(facs_report_knit_plot(
+      compact_plot,
+      width = plot_width, height = quantitation_legend$figure_height,
+      envir = environment(), dpi = 192L,
+      fig_alt = card$alt
+    ), sep = "\n")
+    cat('<h4 id="', caption_id, '">',
+        facs_report_heading_label(card$title), '</h4>\n', sep = "")
+    cat('<p class="sample-caption">',
+        facs_report_heading_label(card$detail), '</p>\n', sep = "")
+    if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+      quantitation_link <- facs_report_embedded_plot_pdf_link(
+        compact_plot, paste0(caption_id, ".pdf"),
+        width = plot_width, height = quantitation_legend$figure_height,
+        label = paste("Download", card$title, "PDF")
+      )
+      embedded_pdf_total_bytes <- embedded_pdf_total_bytes +
+        attr(quantitation_link, "pdf_bytes")
+      if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+        stop("Embedded report PDFs exceed the configured total safety limit.")
+      }
+      cat(quantitation_link, "\n", sep = "")
+    }
+    cat(':::\n')
+  }
+  cat(':::\n')
+}
+
+cat('<h3>Gating by sample</h3>\n')
+if (is_model_derived || !is.null(flowjo_all_events)) {
+  if (is_model_derived) {
+    cat('<p>Each gating card shows selected Single Cells shaded over all acquisition events on DNA-H versus DNA-A, followed by G1 and EdU+ shaded over all retained Single Cells on raw EdU versus DNA. For model gating, EdU+ cells are excluded from G1, then the final G1 population requires raw DNA-A to be at least 35% of the median positive DNA-A among preliminary G1 candidates. Both steps occur before G1-based normalization and background calculation. Raw EdU is displayed on a log10 scale; nonpositive raw values cannot be displayed on that axis but remain unchanged in the analysis.</p>\n')
+  } else {
+    cat('<p>Each gating card shows FlowJo-selected Single Cells shaded over all acquisition events on DNA-H versus DNA-A, followed by FlowJo G1 and EdU+ populations shaded over all retained Single Cells on raw EdU versus DNA. Raw EdU is displayed on a log10 scale; nonpositive raw values cannot be displayed on that axis but remain unchanged in the analysis.</p>\n')
+  }
+  if (is_model_derived) {
+    cat('<p>These membership overlays use the provenance-validated all-events export; they do not reconstruct a geometric boundary for the multifeature frozen models.</p>\n')
+  } else {
+    cat('<p>The Single Cells panel uses explicit raw all-events coordinates for display and the saved FlowJo membership exported for that acquisition. It does not reconstruct a new Single Cells gate.</p>\n')
+  }
+  cat('<p>The DNA-A/DNA-H display limits are calculated independently for each acquisition from its 0.1st and 99.9th percentiles with 3% padding. This clips only extreme display outliers; no events are removed from gates, counts, normalization, or quantitation.</p>\n')
+  cat('<p><strong>Gating display key:</strong> open charcoal points are events outside the colored gate; filled blue points are accepted Single Cells or G1; filled orange points are EdU+.</p>\n')
+} else {
+  cat('<p>Each card shows selected Single Cells on EdU versus DNA, followed by G1 and EdU+ shaded over all retained Single Cells on the same axes. FlowJo configurations do not provide the explicit DNA-height provenance required to derive DNA-W without guessing.</p>\n')
+  cat('<p>The FlowJo portable exports do not retain rejected pre-Single-Cell event coordinates, so they cannot show an all-events background or independently reconstruct gate boundaries.</p>\n')
+  cat('<p><strong>Gating display key:</strong> open charcoal points are the available parent context and may include events beneath the colored child layer; filled blue points are accepted Single Cells or G1; filled orange points are EdU+.</p>\n')
+}
+cat('<p>For display size only, each layer is deterministically limited to 3,000 evenly spaced retained rows.</p>\n')
+gating_cards <- facs_report_edu_gating_cards(
+  analysis,
+  all_events = if (is_model_derived) model_all_events else flowjo_all_events,
+  dna_height_channel = if (is_model_derived) NULL else
+    params$flowjo_dna_height_channel,
+  display_offsets = stats::setNames(
+    report$display_offset_qc$display_offset,
+    report$display_offset_qc$prefix
+  ),
+  max_points = 3000L
+)
+cat('::: {.overview-grid .gating-card-grid style="--panel-min: 680px; --panel-max: 900px;"}\n')
+for (gating_index in seq_along(gating_cards)) {
+  gating_card <- gating_cards[[gating_index]]
+  gating_caption_id <- paste0("gating-card-", gating_index)
+  cat('::: {.overview-card role="group" aria-labelledby="',
+      gating_caption_id, '"}\n', sep = "")
+  cat(facs_report_knit_plot(
+    gating_card$plot, width = 9, height = 3.25,
+    envir = environment(), dpi = 192L,
+    fig_alt = paste0(
+      "Validated Single Cells, G1, and EdU-positive population displays for ",
+      gating_card$condition, "."
+    )
+  ), sep = "\n")
+  cat('<h4 id="', gating_caption_id, '">',
+      facs_report_heading_label(gating_card$condition), '</h4>\n', sep = "")
+  cat('<p class="sample-caption">Sample: ',
+      facs_report_heading_label(gating_card$prefix),
+      ' · Single Cells: ', format(gating_card$single_cells_n, big.mark = ","),
+      ' · G1: ', format(gating_card$g1_n, big.mark = ","),
+      ' · EdU+: ', format(gating_card$edu_positive_n, big.mark = ","),
+      '</p>\n', sep = "")
+  if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+    gating_link <- facs_report_embedded_plot_pdf_link(
+      gating_card$plot, paste0(gating_card$prefix, "-gating.pdf"),
+      width = 9, height = 3.25,
+      label = paste("Download", gating_card$prefix, "gating PDF"),
+      maximum_bytes = 16 * 1024^2
+    )
+    embedded_pdf_total_bytes <- embedded_pdf_total_bytes +
+      attr(gating_link, "pdf_bytes")
+    if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+      stop("Embedded report PDFs exceed the configured total safety limit.")
+    }
+    cat(gating_link, "\n", sep = "")
+  }
+  cat(':::\n')
+}
+cat(':::\n')
+
+cat('<h3>Background correction by sample</h3>\n')
+cat('<p>Each card compares the same retained Single Cells before and after correction. The left plot shows raw EdU with the exact fitted sample background as a purple dashed line. The right plot shows raw EdU minus that fitted background plus the report display offset. Both use a log10 EdU axis; the offset is display-only.</p>\n')
+cat('::: {.overview-grid .gating-card-grid style="--panel-min: 520px; --panel-max: 720px;"}\n')
+for (gating_card in gating_cards) {
+  background_caption_id <- paste0("background-card-", gating_card$prefix)
+  cat('::: {.overview-card role="group" aria-labelledby="',
+      background_caption_id, '"}\n', sep = "")
+  cat(facs_report_knit_plot(
+    gating_card$background_plot, width = 6, height = 3.25,
+    envir = environment(), dpi = 192L,
+    fig_alt = paste0(
+      "Raw fitted-background and background-corrected EdU comparison for ",
+      gating_card$condition, "."
+    )
+  ), sep = "\n")
+  cat('<h4 id="', background_caption_id, '">',
+      facs_report_heading_label(gating_card$condition), '</h4>\n', sep = "")
+  cat('<p class="sample-caption">Sample: ',
+      facs_report_heading_label(gating_card$prefix),
+      ' · Display offset: ',
+      format(gating_card$background_display_offset, digits = 5,
+             scientific = FALSE), '</p>\n', sep = "")
+  if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+    background_link <- facs_report_embedded_plot_pdf_link(
+      gating_card$background_plot,
+      paste0(gating_card$prefix, "-background-comparison.pdf"),
+      width = 6, height = 3.25,
+      label = paste("Download", gating_card$prefix,
+                    "background comparison PDF"),
+      maximum_bytes = 16 * 1024^2
+    )
+    embedded_pdf_total_bytes <- embedded_pdf_total_bytes +
+      attr(background_link, "pdf_bytes")
+    if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+      stop("Embedded report PDFs exceed the configured total safety limit.")
+    }
+    cat(background_link, "\n", sep = "")
+  }
+  cat(':::\n')
+}
+cat(':::\n')
+
+cat('<h3>Early-, Mid-, and Late-S populations by sample</h3>\n')
+cat('<p>Colored events are computed EdU-positive cells within the established Early-, Mid-, and Late-S DNA regions; retained Single Cells outside those populations are grey. The EdU coordinate uses the same display-only offset as the pseudocolor overview and does not alter population assignment or quantitation. For display size only, each layer is deterministically limited to 3,000 evenly spaced retained rows.</p>\n')
+s_phase_cards <- facs_report_edu_s_phase_cards(
+  analysis, report, max_points = 3000L
+)
+cat('::: {.overview-grid .s-phase-card-grid style="--panel-min: 300px; --panel-max: 980px;"}\n')
+for (s_phase_index in seq_along(s_phase_cards)) {
+  s_phase_card <- s_phase_cards[[s_phase_index]]
+  s_phase_caption_id <- paste0("s-phase-card-", s_phase_index)
+  cat('::: {.overview-card role="group" aria-labelledby="',
+      s_phase_caption_id, '"}\n', sep = "")
+  cat(facs_report_knit_plot(
+    s_phase_card$plot, width = 3, height = 3,
+    envir = environment(), dpi = 192L,
+    fig_alt = paste0(
+      "Early-, Mid-, and Late-S populations on an EdU-versus-DNA plot for ",
+      s_phase_card$condition, "."
+    )
+  ), sep = "\n")
+  cat('<h4 id="', s_phase_caption_id, '">',
+      facs_report_heading_label(s_phase_card$condition), '</h4>\n', sep = "")
+  cat('<p class="sample-caption">Sample: ',
+      facs_report_heading_label(s_phase_card$prefix),
+      ' · Early S: ', format(s_phase_card$early_s_n, big.mark = ","),
+      ' · Mid S: ', format(s_phase_card$mid_s_n, big.mark = ","),
+      ' · Late S: ', format(s_phase_card$late_s_n, big.mark = ","),
+      '</p>\n', sep = "")
+  if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+    s_phase_link <- facs_report_embedded_plot_pdf_link(
+      s_phase_card$plot, paste0(s_phase_card$prefix, "-s-phase-populations.pdf"),
+      width = 3, height = 3,
+      label = paste("Download", s_phase_card$prefix, "S-phase PDF")
+    )
+    embedded_pdf_total_bytes <- embedded_pdf_total_bytes +
+      attr(s_phase_link, "pdf_bytes")
+    if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+      stop("Embedded report PDFs exceed the configured total safety limit.")
+    }
+    cat(s_phase_link, "\n", sep = "")
+  }
+  cat(':::\n')
+}
+cat(':::\n')
+```
+
+## Experiment overview
+
+```{r}
+#| label: population-overview
+#| results: asis
+population_source <- if (is_model_derived) {
+  "the validated experimental model-derived **Single Cells**, **G1**, and **EdU Positive** populations. It does not redraw gates or use or claim FlowJo populations"
+} else {
+  "the established FlowJo-derived **Single Cells**, **G1**, and **EdU Positive** populations. It does not redraw gates"
+}
+cat('<div class="report-card">This report follows the configured sample order and uses ',
+    population_source,
+    ' or recalculate phase boundaries. The opening galleries provide rapid orientation; use this experiment summary and the pre-results QC status before interpreting the detailed results.</div>\n',
+    sep = "")
+```
+
+```{r}
+#| label: overview-summary
+#| results: asis
+cat(facs_report_compact_table(overview$summary))
+```
+
+### Samples and replicate structure
+
+```{r}
+#| label: overview-samples
+#| results: asis
+cat(facs_report_compact_table(overview$samples))
+```
+
+## Methods
+
+```{r}
+#| label: population-method
+#| results: asis
+if (is_model_derived) {
+  cat("- **Population inputs:** Single Cells, G1, and EdU Positive CSVs derived directly from the configured raw FCS acquisitions using the provenance-bound frozen model profile. The report validates the model-gating manifest and does not redefine or substitute these calls.\n")
+} else {
+  cat("- **Population inputs:** configured FlowJo Single Cells, G1, and EdU Positive exports. The report does not redefine these gates.\n")
+}
+```
+- **DNA coordinate:** each acquisition's G1-derived anchor, calculated using
+  the configured anchor method, is mapped to 2N; displayed 4N is twice that
+  value.
+- **EdU correction:** an independent EdU-negative baseline slope is fitted for
+  each acquisition and combined with that acquisition's G1-derived anchor using
+  the configured anchor method to form that acquisition's baseline, which is
+  subtracted. The event plots add a display-only offset; quantitative medians
+  use unoffset background-subtracted values.
+- **Percentages:** each percentage retains its named canonical numerator and
+  denominator. The 2N–4N interval is inclusive; regional S-phase denominators
+  remain separate.
+- **Replicates:** technical acquisitions are combined by the established
+  unweighted mean within biological replicate. Plot points represent biological
+  replicates; condition marks or bars summarize them using the configured error
+  display.
+- **Reference-relative intensity:** canonical biological-replicate medians are
+  divided by the explicitly configured matched reference. Invalid denominators
+  remain unavailable rather than being replaced.
+
+## Provenance
+
+### Share-ready provenance
+
+This summary uses file names and configured identities only; it intentionally
+omits directory paths.
+
+```{r}
+#| label: share-provenance
+#| results: asis
+share_inputs <- unique(data.frame(
+  `Input file` = basename(as.character(overview$inputs$path)),
+  Population = as.character(overview$inputs$population),
+  check.names = FALSE, stringsAsFactors = FALSE
+))
+share_summary <- data.frame(
+  Item = c("Configuration", "Acquisitions", "Biological replicates", "Conditions", "Input files represented"),
+  Value = c(
+    overview$summary$value[overview$summary$item == "Configuration"],
+    nrow(analysis$sample_manifest), length(unique(analysis$sample_manifest$replicate_index)),
+    length(unique(analysis$sample_manifest$condition)), nrow(share_inputs)
+  ), stringsAsFactors = FALSE
+)
+cat(facs_report_compact_table(share_summary))
+cat("\n\n<details><summary>Named input files (paths omitted)</summary>\n\n")
+cat(facs_report_compact_table(share_inputs))
+cat("\n\n</details>")
+```
+
+```{r}
+#| label: provenance
+#| results: asis
+if (isTRUE(params$show_audit_tables)) {
+  cat("**Path disclosure enabled:** full validated input paths are shown because `show_audit_tables: true` was explicitly requested. Review the report before sharing it.\n\n")
+  cat("### Display-offset audit\n\n")
+  cat(facs_report_compact_table(report$display_offset_qc))
+  cat("\n\n### Panel audit\n\n")
+  cat(facs_report_compact_table(report$panel_qc))
+  cat("\n\n### Named input files\n\n")
+  cat(facs_report_compact_table(overview$inputs))
+  if (is_model_derived) {
+    cat("\n\n### Model-gating input paths\n\n")
+    cat(facs_report_compact_table(model_gate_inputs))
+  }
+} else {
+  cat("Detailed audit tables are hidden by report configuration; they remain in the completed analysis artifact.")
+}
+```
+
+```{r}
+#| label: model-gating-provenance
+#| results: asis
+if (is_model_derived) {
+  cat("### Model-gating provenance\n\n")
+  share_model_gate_inputs <- model_gate_inputs
+  share_model_gate_inputs$path <- basename(share_model_gate_inputs$path)
+  cat(facs_report_compact_table(share_model_gate_inputs))
+  cat("\n\n")
+  cat(facs_report_compact_table(attr(model_gate_inputs, "model_artifacts")))
+  cat("\n\nThe frozen thresholds are Single Cells 0.205, G1 0.255, and EdU positive 0.385. The G1 and EdU models were validated within expert-reference Single Cells; their approved experimental composition after model-derived Single Cells changes the parent distribution and is not itself established biological ground truth.\n\n")
+}
+```
+
+### Software used
+
+This report was rendered with Quarto. The versions below identify the analysis
+and report-rendering software used for this report.
+
+```{r}
+facs_report_software_used()
+```

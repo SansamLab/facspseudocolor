@@ -106,7 +106,7 @@ facs_report_quantitation_legend_layout <- function(condition_count) {
     condition_count = condition_count,
     columns = columns,
     rows = as.integer(rows),
-    figure_height = 2.15 + 0.15 * rows
+    figure_height = 3
   )
 }
 
@@ -233,7 +233,12 @@ facs_report_knit_plot <- function(
       "#| fig-alt: ",
       jsonlite::toJSON(as.character(fig_alt), auto_unbox = TRUE)
     ),
-    "print(report_plot)",
+    "if (inherits(report_plot, 'ggplot')) {",
+    "  print(report_plot)",
+    "} else {",
+    "  grid::grid.newpage()",
+    "  grid::grid.draw(report_plot)",
+    "}",
     "```"
   )
   knitr::knit_child(text = child, envir = child_environment, quiet = TRUE)
@@ -248,10 +253,14 @@ facs_report_edu_overview <- function(analysis) {
   input <- analysis$input_report
   reference <- unique(as.character(manifest$reference_condition))
   reference <- reference[!is.na(reference) & nzchar(reference)]
-  population_names <- c(
-    complete = "FlowJo Single Cells", g1 = "FlowJo G1",
-    edu_positive = "FlowJo EdU Positive"
-  )
+  population_names <- if (identical(analysis$config$gating$mode,
+                                    "model_experimental")) {
+    c(complete = "Model-derived Single Cells", g1 = "Model-derived G1",
+      edu_positive = "Model-derived EdU Positive")
+  } else {
+    c(complete = "FlowJo Single Cells", g1 = "FlowJo G1",
+      edu_positive = "FlowJo EdU Positive")
+  }
   populations <- unique(as.character(input$population[input$exists %in% TRUE]))
   if (!length(populations)) {
     populations <- intersect(names(analysis$config$suffixes), names(population_names))
@@ -461,7 +470,7 @@ facs_report_edu_all_conditions <- function(analysis, report, max_condition_colum
     ggplot2::annotate("text", .5, .43, label = label, colour = "#5f3030", size = 3) +
     ggplot2::xlim(0, 1) + ggplot2::ylim(0, 1) + ggplot2::theme_void()
   overview_panel <- function(panel) {
-    panel + ggplot2::labs(y = "EdU signal (display scale)") +
+    panel + ggplot2::labs(x = "DNA", y = "EdU") +
       ggplot2::theme(legend.position = "none")
   }
   stack <- function(rows, label) {
@@ -480,7 +489,7 @@ facs_report_edu_all_conditions <- function(analysis, report, max_condition_colum
   shared_legend <- if (length(available_index)) {
     cowplot::get_legend(
       report$panels[[available_index[[1L]]]] +
-        ggplot2::labs(colour = "Within-panel relative density") +
+        ggplot2::labs(colour = NULL) +
         ggplot2::theme(legend.position = "bottom")
     )
   } else NULL
@@ -525,10 +534,10 @@ facs_report_edu_all_conditions <- function(analysis, report, max_condition_colum
       figure_width = max(8, 3.1 * length(block_conditions)),
       figure_height = 1.2 + 3.8 * sum(row_weights),
       shared_legend_count = if (legend_available) 1L else 0L,
-      shared_legend_title = "Within-panel relative density",
+      shared_legend_title = NULL,
       legend_source_prefix = legend_source_prefix,
       panel_legends_visible = FALSE,
-      y_axis_title = "EdU signal (display scale)",
+      y_axis_title = "EdU",
       row_header_position = "above_full_width",
       replicate_header_rel_height = .12,
       replicate_header_height_fixed = TRUE,
@@ -549,6 +558,738 @@ facs_report_edu_all_conditions <- function(analysis, report, max_condition_colum
     all_panels_suppressed = !length(available_index),
     balance = facs_report_edu_balance(analysis)
   )
+}
+
+facs_report_edu_apex_comparison <- function(analysis, report) {
+  facspseudocolor:::validate_analysis_object(analysis)
+  if (!inherits(report, "edu_pseudocolor_output_contract")) {
+    stop("A completed EdU pseudocolor output contract is required for apex comparison.",
+         call. = FALSE)
+  }
+  manifest <- analysis$sample_manifest
+  required_manifest <- c("prefix", "condition", "model_group", "is_reference",
+                         "reference_condition")
+  if (!all(required_manifest %in% names(manifest))) {
+    stop("Apex comparison requires explicit model-group and reference identities.",
+         call. = FALSE)
+  }
+  character_identity_fields <- c("prefix", "condition", "model_group",
+                                 "reference_condition")
+  invalid_identity <- vapply(character_identity_fields, function(field) {
+    value <- manifest[[field]]
+    !is.character(value) || length(value) != nrow(manifest) ||
+      anyNA(value) || any(!nzchar(value))
+  }, logical(1))
+  if (any(invalid_identity) || !is.logical(manifest$is_reference) ||
+      length(manifest$is_reference) != nrow(manifest) ||
+      anyNA(manifest$is_reference)) {
+    stop("Apex comparison requires nonempty character identities and strict nonmissing logical reference flags.",
+         call. = FALSE)
+  }
+  prefixes <- as.character(manifest$prefix)
+  if (anyDuplicated(prefixes) || is.null(names(analysis$normalized_data)) ||
+      !identical(names(analysis$normalized_data), prefixes) ||
+      is.null(names(report$panels)) || !identical(names(report$panels), prefixes)) {
+    stop("Apex comparison inputs must follow exact unique manifest-prefix order.",
+         call. = FALSE)
+  }
+  offset_qc <- report$display_offset_qc
+  if (!is.data.frame(offset_qc) ||
+      !all(c("prefix", "display_status", "display_offset") %in% names(offset_qc)) ||
+      !identical(as.character(offset_qc$prefix), prefixes)) {
+    stop("Apex comparison requires display offsets in exact manifest-prefix order.",
+         call. = FALSE)
+  }
+  apex_range <- as.numeric(unlist(analysis$config$edu_apex_x_range))
+  density_adjust <- analysis$config$edu_apex_density_adjust
+  if (length(apex_range) != 2L || any(!is.finite(apex_range)) ||
+      apex_range[[1L]] >= apex_range[[2L]] ||
+      !is.numeric(density_adjust) || length(density_adjust) != 1L ||
+      !is.finite(density_adjust) || density_adjust <= 0) {
+    stop("Apex comparison requires a valid configured apex range and density adjustment.",
+         call. = FALSE)
+  }
+  apex_rows <- lapply(seq_along(prefixes), function(i) {
+    prefix <- prefixes[[i]]
+    if (!identical(offset_qc$display_status[[i]], "available") ||
+        !is.finite(offset_qc$display_offset[[i]])) {
+      stop("Apex comparison requires an available finite display offset for ",
+           prefix, ".", call. = FALSE)
+    }
+    positive <- analysis$normalized_data[[i]]$edu_positive
+    if (!is.data.frame(positive) ||
+        !all(c("dna_norm", "target_bgsub") %in% names(positive))) {
+      stop("Apex comparison requires retained EdU-positive normalized events for ",
+           prefix, ".", call. = FALSE)
+    }
+    apex <- suppressWarnings(facspseudocolor:::calculate_edu_apex_density(
+      positive, y_column = "target_bgsub", mid_x_range = apex_range,
+      density_adjust = density_adjust, minimum_events = 10L,
+      condition_label = prefix
+    ))
+    if (!is.finite(apex$y)) {
+      stop("Apex comparison requires at least ten finite positive-signal EdU-positive events in the configured apex window for ",
+           prefix, "; observed ", apex$n, ".", call. = FALSE)
+    }
+    data.frame(prefix = prefix, model_group = as.character(manifest$model_group[[i]]),
+               condition = as.character(manifest$condition[[i]]),
+               is_reference = manifest$is_reference[[i]],
+               display_offset = offset_qc$display_offset[[i]],
+               apex_background_subtracted_signal = apex$y,
+               apex_event_n = apex$n,
+               stringsAsFactors = FALSE)
+  })
+  apex_table <- do.call(rbind, apex_rows)
+  reference_by_group <- lapply(unique(apex_table$model_group), function(group_id) {
+    group_index <- which(apex_table$model_group == group_id)
+    reference_index <- group_index[apex_table$is_reference[group_index]]
+    declared <- unique(as.character(manifest$reference_condition[
+      as.character(manifest$model_group) == group_id
+    ]))
+    if (length(reference_index) != 1L || length(declared) != 1L ||
+        is.na(declared) || !nzchar(declared) ||
+        !identical(apex_table$condition[[reference_index]], declared[[1L]])) {
+      stop("Apex comparison requires exactly one correctly identified reference in model group ",
+           group_id, ".", call. = FALSE)
+    }
+    c(group_id = group_id, reference_prefix = apex_table$prefix[[reference_index]],
+      reference_apex = apex_table$apex_background_subtracted_signal[[reference_index]])
+  })
+  reference_table <- do.call(rbind, lapply(reference_by_group, function(value) {
+    data.frame(model_group = value[["group_id"]],
+               reference_prefix = value[["reference_prefix"]],
+               reference_apex_background_subtracted_signal =
+                 as.numeric(value[["reference_apex"]]),
+               stringsAsFactors = FALSE)
+  }))
+  apex_table$reference_prefix <- reference_table$reference_prefix[
+    match(apex_table$model_group, reference_table$model_group)
+  ]
+  apex_table$reference_apex_background_subtracted_signal <-
+    reference_table$reference_apex_background_subtracted_signal[
+      match(apex_table$model_group, reference_table$model_group)
+    ]
+  if (anyNA(apex_table$reference_prefix) ||
+      any(!is.finite(apex_table$reference_apex_background_subtracted_signal))) {
+    stop("Apex comparison reference coverage is incomplete.", call. = FALSE)
+  }
+  apex_table$current_line_display_signal <-
+    apex_table$apex_background_subtracted_signal + apex_table$display_offset
+  apex_table$reference_line_display_signal <-
+    apex_table$reference_apex_background_subtracted_signal +
+      apex_table$display_offset
+  apex_report <- report
+  for (i in seq_along(prefixes)) {
+    current <- apex_table[i, , drop = FALSE]
+    panel <- apex_report$panels[[prefixes[[i]]]] + ggplot2::geom_hline(
+      yintercept = current$reference_line_display_signal[[1L]],
+      colour = "#2166AC", linetype = "dashed", linewidth = 0.7
+    )
+    if (!isTRUE(current$is_reference[[1L]])) {
+      panel <- panel + ggplot2::geom_hline(
+        yintercept = current$current_line_display_signal[[1L]],
+        colour = "#B2182B", linetype = "solid", linewidth = 0.7
+      )
+    }
+    apex_report$panels[[prefixes[[i]]]] <- panel
+  }
+  group_apex <- split(seq_len(nrow(apex_table)), apex_table$model_group)
+  for (indices in group_apex) {
+    panel_indices <- match(apex_table$prefix[indices], report$panel_qc$prefix)
+    values <- c(apex_table$current_line_display_signal[indices],
+                apex_table$reference_line_display_signal[indices])
+    lower <- min(c(report$panel_qc$y_limit_lower[panel_indices], values))
+    upper <- max(c(report$panel_qc$y_limit_upper[panel_indices], values))
+    if (isTRUE(analysis$config$y_log10)) {
+      if (lower <= 0) stop("Apex comparison log display limits must be positive.",
+                           call. = FALSE)
+      padding <- diff(log10(c(lower, upper))) * 0.03
+      lower <- 10^(log10(lower) - padding)
+      upper <- 10^(log10(upper) + padding)
+    } else {
+      padding <- (upper - lower) * 0.03
+      lower <- lower - padding
+      upper <- upper + padding
+    }
+    apex_report$panel_qc$y_limit_lower[panel_indices] <- lower
+    apex_report$panel_qc$y_limit_upper[panel_indices] <- upper
+  }
+  list(report = apex_report, apex = apex_table,
+       reference_colour = "#2166AC", reference_linetype = "dashed",
+       sample_colour = "#B2182B", sample_linetype = "solid",
+       method = "mode_of_log10_background_subtracted_signal_within_configured_edu_positive_apex_window_then_destination_display_offset")
+}
+
+facs_report_edu_phase_gate_comparison <- function(analysis, report) {
+  facspseudocolor:::validate_analysis_object(analysis)
+  if (!inherits(report, "edu_pseudocolor_output_contract")) {
+    stop("A completed EdU pseudocolor output contract is required for phase-gate overlays.",
+         call. = FALSE)
+  }
+  prefixes <- as.character(analysis$sample_manifest$prefix)
+  if (!identical(names(report$panels), prefixes) ||
+      !identical(as.character(report$panel_qc$prefix), prefixes) ||
+      !identical(as.character(report$display_offset_qc$prefix), prefixes)) {
+    stop("Phase-gate overlays require exact manifest-prefix report order.",
+         call. = FALSE)
+  }
+  phase_report <- report
+  gate_tables <- vector("list", length(prefixes))
+  names(gate_tables) <- prefixes
+  for (i in seq_along(prefixes)) {
+    limits <- c(report$panel_qc$y_limit_lower[[i]],
+                report$panel_qc$y_limit_upper[[i]])
+    offset <- report$display_offset_qc$display_offset[[i]]
+    if (any(!is.finite(limits)) || limits[[1L]] >= limits[[2L]] ||
+        !is.finite(offset)) {
+      stop("Phase-gate overlays require available display limits and offsets for ",
+           prefixes[[i]], ".", call. = FALSE)
+    }
+    gates <- facspseudocolor:::analysis_display_gate_rectangles(
+      analysis, limits, offset
+    )
+    polygons <- facspseudocolor:::make_computed_edu_gate_polygons(
+      analysis$normalized_data[[i]], gates, limits, offset
+    )
+    labels <- do.call(rbind, lapply(split(polygons, polygons$gate), function(x) {
+      positive_y <- x$y[is.finite(x$y) & x$y > 0]
+      if (!length(positive_y)) {
+        stop("Phase-gate label has no positive display coordinate.",
+             call. = FALSE)
+      }
+      data.frame(
+        gate = x$gate[[1L]], x = mean(range(x$x)),
+        y = exp(mean(log(range(positive_y)))), stringsAsFactors = FALSE
+      )
+    }))
+    phase_report$panels[[i]] <- facspseudocolor:::add_phase_gate_polygons_to_plot(
+      phase_report$panels[[i]], polygons, color = "#1A1A1A",
+      linetype = "dashed", linewidth = 0.55
+    ) + ggplot2::geom_text(
+      data = labels, ggplot2::aes(x = .data$x, y = .data$y, label = .data$gate),
+      inherit.aes = FALSE, colour = "#1A1A1A", size = 2.2,
+      fontface = "bold"
+    )
+    gate_tables[[i]] <- gates
+  }
+  list(report = phase_report, gates = gate_tables,
+       line_colour = "#1A1A1A", line_type = "dashed")
+}
+
+facs_report_embedded_plot_pdf_link <- function(
+    plot, filename, width = 3, height = 3, label = "Download PDF",
+    maximum_bytes = 8 * 1024^2
+) {
+  if (!inherits(plot, "ggplot")) {
+    stop("Embedded PDF download requires one ggplot object.", call. = FALSE)
+  }
+  if (!is.character(filename) || length(filename) != 1L || is.na(filename) ||
+      !nzchar(filename) || !is.character(label) || length(label) != 1L ||
+      is.na(label) || !nzchar(label) ||
+      !is.numeric(width) || length(width) != 1L ||
+      !is.finite(width) || width <= 0 || !is.numeric(height) ||
+      length(height) != 1L || !is.finite(height) || height <= 0 ||
+      !is.numeric(maximum_bytes) || length(maximum_bytes) != 1L ||
+      !is.finite(maximum_bytes) || maximum_bytes <= 0) {
+    stop("Embedded PDF download requires a filename and positive dimensions.",
+         call. = FALSE)
+  }
+  safe_filename <- gsub("[^A-Za-z0-9._-]", "_", basename(filename))
+  if (!grepl("[.]pdf$", safe_filename, ignore.case = TRUE)) {
+    safe_filename <- paste0(safe_filename, ".pdf")
+  }
+  pdf_path <- tempfile("facs-plot-download-", fileext = ".pdf")
+  device_open <- FALSE
+  on.exit({
+    if (device_open) grDevices::dev.off()
+    unlink(pdf_path)
+  }, add = TRUE)
+  grDevices::pdf(pdf_path, width = width, height = height,
+                 onefile = TRUE, useDingbats = FALSE)
+  device_open <- TRUE
+  print(plot)
+  grDevices::dev.off()
+  device_open <- FALSE
+  size <- file.info(pdf_path)$size
+  if (!is.finite(size) || size <= 0) {
+    stop("Embedded plot PDF generation produced no readable content.",
+         call. = FALSE)
+  }
+  if (size > maximum_bytes) {
+    stop("Embedded plot PDF exceeds the configured per-plot safety limit.",
+         call. = FALSE)
+  }
+  bytes <- readBin(pdf_path, what = "raw", n = size)
+  encoded <- openssl::base64_encode(bytes)
+  safe_label <- gsub("&", "&amp;", label, fixed = TRUE)
+  safe_label <- gsub("<", "&lt;", safe_label, fixed = TRUE)
+  safe_label <- gsub(">", "&gt;", safe_label, fixed = TRUE)
+  result <- paste0(
+    '<a class="plot-pdf-download" download="', safe_filename,
+    '" href="data:application/pdf;base64,', encoded, '">',
+    safe_label, '</a>'
+  )
+  attr(result, "pdf_bytes") <- as.numeric(size)
+  result
+}
+
+facs_report_edu_all_panels_canvas <- function(report, max_columns = 4L,
+                                              panel_width = 3,
+                                              panel_height = 3) {
+  if (!is.list(report) || !is.list(report$panels) || !length(report$panels) ||
+      is.null(names(report$panels)) || any(!nzchar(names(report$panels))) ||
+      any(!vapply(report$panels, inherits, logical(1), what = "ggplot")) ||
+      !is.numeric(max_columns) || length(max_columns) != 1L ||
+      is.na(max_columns) || !is.finite(max_columns) || max_columns < 1 ||
+      max_columns != floor(max_columns) ||
+      !is.numeric(panel_width) || length(panel_width) != 1L ||
+      !is.finite(panel_width) || panel_width <= 0 ||
+      !is.numeric(panel_height) || length(panel_height) != 1L ||
+      !is.finite(panel_height) || panel_height <= 0) {
+    stop("All-panel PDF canvas requires named ggplot panels and positive dimensions.",
+         call. = FALSE)
+  }
+  columns <- min(as.integer(max_columns), length(report$panels))
+  rows <- ceiling(length(report$panels) / columns)
+  list(
+    plot = cowplot::plot_grid(plotlist = unname(report$panels), ncol = columns,
+                              align = "hv"),
+    width = columns * panel_width,
+    height = rows * panel_height,
+    panel_count = length(report$panels),
+    columns = columns,
+    rows = rows
+  )
+}
+
+facs_report_edu_gating_cards <- function(analysis, all_events = NULL,
+                                         dna_height_channel = NULL,
+                                         display_offsets = NULL,
+                                         max_points = 3000L) {
+  if (!inherits(analysis, "facs_analysis") ||
+      !identical(analysis$config$plot_type, "edu") ||
+      length(analysis$normalized_data) != nrow(analysis$sample_manifest) ||
+      !is.numeric(max_points) || length(max_points) != 1L ||
+      is.na(max_points) || !is.finite(max_points) || max_points < 1 ||
+      max_points != floor(max_points)) {
+    stop("EdU gating cards require one valid EdU analysis and a positive point limit.",
+         call. = FALSE)
+  }
+  max_points <- as.integer(max_points)
+  prefixes <- as.character(analysis$sample_manifest$prefix)
+  if (!is.numeric(display_offsets) ||
+      !identical(names(display_offsets), prefixes) ||
+      any(!is.finite(display_offsets)) || any(display_offsets < 0)) {
+    stop("Background comparison cards require one nonnegative provenance-bound report display offset in exact sample order.",
+         call. = FALSE)
+  }
+  gating_acquisitions <- analysis$config$gating$acquisitions
+  model_derived <- identical(analysis$config$gating$mode, "model_experimental")
+  all_event_display <- !is.null(all_events)
+  if (model_derived &&
+      (!is.list(gating_acquisitions) || !length(gating_acquisitions))) {
+    stop("DNA-W gating displays require explicit per-acquisition DNA-height channel roles.",
+         call. = FALSE)
+  }
+  if (all_event_display &&
+      (!is.list(all_events) ||
+       !identical(names(all_events), as.character(analysis$sample_manifest$prefix)))) {
+    stop("DNA-A/DNA-H gating displays require explicit all-events exports in exact sample order.",
+         call. = FALSE)
+  }
+  if (!model_derived && all_event_display &&
+      (!is.character(dna_height_channel) || length(dna_height_channel) != 1L ||
+       is.na(dna_height_channel) || !nzchar(dna_height_channel))) {
+    stop("FlowJo DNA-A/DNA-H gating displays require an explicit DNA-height channel.",
+         call. = FALSE)
+  }
+  retain_points <- function(data) {
+    if (nrow(data) <= max_points) return(data)
+    data[unique(as.integer(round(seq(1, nrow(data), length.out = max_points)))),
+         , drop = FALSE]
+  }
+  robust_axis_limits <- function(values) {
+    values <- values[is.finite(values)]
+    if (length(values) < 2L) {
+      stop("DNA-A/DNA-H display limits require at least two finite values.",
+           call. = FALSE)
+    }
+    limits <- as.numeric(stats::quantile(
+      values, c(0.001, 0.999), names = FALSE, type = 7
+    ))
+    span <- diff(limits)
+    if (!all(is.finite(limits)) || span <= 0) {
+      stop("DNA-A/DNA-H display limits are degenerate.", call. = FALSE)
+    }
+    limits + c(-1, 1) * span * 0.03
+  }
+  overlay_plot <- function(parent, child, title, child_colour, identity,
+                           dna_channel, target_channel) {
+    identity_column <- if (model_derived) "event_identity" else "event_index"
+    if (identity_column %in% names(parent) && identity_column %in% names(child)) {
+      if (anyDuplicated(parent[[identity_column]]) ||
+          anyDuplicated(child[[identity_column]])) {
+        stop("Exclusive gating overlays require unique event identities.",
+             call. = FALSE)
+      }
+      parent <- parent[
+        !parent[[identity_column]] %in% child[[identity_column]], , drop = FALSE
+      ]
+    }
+    parent <- parent[is.finite(parent[[target_channel]]) &
+                       parent[[target_channel]] > 0, , drop = FALSE]
+    child <- child[is.finite(child[[target_channel]]) &
+                     child[[target_channel]] > 0, , drop = FALSE]
+    ggplot2::ggplot() +
+      ggplot2::geom_point(
+        data = retain_points(parent),
+        ggplot2::aes(x = .data[[dna_channel]], y = .data[[target_channel]]),
+        colour = "#4D4D4D", shape = 1, size = 0.34, stroke = 0.25,
+        alpha = 0.65
+      ) +
+      ggplot2::geom_point(
+        data = retain_points(child),
+        ggplot2::aes(x = .data[[dna_channel]], y = .data[[target_channel]]),
+        colour = child_colour, shape = 16, size = 0.42, stroke = 0,
+        alpha = 0.78
+      ) +
+      ggplot2::labs(title = title, subtitle = identity, x = "DNA", y = "EdU") +
+      ggplot2::scale_y_log10() +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 1,
+                     plot.title = ggplot2::element_text(face = "bold"))
+  }
+  manifest <- analysis$sample_manifest
+  lapply(seq_len(nrow(manifest)), function(i) {
+    sample <- analysis$normalized_data[[i]]
+    prefix <- as.character(manifest$prefix[[i]])
+    display_offset <- unname(display_offsets[[prefix]])
+    condition <- as.character(manifest$condition[[i]])
+    identity <- paste0(condition, " | Sample: ", prefix)
+    dna_area_source_channel <- NA_character_
+    sample_dna_height_channel <- NA_character_
+    if (model_derived) {
+      acquisition_prefixes <- vapply(
+        gating_acquisitions, function(item) as.character(item$prefix %||% ""),
+        character(1)
+      )
+      acquisition_index <- which(acquisition_prefixes == prefix)
+      if (length(acquisition_index) != 1L) {
+        stop("DNA channel roles are not uniquely configured for ", prefix,
+             ".", call. = FALSE)
+      }
+      roles <- gating_acquisitions[[acquisition_index]]$channel_roles
+      dna_area_source_channel <- roles$dna_area
+      sample_dna_height_channel <- roles$dna_height
+      if (!is.character(dna_area_source_channel) ||
+          length(dna_area_source_channel) != 1L ||
+          is.na(dna_area_source_channel) || !nzchar(dna_area_source_channel) ||
+          !is.character(sample_dna_height_channel) ||
+          length(sample_dna_height_channel) != 1L ||
+          is.na(sample_dna_height_channel) || !nzchar(sample_dna_height_channel) ||
+          !identical(analysis$config$dna_channel, "DNA content")) {
+        stop("Model-derived DNA-A/DNA-W display roles or exported DNA-area mapping are unavailable for ",
+             prefix, ".", call. = FALSE)
+      }
+    } else if (all_event_display) {
+      dna_area_source_channel <- analysis$config$dna_channel
+      sample_dna_height_channel <- dna_height_channel
+    }
+    if (!is.data.frame(sample$data) || !is.data.frame(sample$g1) ||
+        !is.data.frame(sample$edu_positive)) {
+      stop("Validated Single Cells, G1, and EdU-positive inputs are required for gating card ",
+           prefix, ".", call. = FALSE)
+    }
+    g1 <- sample$g1
+    single <- sample$data
+    positive <- sample$edu_positive
+    required_single <- c(analysis$config$dna_channel,
+                         analysis$config$target_channel, "baseline",
+                         "target_bgsub")
+    if (all_event_display) required_single <- c(required_single, sample_dna_height_channel)
+    required_child <- c(analysis$config$dna_channel,
+                        analysis$config$target_channel)
+    if (any(!required_single %in% names(single)) ||
+        any(!required_child %in% names(g1)) ||
+        any(!required_child %in% names(positive)) ||
+        !nrow(single) || !nrow(g1) || !nrow(positive)) {
+      stop("Gating card inputs lack required channels or events for ", prefix,
+           ".", call. = FALSE)
+    }
+    if (all_event_display) {
+      all_data <- all_events[[prefix]]
+      identity_column <- if (model_derived) "event_identity" else "event_index"
+      if (!is.data.frame(all_data) ||
+          any(!c(analysis$config$dna_channel, sample_dna_height_channel,
+                 identity_column) %in%
+              names(all_data)) || !nrow(all_data)) {
+        stop("Validated all-events DNA-A/DNA-H coordinates are unavailable for ",
+             prefix, ".", call. = FALSE)
+      }
+      single_x_limits <- robust_axis_limits(
+        all_data[[analysis$config$dna_channel]]
+      )
+      single_y_limits <- robust_axis_limits(all_data[[sample_dna_height_channel]])
+      single_axis_coverage <- mean(
+        is.finite(all_data[[analysis$config$dna_channel]]) &
+          is.finite(all_data[[sample_dna_height_channel]]) &
+          all_data[[analysis$config$dna_channel]] >= single_x_limits[[1L]] &
+          all_data[[analysis$config$dna_channel]] <= single_x_limits[[2L]] &
+          all_data[[sample_dna_height_channel]] >= single_y_limits[[1L]] &
+          all_data[[sample_dna_height_channel]] <= single_y_limits[[2L]]
+      )
+      if (!identity_column %in% names(single) ||
+          anyDuplicated(all_data[[identity_column]]) ||
+          anyDuplicated(single[[identity_column]])) {
+        stop("Single Cells display requires unique direct event identities for ",
+             prefix, ".", call. = FALSE)
+      }
+      if (any(!single[[identity_column]] %in% all_data[[identity_column]])) {
+        stop("Single Cells event identities are not contained in the explicit all-events acquisition for ",
+             prefix, ".", call. = FALSE)
+      }
+      all_context <- all_data[
+        !all_data[[identity_column]] %in% single[[identity_column]], , drop = FALSE
+      ]
+      single_plot <- ggplot2::ggplot() +
+        ggplot2::geom_point(
+          data = retain_points(all_context),
+          ggplot2::aes(x = .data[[analysis$config$dna_channel]],
+                       y = .data[[sample_dna_height_channel]]),
+          colour = "#4D4D4D", shape = 1, size = 0.34, stroke = 0.25,
+          alpha = 0.65
+        ) +
+        ggplot2::geom_point(
+          data = retain_points(single),
+          ggplot2::aes(x = .data[[analysis$config$dna_channel]],
+                       y = .data[[sample_dna_height_channel]]),
+          colour = "#0072B2", shape = 16, size = 0.42, stroke = 0,
+          alpha = 0.78
+        ) +
+        ggplot2::labs(title = "Single Cells", subtitle = identity,
+                      x = "DNA-A", y = "DNA-H") +
+        ggplot2::coord_cartesian(
+          xlim = single_x_limits, ylim = single_y_limits
+        )
+      single_x_axis <- "DNA-A"
+      single_y_axis <- "DNA-H"
+    } else {
+      single_plot <- ggplot2::ggplot(
+        retain_points(single),
+        ggplot2::aes(x = .data[[analysis$config$dna_channel]],
+                     y = .data[[analysis$config$target_channel]])) +
+        ggplot2::geom_point(colour = "#0072B2", shape = 16,
+                            size = 0.42, stroke = 0, alpha = 0.78) +
+        ggplot2::labs(title = "Single Cells", subtitle = identity,
+                      x = "DNA", y = "EdU")
+      single_x_axis <- "DNA"
+      single_y_axis <- "EdU"
+      single_x_limits <- c(NA_real_, NA_real_)
+      single_y_limits <- c(NA_real_, NA_real_)
+      single_axis_coverage <- 1
+    }
+    single_plot <- single_plot +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 1,
+                     plot.title = ggplot2::element_text(face = "bold"))
+    g1_plot <- overlay_plot(
+      single, g1, "G1", "#0072B2", identity,
+      analysis$config$dna_channel, analysis$config$target_channel
+    )
+    positive_plot <- overlay_plot(
+      single, positive, "EdU+", "#D55E00", identity,
+      analysis$config$dna_channel, analysis$config$target_channel
+    )
+    background_curve <- single[
+      is.finite(single[[analysis$config$dna_channel]]) &
+        is.finite(single$baseline) & single$baseline > 0,
+      c(analysis$config$dna_channel, "baseline"), drop = FALSE
+    ]
+    background_curve <- background_curve[
+      order(background_curve[[analysis$config$dna_channel]]), , drop = FALSE
+    ]
+    if (nrow(background_curve) < 2L) {
+      stop("Fitted EdU background coordinates are unavailable for ", prefix,
+           ".", call. = FALSE)
+    }
+    comparison_parent <- single[
+      is.finite(single[[analysis$config$dna_channel]]) &
+        is.finite(single[[analysis$config$target_channel]]) &
+        single[[analysis$config$target_channel]] > 0 &
+        is.finite(single$target_bgsub + display_offset) &
+        single$target_bgsub + display_offset > 0, , drop = FALSE
+    ]
+    if (nrow(comparison_parent) < 2L) {
+      stop("Too few common log-display-valid background comparison events for ",
+           prefix, ".", call. = FALSE)
+    }
+    raw_background_plot <- ggplot2::ggplot() +
+      ggplot2::geom_point(
+        data = retain_points(comparison_parent),
+        ggplot2::aes(x = .data[[analysis$config$dna_channel]],
+                     y = .data[[analysis$config$target_channel]]),
+        colour = "#000000", size = 0.25, stroke = 0, alpha = 0.45
+      ) +
+      ggplot2::geom_line(
+        data = background_curve,
+        ggplot2::aes(x = .data[[analysis$config$dna_channel]], y = .data$baseline),
+        colour = "#542788", linewidth = 0.55, linetype = "dashed"
+      ) +
+      ggplot2::labs(title = "Raw EdU + fitted background", subtitle = identity,
+                    x = "DNA", y = "EdU") +
+      ggplot2::scale_y_log10() +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 1,
+                     plot.title = ggplot2::element_text(face = "bold"))
+    corrected <- comparison_parent
+    corrected$displayed_signal <- corrected$target_bgsub + display_offset
+    corrected_plot <- ggplot2::ggplot(
+      retain_points(corrected),
+      ggplot2::aes(x = .data[[analysis$config$dna_channel]],
+                   y = .data$displayed_signal)
+    ) +
+      ggplot2::geom_point(
+        colour = "#4D4D4D", size = 0.25, stroke = 0, alpha = 0.55
+      ) +
+      ggplot2::labs(
+        title = "Background-subtracted EdU + offset", subtitle = identity,
+        x = "DNA", y = "EdU"
+      ) +
+      ggplot2::scale_y_log10() +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 1,
+                     plot.title = ggplot2::element_text(face = "bold"))
+    background_comparison_plot <- cowplot::plot_grid(
+      raw_background_plot, corrected_plot, nrow = 1L, align = "hv"
+    )
+    list(
+      prefix = prefix, condition = condition,
+      plot = cowplot::plot_grid(single_plot, g1_plot, positive_plot,
+                                nrow = 1L, align = "hv"),
+      background_plot = background_comparison_plot,
+      single_cells_n = nrow(single), g1_n = nrow(g1),
+      edu_positive_n = nrow(positive), displayed_point_limit = max_points,
+      single_cells_x_axis = single_x_axis,
+      single_cells_y_axis = single_y_axis,
+      dna_area_source_channel = dna_area_source_channel,
+      dna_height_source_channel = sample_dna_height_channel,
+      single_cells_x_limits = single_x_limits,
+      single_cells_y_limits = single_y_limits,
+      single_cells_axis_coverage = single_axis_coverage,
+      overlay_x_axis = "DNA", overlay_y_axis = "EdU",
+      background_line_source = "sample_fitted_raw_edu_baseline",
+      background_display_offset = display_offset
+    )
+  })
+}
+
+facs_report_edu_s_phase_cards <- function(analysis, report,
+                                          max_points = 3000L) {
+  required_gates <- c("Early S", "Mid S", "Late S")
+  gates <- analysis$quantitation$gates
+  prefixes <- as.character(analysis$sample_manifest$prefix)
+  if (!inherits(analysis, "facs_analysis") ||
+      !identical(analysis$config$plot_type, "edu") ||
+      !is.list(report) || !is.data.frame(report$panel_qc) ||
+      !is.data.frame(report$display_offset_qc) ||
+      !is.data.frame(gates) ||
+      !all(c("gate", "xmin", "xmax") %in% names(gates)) ||
+      !all(required_gates %in% gates$gate) ||
+      !identical(as.character(report$panel_qc$prefix), prefixes) ||
+      !identical(as.character(report$display_offset_qc$prefix), prefixes) ||
+      !is.numeric(max_points) || length(max_points) != 1L ||
+      is.na(max_points) || !is.finite(max_points) || max_points < 1 ||
+      max_points != floor(max_points)) {
+    stop("S-phase cards require validated EdU panels, offsets, and established regional gates.",
+         call. = FALSE)
+  }
+  max_points <- as.integer(max_points)
+  retain_points <- function(data) {
+    if (nrow(data) <= max_points) return(data)
+    data[unique(as.integer(round(seq(1, nrow(data), length.out = max_points)))),
+         , drop = FALSE]
+  }
+  regional_gates <- gates[match(required_gates, gates$gate), , drop = FALSE]
+  colours <- c("Early S" = "#0B4BFF", "Mid S" = "#12BED0",
+               "Late S" = "#A026A3")
+  lapply(seq_along(prefixes), function(i) {
+    prefix <- prefixes[[i]]
+    data <- analysis$normalized_data[[i]]$data
+    offset <- report$display_offset_qc$display_offset[[i]]
+    lower <- report$panel_qc$y_limit_lower[[i]]
+    upper <- report$panel_qc$y_limit_upper[[i]]
+    if (!is.data.frame(data) ||
+        !all(c("dna_norm", "target_bgsub", "edu_computed_positive") %in%
+             names(data)) ||
+        !is.finite(offset) || !is.finite(lower) || !is.finite(upper) ||
+        lower >= upper) {
+      stop("S-phase card inputs are unavailable for ", prefix, ".",
+           call. = FALSE)
+    }
+    display <- data.frame(
+      dna_norm = data$dna_norm,
+      displayed_signal = data$target_bgsub + offset,
+      edu_computed_positive = data$edu_computed_positive,
+      phase = "Other", stringsAsFactors = FALSE
+    )
+    for (gate_index in seq_len(nrow(regional_gates))) {
+      gate <- regional_gates[gate_index, , drop = FALSE]
+      selected <- display$phase == "Other" &
+        display$edu_computed_positive %in% TRUE &
+        is.finite(display$dna_norm) &
+        display$dna_norm >= gate$xmin[[1L]] &
+        display$dna_norm < gate$xmax[[1L]]
+      display$phase[selected] <- as.character(gate$gate[[1L]])
+    }
+    assignment_counts <- table(factor(display$phase, levels = required_gates))
+    keep <- is.finite(display$dna_norm) & is.finite(display$displayed_signal) &
+      display$dna_norm >= analysis$config$x_limits[[1L]] &
+      display$dna_norm <= analysis$config$x_limits[[2L]] &
+      display$displayed_signal >= lower & display$displayed_signal <= upper
+    if (isTRUE(analysis$config$y_log10)) {
+      keep <- keep & display$displayed_signal > 0
+    }
+    display <- display[keep, , drop = FALSE]
+    background <- retain_points(display[display$phase == "Other", , drop = FALSE])
+    regional <- retain_points(display[display$phase %in% required_gates, , drop = FALSE])
+    regional$phase <- factor(regional$phase, levels = required_gates)
+    identity <- paste0(analysis$sample_manifest$condition[[i]],
+                       " | Sample: ", prefix)
+    plot <- ggplot2::ggplot() +
+      ggplot2::geom_point(
+        data = background,
+        ggplot2::aes(x = dna_norm, y = displayed_signal),
+        colour = "#D0D0D0", size = 0.25, stroke = 0
+      ) +
+      ggplot2::geom_point(
+        data = regional,
+        ggplot2::aes(x = dna_norm, y = displayed_signal, colour = phase),
+        size = 0.3, stroke = 0
+      ) +
+      ggplot2::scale_colour_manual(values = colours, breaks = required_gates,
+                                   drop = FALSE, name = NULL) +
+      ggplot2::scale_x_continuous(
+        breaks = c(analysis$config$dna_2n_value,
+                   2 * analysis$config$dna_2n_value),
+        labels = c("2N", "4N")
+      ) +
+      ggplot2::coord_cartesian(xlim = as.numeric(analysis$config$x_limits),
+                               ylim = c(lower, upper)) +
+      ggplot2::labs(title = prefix, subtitle = identity, x = "DNA", y = "EdU") +
+      ggplot2::theme_classic(base_size = 9) +
+      ggplot2::theme(aspect.ratio = 1, legend.position = "bottom",
+                     plot.title = ggplot2::element_text(face = "bold"))
+    if (isTRUE(analysis$config$y_log10)) {
+      plot <- plot + ggplot2::scale_y_log10()
+    }
+    list(prefix = prefix,
+         condition = as.character(analysis$sample_manifest$condition[[i]]),
+         plot = plot,
+         early_s_n = unname(as.integer(assignment_counts[["Early S"]])),
+         mid_s_n = unname(as.integer(assignment_counts[["Mid S"]])),
+         late_s_n = unname(as.integer(assignment_counts[["Late S"]])),
+         displayed_point_limit = max_points)
+  })
 }
 
 facs_report_edu_responsive_groups <- function(
@@ -604,7 +1345,7 @@ facs_report_edu_responsive_groups <- function(
   overview_panel <- function(panel, shared_y_limits = NULL) {
     out <- panel + ggplot2::labs(
       title = NULL, subtitle = NULL,
-      y = "EdU signal (display scale)"
+      x = "DNA", y = "EdU"
     ) +
     ggplot2::theme(legend.position = "none")
     if (!is.null(shared_y_limits)) {
@@ -713,7 +1454,7 @@ facs_report_edu_responsive_groups <- function(
     legend_source_prefix <- if (length(candidate)) prefixes[[candidate[[1L]]]] else NA_character_
     legend <- if (length(candidate)) cowplot::get_legend(
       report$panels[[candidate[[1L]]]] +
-        ggplot2::labs(colour = "Within-panel relative density") +
+        ggplot2::labs(colour = NULL) +
         ggplot2::theme(legend.position = "bottom")
     ) else NULL
     list(

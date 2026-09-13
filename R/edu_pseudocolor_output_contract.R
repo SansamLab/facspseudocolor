@@ -104,7 +104,7 @@ edu_display_limits <- function(values, config) {
 edu_display_panel <- function(sample, manifest_row, offset_record, analysis) {
   prefix <- manifest_row$prefix[[1L]]
   identity <- paste0(
-    "Condition: ", manifest_row$condition[[1L]],
+    manifest_row$condition[[1L]],
     " | Biological replicate: ", manifest_row$replicate[[1L]],
     " | Technical acquisition: ", manifest_row$technical_replicate[[1L]]
   )
@@ -115,7 +115,7 @@ edu_display_panel <- function(sample, manifest_row, offset_record, analysis) {
                           label = paste("SUPPRESSED:", offset_record$reason_code,
                                         "\n", offset_record$reason_detail)) +
         ggplot2::labs(title = prefix, subtitle = identity,
-                      x = "Normalized DNA content", y = "EdU display signal") +
+                      x = "DNA", y = "EdU") +
         ggplot2::theme_void() + ggplot2::theme(plot.title = ggplot2::element_text(face = "bold")),
       status = offset_record$status, reason_code = offset_record$reason_code,
       displayed_event_n = 0L, display_limits = c(NA_real_, NA_real_)
@@ -163,14 +163,20 @@ edu_display_panel <- function(sample, manifest_row, offset_record, analysis) {
     # changed by this palette selection.
     ggplot2::scale_color_gradientn(colours = refined_density_palette(),
                                    limits = c(0, 1), oob = scales::squish,
-                                   name = "Relative density") +
+                                   name = NULL,
+                                   breaks = c(0, 0.5, 1),
+                                   labels = c("0", "0.5", "1"),
+                                   guide = ggplot2::guide_colourbar(
+                                     direction = "vertical",
+                                     barheight = grid::unit(0.6, "in"),
+                                     barwidth = grid::unit(0.153, "in")
+                                   )) +
     ggplot2::scale_x_continuous(breaks = c(analysis$config$dna_2n_value,
                                             2 * analysis$config$dna_2n_value),
                                 labels = c("2N", "4N")) +
     ggplot2::coord_cartesian(xlim = as.numeric(analysis$config$x_limits), ylim = limits) +
     ggplot2::labs(title = prefix, subtitle = identity,
-                  x = "Normalized DNA content",
-                  y = "EdU background-subtracted fluorescence (display offset)") +
+                  x = "DNA", y = "EdU") +
     ggplot2::theme_classic(base_size = 10) +
     ggplot2::theme(aspect.ratio = 1,
                    plot.title = ggplot2::element_text(face = "bold"))

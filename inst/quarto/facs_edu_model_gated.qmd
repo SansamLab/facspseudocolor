@@ -16,10 +16,17 @@ model_gate_inputs <- validate_edu_model_gate_manifest(analysis, params$model_gat
 report <- build_edu_pseudocolor_output_contract(analysis)
 ```
 
-> **EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.** Single Cells and G1 were
-> called with immutable development-only models, not FlowJo gates. This report
+> **EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.** Single Cells, G1, and EdU+
+> were called from raw FCS events with immutable frozen models. No FlowJo
+> workspace or FlowJo gate was used. This report
 > does not establish biological ground truth, production performance, or broad
 > generalizability.
+
+The EdU classifier is the validated `PORTABLE_HGB_V1` export of
+`EDU_POSITIVE_MODEL002`. It preserves the frozen model, feature order, and
+calls without pickle deserialization or a scikit-learn/Python-version dependency.
+The manifest's `derived_from_reference_sha256` records the validated predictor
+source used to derive the embedded traversal; it is not an embedded-code digest.
 
 ## Every-sample DNA-versus-EdU panels
 
@@ -29,7 +36,7 @@ for (prefix in names(report$panels)) print(report$panels[[prefix]])
 
 ## EdU-positive percentages
 
-EdU positivity remains the explicitly mapped FlowJo annotation intersected by
+EdU positivity is a model call at the frozen 0.385 threshold, intersected by
 direct event identity with each model-derived Single Cells population.
 
 ```{r}
@@ -55,6 +62,18 @@ The G1 model was developed within expert-reference Single Cells. Applying it
 after model-derived Single Cells changes its parent distribution; prior G1
 validation metrics therefore do not validate this composed use. The older G1
 rule also omits the second-marker axes used by the audited expert G1 gates.
+For EdU experiments, model-called EdU+ events are excluded from the final G1
+population before that G1 table is used for normalization or background fitting.
+The operation also requires raw DNA-A to be at least 35% of the median positive
+DNA-A among preliminary EdU-negative G1 candidates. This acquisition-specific
+minimum adapts to detector scale and is recorded in the gating manifest.
+
+The EdU model was validated only within expert-gated Single Cells. Its use here
+within model-derived Single Cells changes the parent distribution and is an
+explicitly approved experimental extension; its earlier validation metrics do
+not validate this composed use. Frozen thresholds are Single Cells 0.205, G1
+0.255, and EdU+ 0.385. These outputs must not be represented as biological
+ground truth or production gating.
 
 ## Software used
 

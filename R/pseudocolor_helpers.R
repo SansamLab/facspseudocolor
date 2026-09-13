@@ -366,6 +366,7 @@ read_and_normalize_sample <- function(
   g1_anchor_target <- NA_real_
   cutoff <- NA_real_
   edu_positive_data <- NULL
+  g1 <- NULL
 
   if (uses_g1) {
     g1 <- utils::read.csv(g1_file, check.names = FALSE)
@@ -441,6 +442,7 @@ read_and_normalize_sample <- function(
 
   list(
     data = dat,
+    g1 = g1,
     edu_positive = edu_positive_data,
     g1_median_dna = g1_median_dna,
     g1_anchor_target = g1_anchor_target,

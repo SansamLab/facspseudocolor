@@ -45,7 +45,7 @@ Supplying both or neither is an error.
 
 | Template | Purpose |
 |---|---|
-| `facs_configurator.qmd` | Interactive RStudio GUI for discovering, ordering, typing, validating, and saving samples. |
+| `facs_configurator.qmd` | **Unfinished/experimental.** Guided FlowJo-gated EdU configuration prototype; not part of the stable report workflow. |
 | `facs_complete.qmd` | Pseudocolor, quantitation, tables, and provenance. |
 | `facs_pseudocolor.qmd` | Editable signal-versus-DNA panels. |
 | `facs_quantitation.qmd` | Phase and whole-population signal summaries. |
@@ -53,24 +53,45 @@ Supplying both or neither is an error.
 | `facs_diagnostics.qmd` | Gate assignments, fits, input checks, and warnings. |
 | `facs_ph3_4n.qmd` | Exact FlowJo pH3 gate intersected with configured G2/M DNA, pseudocolor, and percentage. |
 | `facs_ph3_output_contract.qmd` | Canonical four-panel pH3 condition report for a completed production output-contract analysis. |
-| `facs_edu_pseudocolor_output_contract.qmd` | Every-sample EdU DNA-versus-signal panels with auditable per-sample display-only offsets. |
+| `facs_edu_pseudocolor_output_contract.qmd` | Stable legacy-compatible EdU report retained at its established filename for 0.1-line render commands. |
+| `facs_edu_standard_v2.qmd` | Current enhanced EdU report with overview galleries, gating and correction diagnostics, quantitative cards, interactive apex and phase-gate controls, and PDF downloads. |
+| `facs_edu_model_gated.qmd` | Compact experimental model-gating report emphasizing model-derived panels and gating provenance. This remains separate from the optimized full EdU report. |
+
+The report-version policy and complete EdU series are documented in
+[`EDU_REPORT_VERSIONS.md`](EDU_REPORT_VERSIONS.md) and recorded for tools in
+`inst/quarto/report-catalog.yml`. New designs receive new filenames; established
+report templates are not replaced.
+
+For `facs_edu_standard_v2.qmd`, `embed_pseudocolor_pdf_downloads: true` embeds a
+vector PDF for every displayed overview card and adds a download button below
+that card. Each PDF uses a 3-by-3-inch page. Enabled apex-line and phase-gate
+controls also add the corresponding plain, apex, phase, and combined variants
+to the all-plots download. The PDFs are embedded in the
+self-contained HTML; no companion download directory is created.
+Because the PDFs preserve plotted event coordinates at higher fidelity than the
+overview PNGs, the report displays a sharing warning when downloads are enabled.
+Rendering fails closed if any PDF exceeds 8 MiB or the combined embedded PDFs
+exceed 96 MiB when phase-gate variants are enabled (64 MiB otherwise).
 
 ## Interactive configuration in RStudio
 
-Set the RStudio working directory to the folder containing the exported CSVs,
+Set the RStudio working directory to the experiment folder,
 run `facspseudocolor::set_facs_configurator_directory()` in the RStudio Console,
 then open `inst/quarto/facs_configurator.qmd` and click **Run Document**. The
 Shiny-backed document discovers FlowJo `.wsp` files recursively, reads their
-FCS sample names, populations, and detector channels; sets the overall EdU,
-POI, or pH3 analysis type; then uses three explicit stages to create sample
-names, assign one or more workspace FCS acquisitions to each sample, identify
-each file's biological and technical replicate, and define each sample's
-mode-specific role and order. Technical acquisitions are processed independently
-and averaged after quantitation within their biological replicate. It selects channels, validates
-the result; and downloads a standard YAML configuration containing the FlowJo
-export block. Population CSVs are generated later by the repository's external
-FlowJo orchestration step rather than serving as GUI inputs. Save the YAML with
-the analysis to preserve the exact setup.
+FCS acquisition names and detector channels, and creates a FlowJo-gated EdU
+configuration. It proposes one row per acquisition, but validation and download
+remain disabled until the user explicitly confirms the DNA-H detector and every
+included acquisition, condition, and replicate assignment against the
+experiment record. It saves those report settings in `config.yml` and never
+substitutes another detector when DNA-H is not recognized. Technical
+acquisitions are processed independently and averaged after quantitation within
+their biological replicate.
+
+This first version configures analysis and report rendering; it does not run or
+validate a FlowJo export operation. The required `flowjo_gated_csv` and
+`all_events_csv` directories must be prepared separately before the generated
+report command is run.
 
 ## Example gallery
 

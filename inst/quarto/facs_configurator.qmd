@@ -1,5 +1,6 @@
 ---
 title: "FACS analysis configurator"
+subtitle: "Experimental, unfinished interface"
 format:
   html:
     toc: false
@@ -8,7 +9,18 @@ server: shiny
 execute: { echo: false, warning: false, message: false }
 ---
 
-Use this document to inspect a FlowJo workspace, assign sample roles and order, and download a validated YAML configuration. CSV population exports are an internal downstream step. Before running it, set RStudio's working directory to the workspace folder and run `facspseudocolor::set_facs_configurator_directory()` in the Console.
+> **Development status:** This configurator is experimental and unfinished. It
+> is not part of the stable report workflow.
+
+This guided first version creates configurations for **FlowJo-gated EdU
+experiments**. It inspects the workspace, lets you include or exclude every
+acquisition, records condition names and replicate membership, and downloads a
+validated `config.yml`. No YAML editing is required. The required FlowJo-gated
+CSV exports must already exist (or be created separately); this page does not
+run or validate a FlowJo export operation.
+
+Before running it, set RStudio's working directory to the experiment folder and
+run `facspseudocolor::set_facs_configurator_directory()` in the Console.
 
 ```{r}
 #| context: setup
@@ -44,6 +56,9 @@ sample_names <- reactiveVal(character())
 loaded_config <- reactiveVal(NULL)
 loaded_analysis <- reactiveVal(NULL)
 spreadsheet_rows <- reactiveVal(NULL)
+dna_height_confirmation <- reactiveVal(NULL)
+sample_mapping_confirmation <- reactiveVal(NULL)
+spreadsheet_mapping_confirmation <- reactiveVal(NULL)
 spreadsheet_status <- reactiveVal("Load a FlowJo workspace, download the Excel template, edit it, and import it here.")
 loaded_config_status <- reactiveVal("Select a configuration and click Load configuration.")
 analysis_status <- reactiveVal("No analysis has been run in this session.")
@@ -64,12 +79,7 @@ inspect_workspace <- function(path) {
 }
 
 role_choices <- reactive({
-  switch(input$plot_type,
-    edu = c("Experimental (background fitted from this acquisition)" = "experimental"),
-    poi = c("Experimental" = "experimental",
-            "Autofluorescence background" = "reference"),
-    ph3 = c("Experimental" = "experimental")
-  )
+  c("Experimental (background fitted from this acquisition)" = "experimental")
 })
 
 suffixes_for_mode <- function(mode) {
@@ -136,11 +146,11 @@ rows_from_spreadsheet <- function(tabular) {
 config_from_rows <- function(rows) {
   mode <- input$plot_type
   config <- list(
-    plot_type = mode,
-    data_dir = file.path(initial_data_dir, "facs_population_exports"),
-    dna_channel = input$dna_channel,
-    target_channel = input$target_channel,
-    target_name = input$target_name,
+    plot_type = "edu",
+    data_dir = "flowjo_gated_csv",
+    dna_channel = "DNA content",
+    target_channel = "EdU",
+    target_name = "EdU",
     suffixes = suffixes_for_mode(mode),
     pseudocolor_signal = "background_subtracted",
     background_subtracted_offset = "auto",
@@ -148,19 +158,15 @@ config_from_rows <- function(rows) {
     quantify_reference_normalized = isTRUE(input$reference_normalize),
     output_pdf = input$output_pdf,
     output_png = input$output_png,
+    gating = list(mode = "flowjo"),
     replicates = build_replicates(rows, mode)
   )
-  positive_key <- if (identical(mode, "edu")) "edu_positive" else "ph3_positive"
-  populations <- list(complete = input$population_complete)
-  if (!identical(mode, "poi")) {
-    populations$g1 <- input$population_g1
-    populations[[positive_key]] <- input$population_positive
-  }
-  config$flowjo <- list(
-    source_dir = dirname(input$workspace), workspace = basename(input$workspace),
-    python = Sys.which("python3"), populations = populations,
-    dna_source_channel = input$dna_channel,
-    target_source_channel = input$target_channel, rebuild = TRUE
+  config$report <- list(
+    all_events_dir = "all_events_csv",
+    dna_height_channel = input$dna_height_channel,
+    show_apex_comparison_toggle = isTRUE(input$show_apex_comparison_toggle),
+    show_phase_gate_toggle = isTRUE(input$show_phase_gate_toggle),
+    embed_pseudocolor_pdf_downloads = isTRUE(input$embed_pseudocolor_pdf_downloads)
   )
   if (isTRUE(input$reference_normalize) && !identical(mode, "ph3")) {
     config$quant_reference_condition <- input$normalization_reference
@@ -251,9 +257,7 @@ spreadsheet_config <- reactive({
 
 ```{r}
 selectInput("plot_type", "Analysis type",
-            choices = c("EdU versus DNA" = "edu",
-                        "Protein of interest versus DNA" = "poi",
-                        "pH3 versus DNA" = "ph3"))
+            choices = c("EdU versus DNA (FlowJo gates)" = "edu"))
 fluidRow(
   column(12, textInput("data_dir_display", "RStudio working directory",
                        value = initial_data_dir, width = "100%"))
@@ -262,18 +266,11 @@ selectInput("workspace", "FlowJo workspace", choices = workspace_choices,
             width = "100%")
 actionButton("load_workspace", "Load workspace", class = "btn-primary")
 hr()
-fluidRow(
-  column(4, selectInput("dna_channel", "DNA channel", choices = character())),
-  column(4, selectInput("target_channel", "Target channel", choices = character())),
-  column(4, textInput("target_name", "Display name", value = "EdU"))
-)
-fluidRow(
-  column(4, selectInput("population_complete", "All-cell population", choices = character())),
-  column(4, conditionalPanel("input.plot_type != 'poi'",
-    selectInput("population_g1", "G1 population", choices = character()))),
-  column(4, conditionalPanel("input.plot_type != 'poi'",
-    selectInput("population_positive", "Positive population", choices = character())))
-)
+selectInput("dna_height_channel", "Raw DNA-H detector used in all-events CSVs",
+            choices = character(), width = "50%")
+checkboxInput("confirm_dna_height",
+              "I confirmed the DNA-H detector against the experiment record",
+              FALSE)
 conditionalPanel(
   condition = "input.plot_type == 'ph3'",
   h4("Contiguous pH3 DNA phase boundaries"),
@@ -290,9 +287,14 @@ conditionalPanel(
 
 ### 2. Samples
 
-### Step 1: Create sample names
+Loading the workspace creates one row per acquisition. Filename-based names and
+replicate numbers are only starting suggestions; confirm every condition,
+biological replicate, and technical replicate from the experiment record.
 
-Enter one analysis-sample name per line. Give original acquisitions and reruns separate names so their event data remain independent.
+### Step 1: Review acquisition names
+
+Keep one name per line. Give original acquisitions and reruns separate names so
+their event data remain independent.
 
 ```{r}
 textAreaInput("sample_names_text", "Sample names", rows = 8,
@@ -306,8 +308,11 @@ h3("Step 3: Identify biological and technical replicates")
 uiOutput("acquisition_editor")
 
 h3("Step 4: Define sample settings")
-tags$p("Lower order numbers appear first. Only POI mode requires one background-control condition in every biological/technical replicate pair. EdU background is fitted independently for every acquisition.")
+tags$p("Lower order numbers appear first. Clear Use to exclude a rerun or other acquisition. EdU background is fitted independently for every included acquisition.")
 uiOutput("sample_editor")
+checkboxInput("confirm_sample_mapping",
+              "I confirmed every included acquisition, condition, and replicate assignment against the experiment record",
+              FALSE)
 ```
 
 ### 3. Excel entry
@@ -322,6 +327,9 @@ downloadButton("download_excel_template", "Download workspace-filled Excel templ
 br(); br()
 fileInput("excel_config", "Import completed Excel template",
           accept = c(".xlsx"), width = "100%")
+checkboxInput("confirm_spreadsheet_mapping",
+              "I confirmed every included spreadsheet acquisition, condition, and replicate assignment against the experiment record",
+              FALSE)
 verbatimTextOutput("spreadsheet_status")
 h4("Imported acquisitions")
 tableOutput("spreadsheet_preview")
@@ -343,12 +351,17 @@ fluidRow(
   column(6, textInput("output_pdf", "Output PDF", "results/pseudocolor_panels.pdf")),
   column(6, textInput("output_png", "Output PNG", "results/pseudocolor_panels.png"))
 )
+checkboxInput("show_apex_comparison_toggle", "Include apex comparison control", TRUE)
+checkboxInput("show_phase_gate_toggle", "Include cell-cycle gate-box control", TRUE)
+checkboxInput("embed_pseudocolor_pdf_downloads", "Include vector-PDF downloads", TRUE)
 actionButton("validate_config", "Validate configuration", class = "btn-primary")
-downloadButton("download_config", "Download YAML")
+downloadButton("download_config", "Download config.yml")
 br(); br()
 verbatimTextOutput("validation_status")
 h4("YAML preview")
 verbatimTextOutput("yaml_preview")
+h4("Report command")
+verbatimTextOutput("render_command")
 ```
 :::
 
@@ -426,20 +439,21 @@ observeEvent(input$load_workspace, {
     return()
   }
   workspace_files(info$fcs)
-  dna_default <- if ("FL2-A" %in% info$channels) "FL2-A" else info$channels[[1]]
-  target_default <- if ("FL4-A" %in% info$channels) "FL4-A" else
-    info$channels[[min(2L, length(info$channels))]]
-  updateSelectInput(session, "dna_channel", choices = info$channels,
-                    selected = dna_default)
-  updateSelectInput(session, "target_channel", choices = info$channels,
-                    selected = target_default)
-  updateSelectInput(session, "population_complete", choices = info$populations,
-                    selected = if ("Single Cells" %in% info$populations) "Single Cells" else info$populations[[1]])
-  updateSelectInput(session, "population_g1", choices = info$populations,
-                    selected = if ("G1" %in% info$populations) "G1" else character())
-  positive_default <- if (input$plot_type == "edu" && "S" %in% info$populations) "S" else character()
-  updateSelectInput(session, "population_positive", choices = info$populations,
-                    selected = positive_default)
+  suggested_names <- make.unique(tools::file_path_sans_ext(basename(info$fcs)))
+  sample_names(suggested_names)
+  updateTextAreaInput(session, "sample_names_text",
+                      value = paste(suggested_names, collapse = "\n"))
+  updateSelectInput(session, "normalization_reference",
+                    choices = suggested_names,
+                    selected = if (length(suggested_names)) suggested_names[[1]] else character())
+  dna_height_default <- if ("FL2-H" %in% info$channels) "FL2-H" else ""
+  updateSelectInput(session, "dna_height_channel",
+                    choices = c("Choose a detector" = "", info$channels),
+                    selected = dna_height_default)
+  dna_height_confirmation(NULL)
+  sample_mapping_confirmation(NULL)
+  updateCheckboxInput(session, "confirm_dna_height", value = FALSE)
+  updateCheckboxInput(session, "confirm_sample_mapping", value = FALSE)
 })
 
 observeEvent(input$create_samples, {
@@ -464,8 +478,9 @@ output$file_editor <- renderUI({
   if (!length(names)) return(tags$em("Create sample names first."))
   if (!length(files)) return(tags$em("Load a FlowJo workspace first."))
   tagList(lapply(seq_along(names), function(i) {
+    selected_file <- if (i <= length(files)) files[[i]] else character()
     selectizeInput(paste0("file_", i), names[[i]], choices = files,
-                   selected = character(), multiple = TRUE,
+                   selected = selected_file, multiple = TRUE,
                    options = list(plugins = list("remove_button")))
   }))
 })
@@ -510,8 +525,91 @@ output$sample_editor <- renderUI({
   )
 })
 
+confirm_config_inputs <- function() {
+  if (!is.character(input$dna_height_channel) ||
+      length(input$dna_height_channel) != 1L ||
+      !nzchar(input$dna_height_channel)) {
+    stop("Choose the DNA-H detector; no detector fallback is allowed.")
+  }
+  if (!isTRUE(input$confirm_dna_height)) {
+    stop("Confirm the DNA-H detector against the experiment record.")
+  }
+  if (!identical(dna_height_confirmation(), input$dna_height_channel)) {
+    stop("The DNA-H detector changed after confirmation. Clear and re-check its confirmation.")
+  }
+  if (!isTRUE(input$confirm_sample_mapping)) {
+    stop("Confirm every included acquisition, condition, and replicate assignment against the experiment record.")
+  }
+  current_mapping <- yaml::as.yaml(collect_sample_rows())
+  if (!identical(sample_mapping_confirmation(), current_mapping)) {
+    stop("The acquisition mapping changed after confirmation. Clear and re-check its confirmation.")
+  }
+  invisible(TRUE)
+}
+
+observeEvent(input$confirm_dna_height, {
+  dna_height_confirmation(if (isTRUE(input$confirm_dna_height))
+    input$dna_height_channel else NULL)
+})
+
+observeEvent(input$confirm_sample_mapping, {
+  if (!isTRUE(input$confirm_sample_mapping)) {
+    sample_mapping_confirmation(NULL)
+    return()
+  }
+  signature <- tryCatch(yaml::as.yaml(collect_sample_rows()), error = identity)
+  if (inherits(signature, "error")) {
+    sample_mapping_confirmation(NULL)
+    updateCheckboxInput(session, "confirm_sample_mapping", value = FALSE)
+    showNotification(conditionMessage(signature), type = "error")
+  } else {
+    sample_mapping_confirmation(signature)
+  }
+})
+
+confirm_spreadsheet_inputs <- function() {
+  if (!isTRUE(input$confirm_dna_height) ||
+      !identical(dna_height_confirmation(), input$dna_height_channel)) {
+    stop("Confirm the current DNA-H detector against the experiment record.")
+  }
+  if (!isTRUE(input$confirm_spreadsheet_mapping)) {
+    stop("Confirm every included spreadsheet acquisition, condition, and replicate assignment against the experiment record.")
+  }
+  current_mapping <- yaml::as.yaml(rows_from_spreadsheet(spreadsheet_rows()))
+  if (!identical(spreadsheet_mapping_confirmation(), current_mapping)) {
+    stop("The imported spreadsheet mapping changed after confirmation. Re-import it and confirm again.")
+  }
+  invisible(TRUE)
+}
+
+observeEvent(input$confirm_spreadsheet_mapping, {
+  if (!isTRUE(input$confirm_spreadsheet_mapping)) {
+    spreadsheet_mapping_confirmation(NULL)
+    return()
+  }
+  signature <- tryCatch(
+    yaml::as.yaml(rows_from_spreadsheet(spreadsheet_rows())),
+    error = identity
+  )
+  if (inherits(signature, "error")) {
+    spreadsheet_mapping_confirmation(NULL)
+    updateCheckboxInput(session, "confirm_spreadsheet_mapping", value = FALSE)
+    showNotification(conditionMessage(signature), type = "error")
+  } else {
+    spreadsheet_mapping_confirmation(signature)
+    checked <- tryCatch({
+      confirm_spreadsheet_inputs()
+      validate_facs_config(spreadsheet_config())
+    }, error = identity)
+    spreadsheet_status(if (inherits(checked, "error"))
+      paste("Configuration needs attention:", conditionMessage(checked)) else
+      "Spreadsheet configuration and confirmations are valid.")
+  }
+})
+
 validation <- eventReactive(input$validate_config, {
   tryCatch({
+    confirm_config_inputs()
     validated <- validate_facs_config(candidate_config())
     list(message = paste("Configuration is valid:",
       nrow(build_sample_manifest(validated)), "samples across",
@@ -526,13 +624,22 @@ output$yaml_preview <- renderText({
                    error = function(e) conditionMessage(e)))
 })
 output$download_config <- downloadHandler(
-  filename = function() paste0("facs_config_", input$plot_type, ".yml"),
+  filename = function() "config.yml",
   content = function(file) {
+    confirm_config_inputs()
     config <- candidate_config()
     validate_facs_config(config)
     yaml::write_yaml(config, file)
   }
 )
+
+output$render_command <- renderText({
+  report_path <- system.file(
+    "quarto", "facs_edu_standard_v2.qmd",
+    package = "facspseudocolor"
+  )
+  paste("quarto render", shQuote(report_path), "-P", shQuote("config=config.yml"))
+})
 
 output$download_excel_template <- downloadHandler(
   filename = function() paste0("facs_samples_", input$plot_type, ".xlsx"),
@@ -548,13 +655,12 @@ output$download_excel_template <- downloadHandler(
     openxlsx::addWorksheet(workbook, "Samples", gridLines = FALSE)
     instructions <- data.frame(
       Field = c("Purpose", "Autopopulated", "Review carefully", "EdU role",
-                "POI role", "Technical replicates", "Biological replicates"),
+                "Technical replicates", "Biological replicates"),
       Guidance = c(
         "One Samples row represents one FCS acquisition.",
         "FCS filenames come from the selected FlowJo workspace. Sample names and technical numbers are filename-based guesses.",
         "Confirm sample_name, biological_replicate, technical_replicate, role, and order.",
         "Use experimental for every acquisition; EdU background is fitted within each acquisition.",
-        "Use reference for the matched background-control condition and experimental for other samples.",
         "Acquisitions sharing sample_name and biological_replicate are processed separately and then averaged.",
         "Use different biological_replicate labels for independently grown or treated experiments."
       ), check.names = FALSE
@@ -592,6 +698,8 @@ output$download_excel_template <- downloadHandler(
 )
 
 observeEvent(input$excel_config, {
+  spreadsheet_mapping_confirmation(NULL)
+  updateCheckboxInput(session, "confirm_spreadsheet_mapping", value = FALSE)
   if (!requireNamespace("readxl", quietly = TRUE)) {
     spreadsheet_rows(NULL)
     spreadsheet_status("Install the R package 'readxl' to import Excel templates.")
@@ -609,13 +717,12 @@ observeEvent(input$excel_config, {
   }
   spreadsheet_rows(result)
   checked <- tryCatch(validate_facs_config(spreadsheet_config()), error = identity)
-  if (inherits(checked, "error")) {
-    spreadsheet_status(paste("Imported, but configuration needs attention:",
-                             conditionMessage(checked)))
+  spreadsheet_status(if (inherits(checked, "error")) {
+    paste("Imported, but configuration needs attention:", conditionMessage(checked))
   } else {
-    spreadsheet_status(paste("Excel configuration is valid:", nrow(result),
-                             "acquisition row(s) imported."))
-  }
+    paste("Imported", nrow(result),
+          "acquisition row(s). Confirm the spreadsheet mapping before download.")
+  })
 })
 
 output$spreadsheet_status <- renderText(spreadsheet_status())
@@ -628,6 +735,7 @@ output$spreadsheet_preview <- renderTable({
 output$download_spreadsheet_config <- downloadHandler(
   filename = function() paste0("facs_config_", input$plot_type, "_from_excel.yml"),
   content = function(file) {
+    confirm_spreadsheet_inputs()
     config <- validate_facs_config(spreadsheet_config())
     yaml::write_yaml(config, file)
   }

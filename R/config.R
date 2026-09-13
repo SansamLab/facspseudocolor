@@ -25,10 +25,36 @@ facs_config_keys <- function() {
     "quant_reference_condition", "quant_show_points", "quant_phase_lineplot",
     "bar_colors", "layout", "layout_options", "pdf_width",
     "pdf_height_per_row", "output_pdf", "output_png", "samples",
-    "replicates", "flowjo", "ph3_input_profile", "ph3_export_operation_dirs",
+    "replicates", "flowjo", "gating", "report", "ph3_input_profile", "ph3_export_operation_dirs",
     "ph3_positivity_method",
     "ph3_output_contract", "ph3_pilot"
   )
+}
+
+validate_edu_report_config <- function(report) {
+  if (is.null(report)) return(NULL)
+  if (!is.list(report)) stop("`report` must be a mapping.")
+  allowed <- c(
+    "all_events_dir", "dna_height_channel", "show_apex_comparison_toggle",
+    "show_phase_gate_toggle", "embed_pseudocolor_pdf_downloads"
+  )
+  unknown <- setdiff(names(report), allowed)
+  if (length(unknown)) {
+    stop("Unknown EdU `report` setting(s): ", paste(unknown, collapse = ", "), ".")
+  }
+  for (key in c("all_events_dir", "dna_height_channel")) {
+    if (!config_scalar_string(report[[key]])) {
+      stop("EdU `report.", key, "` must be one non-empty string.")
+    }
+  }
+  for (key in c("show_apex_comparison_toggle", "show_phase_gate_toggle",
+                "embed_pseudocolor_pdf_downloads")) {
+    if (!is.logical(report[[key]]) || length(report[[key]]) != 1L ||
+        is.na(report[[key]])) {
+      stop("EdU `report.", key, "` must be true or false.")
+    }
+  }
+  report
 }
 
 facs_config_defaults <- function(plot_type) {
@@ -90,6 +116,74 @@ facs_config_defaults <- function(plot_type) {
     pdf_width = 11.5,
     pdf_height_per_row = 2.5
   )
+}
+
+validate_edu_gating_config <- function(gating, replicates, data_dir, config_path) {
+  if (is.null(gating)) gating <- list(mode = "flowjo")
+  if (!is.list(gating) || !config_scalar_string(gating$mode) ||
+      !gating$mode %in% c("flowjo", "model_experimental")) {
+    stop("EdU `gating.mode` must be `flowjo` or `model_experimental`.")
+  }
+  if (identical(gating$mode, "flowjo")) {
+    if (!identical(names(gating), "mode"))
+      stop("FlowJo gating accepts only `gating.mode`; model settings cannot be mixed in.")
+    return(gating)
+  }
+  required <- c("mode", "profile", "status_label", "output_dir", "artifacts", "acquisitions")
+  if (!setequal(names(gating), required))
+    stop("Experimental model gating requires exactly: ", paste(required, collapse = ", "), ".")
+  if (!identical(gating$profile, "single_g1_edu_frozen_v1") ||
+      !identical(gating$status_label, "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION"))
+    stop("Experimental model gating must select the approved frozen profile and exact status label.")
+  if (!config_scalar_string(gating$output_dir) || !config_scalar_string(data_dir))
+    stop("Experimental model gating requires explicit output and data directories.")
+  base <- if (config_scalar_string(config_path)) dirname(normalizePath(config_path, mustWork = FALSE)) else getwd()
+  resolve <- function(path) normalizePath(if (grepl("^/", path)) path else file.path(base, path), mustWork = FALSE)
+  if (!identical(resolve(gating$output_dir), resolve(data_dir)))
+    stop("In model mode, `data_dir` must equal `gating.output_dir`; no fallback input is allowed.")
+  if (!is.list(gating$artifacts) ||
+      !setequal(names(gating$artifacts), c("single_cells", "g1", "edu_positive")))
+    stop("The frozen model profile requires exactly Single Cells, G1, and EdU-positive artifacts.")
+  frozen_hashes <- c(
+    single_cells = "71b459d8fb00930f31a6d289a21f587226fd2d6be4b31ebc782b7bae7839a376",
+    g1 = "d653d388d15af3bd22185cb9c8e1addea132e0b5d1d18e60e37c65a7548163b7",
+    edu_positive = "9e6ed466687efe5f7523dea633e9e9244381c0e613c86f0944f861c06047fdf4"
+  )
+  frozen_semantic_hashes <- c(
+    single_cells = "f9a53e9fd78d2f39cf5980b8f470c3c44e7a187fa942cbcc0324c563fa68a31a",
+    g1 = "32723ccc768ed517affa040f2ce62a125dad465399d869f471bc331549f47f6a"
+  )
+  for (target in names(frozen_hashes)) {
+    artifact <- gating$artifacts[[target]]
+    required_artifact <- if (identical(target, "edu_positive"))
+      c("path", "byte_sha256") else
+      c("path", "byte_sha256", "semantic_sha256")
+    if (!is.list(artifact) || !identical(names(artifact), required_artifact) ||
+        !all(vapply(artifact, config_scalar_string, logical(1))) ||
+        !identical(artifact$byte_sha256, unname(frozen_hashes[[target]])) ||
+        (!identical(target, "edu_positive") &&
+         !identical(artifact$semantic_sha256,
+                    unname(frozen_semantic_hashes[[target]]))))
+      stop("Model artifact configuration differs from frozen profile for ", target, ".")
+  }
+  manifest <- make_sample_manifest(replicates = replicates)
+  acquisitions <- gating$acquisitions
+  if (!is.list(acquisitions) || length(acquisitions) != nrow(manifest))
+    stop("Model gating requires exactly one acquisition mapping per configured sample.")
+  prefixes <- vapply(acquisitions, function(x) x$prefix %||% "", character(1))
+  if (anyDuplicated(prefixes) || !setequal(prefixes, manifest$prefix))
+    stop("Model-gating acquisition prefixes must exactly match configured samples.")
+  required_roles <- c("fsc_area", "ssc_area", "dna_area", "dna_height", "edu")
+  for (item in acquisitions) {
+    if (!setequal(names(item), c("prefix", "acquisition_id", "fcs_path", "fcs_sha256", "channel_roles")) ||
+        !all(vapply(item[c("prefix", "acquisition_id", "fcs_path", "fcs_sha256")], config_scalar_string, logical(1))) ||
+        !grepl("^[0-9a-f]{64}$", item$fcs_sha256) || !is.list(item$channel_roles) ||
+        !identical(names(item$channel_roles), required_roles) ||
+        !all(vapply(item$channel_roles, config_scalar_string, logical(1))) ||
+        anyDuplicated(unlist(item$channel_roles)))
+      stop("Each model-gating acquisition requires exact identity, FCS SHA-256, and five distinct ordered channel roles.")
+  }
+  gating
 }
 
 config_scalar_string <- function(value) {
@@ -161,6 +255,22 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
   }
 
   config <- utils::modifyList(facs_config_defaults(plot_type), config)
+
+  if (identical(plot_type, "edu")) {
+    gating_error <- tryCatch({
+      config$gating <- validate_edu_gating_config(
+        config$gating, config$replicates, config$data_dir, config_path
+      ); NULL
+    }, error = function(e) conditionMessage(e))
+    if (!is.null(gating_error)) errors <- config_add_error(errors, gating_error)
+    report_error <- tryCatch({
+      config$report <- validate_edu_report_config(config$report)
+      NULL
+    }, error = function(e) conditionMessage(e))
+    if (!is.null(report_error)) errors <- config_add_error(errors, report_error)
+  } else if (!is.null(config$report)) {
+    errors <- config_add_error(errors, "`report` settings are supported only for EdU configurations.")
+  }
 
   if (!xor(is.null(config$samples), is.null(config$replicates))) {
     errors <- config_add_error(

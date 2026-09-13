@@ -1,0 +1,22 @@
+schema_version: 1
+reports:
+  - id: edu_legacy_v1
+    file: facs_edu_pseudocolor_output_contract.qmd
+    status: stable_compatibility
+    package_line: 0.1.x
+    description: Established EdU experiment report retained at its original filename for old render commands.
+  - id: edu_standard_v2
+    file: facs_edu_standard_v2.qmd
+    status: current_development
+    package_line: 0.2.x
+    description: Enhanced EdU report with interactive reference lines, gate boxes, plot cards, gating diagnostics, and PDF downloads.
+  - id: edu_model_gated_experimental
+    file: facs_edu_model_gated.qmd
+    status: experimental
+    package_line: 0.2.x
+    description: Compact report for the explicitly experimental frozen model-gating workflow.
+  - id: edu_configurator_experimental
+    file: facs_configurator.qmd
+    status: unfinished
+    package_line: 0.2.x
+    description: Unfinished guided configuration interface; not part of the stable report workflow.

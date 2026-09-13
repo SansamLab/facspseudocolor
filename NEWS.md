@@ -1,3 +1,13 @@
+# facspseudocolor 0.2.0.9000
+
+- Begins a new development line for the expanded EdU workflow.
+- Preserves the established EdU report at
+  `facs_edu_pseudocolor_output_contract.qmd`.
+- Adds the enhanced report as `facs_edu_standard_v2.qmd` instead of replacing
+  the established template.
+- Adds a machine-readable report catalog and a documented compatibility policy.
+- Marks the interactive configurator as unfinished and experimental.
+
 # facspseudocolor 0.1.0.9000
 
 ## Quality assurance
