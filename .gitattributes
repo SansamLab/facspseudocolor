@@ -5,3 +5,4 @@ inst/models/portable_hgb_export001/**/*.json text eol=lf
 inst/models/portable_hgb_export001/**/*.py text eol=lf
 inst/models/portable_documented_edu_g1_export001/**/*.json text eol=lf
 inst/models/portable_documented_edu_g1_export001/**/*.py text eol=lf
+inst/models/frozen_edu_models_v1/*.json text eol=lf

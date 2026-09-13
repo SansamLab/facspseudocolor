@@ -1,5 +1,8 @@
 # facspseudocolor 0.2.0.9000
 
+- Bundle the complete `frozen_edu_models_v1` model collection, including the
+  exact approved Single Cells and G1 frozen rules and a manifest linking them
+  to the portable EdU-positive model.
 - Begins a new development line for the expanded EdU workflow.
 - Preserves the established EdU report at
   `facs_edu_pseudocolor_output_contract.qmd`.

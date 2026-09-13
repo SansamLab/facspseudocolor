@@ -77,6 +77,13 @@ Paths in the table are relative to the immutable model project
 absolute paths. No artifact or model-development dataset is copied into this
 repository.
 
+**2026-09-13 addendum:** The no-copy statement above records the original
+implementation state. It is superseded for the two compact approved rules:
+their exact authenticated bytes are now bundled in
+`inst/models/frozen_edu_models_v1/`, together with a collection manifest that
+links the already bundled portable EdU-positive model. Model-development data
+remain external and are not bundled.
+
 Artifact selection and limitations were reconciled against the required model
 records `task_records/2026-09-07_execute_canonical_dna_edu_successor_model001.md`,
 `task_records/2026-09-07_execute_canonical_dna_edu_future_holdout001.md`,

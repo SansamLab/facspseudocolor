@@ -1,0 +1,42 @@
+{
+  "feature_names": [
+    "knn25_log_density_2d__fsc_ssc",
+    "asinh150__dna_area",
+    "asinh150__dna_height",
+    "log_ratio__dna_area_height",
+    "linear_tls_signed_distance__dna_height_area",
+    "knn25_log_density_2d__dna_height_area"
+  ],
+  "center": [
+    -0.3972777274316516,
+    8.540208175548488,
+    8.201721273171582,
+    0.33534121959387003,
+    -0.08491781632112791,
+    0.3878101990098098
+  ],
+  "scale": [
+    0.8519187989667677,
+    0.41266161366380283,
+    0.3556243027471352,
+    0.06743845227307586,
+    0.2220545335220157,
+    1.173687734725936
+  ],
+  "coefficients": [
+    0.0859962992640603,
+    -0.7379174132717369,
+    -0.8091329099622852,
+    -0.2485430233634506,
+    -0.03400072481874384,
+    0.3819688423181651
+  ],
+  "intercept": -1.7263999108996422,
+  "threshold": 0.25499999999999995,
+  "target": "g1_reference",
+  "schema_version": "fd-feature-v2",
+  "sha256": "32723ccc768ed517affa040f2ce62a125dad465399d869f471bc331549f47f6a",
+  "solver": "scipy_L-BFGS-B_analytic_gradient_l2_v2",
+  "selected_l2": 0.04,
+  "solver_iterations": 16
+}

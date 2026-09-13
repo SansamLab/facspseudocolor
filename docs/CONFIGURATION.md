@@ -238,6 +238,12 @@ The EdU artifact is the exact SHA-256-pinned `PORTABLE_HGB_V1` JSON export of
 0.385 threshold while removing pickle loading and the exact Python 3.10.12 /
 scikit-learn 1.7.2 runtime requirement. NumPy, pandas, SciPy, FlowKit, and
 PyYAML remain pipeline dependencies.
+The complete frozen profile asset collection is bundled under
+`inst/models/frozen_edu_models_v1/`. Its manifest binds the exact Single Cells
+and G1 frozen rules to the already bundled portable EdU model, their approved
+byte and semantic hashes, thresholds, and G1 postprocessing contract. A caller
+must still provide the explicit acquisition mapping and immutable FCS hashes in
+its experiment configuration.
 The generated manifest records `derived_from_reference_sha256` for the external
 validated predictor source; that digest describes the implementation lineage
 and is not presented as a hash of the embedded predictor code.

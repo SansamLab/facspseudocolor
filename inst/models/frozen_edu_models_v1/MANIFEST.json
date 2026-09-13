@@ -1,0 +1,32 @@
+{
+  "schema": "FROZEN_EDU_MODEL_COLLECTION_V1",
+  "profile": "single_g1_edu_frozen_v1",
+  "status_label": "EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION",
+  "models": {
+    "single_cells": {
+      "path": "single_cells_frozen_development_rule.json",
+      "byte_sha256": "71b459d8fb00930f31a6d289a21f587226fd2d6be4b31ebc782b7bae7839a376",
+      "semantic_sha256": "f9a53e9fd78d2f39cf5980b8f470c3c44e7a187fa942cbcc0324c563fa68a31a",
+      "threshold": 0.205
+    },
+    "g1": {
+      "path": "g1_frozen_development_rule.json",
+      "byte_sha256": "d653d388d15af3bd22185cb9c8e1addea132e0b5d1d18e60e37c65a7548163b7",
+      "semantic_sha256": "32723ccc768ed517affa040f2ce62a125dad465399d869f471bc331549f47f6a",
+      "threshold": 0.255
+    },
+    "edu_positive": {
+      "path": "../portable_hgb_export001/EDU_POSITIVE_MODEL002.portable.json",
+      "byte_sha256": "9e6ed466687efe5f7523dea633e9e9244381c0e613c86f0944f861c06047fdf4",
+      "threshold": 0.385
+    }
+  },
+  "g1_definition": {
+    "exclude_edu_positive_before_background": true
+  },
+  "g1_dna_minimum": {
+    "method": "median_positive_dna_area_of_preliminary_edu_negative_g1",
+    "fraction": 0.35
+  },
+  "protected_data_present": false
+}
