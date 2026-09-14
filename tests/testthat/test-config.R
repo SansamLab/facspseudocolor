@@ -111,6 +111,24 @@ test_that("EdU report settings preserve DNA-H and interactive output choices", {
   expect_error(validate_facs_config(poi), "supported only for EdU")
 })
 
+test_that("target_display_mode is opt-in, restricted to edu/poi_cdc45, and EdU-only", {
+  config <- minimal_config("edu")
+  expect_null(validate_facs_config(config)$target_display_mode)
+
+  config$target_display_mode <- "poi_cdc45"
+  expect_identical(validate_facs_config(config)$target_display_mode, "poi_cdc45")
+
+  config$target_display_mode <- "edu"
+  expect_identical(validate_facs_config(config)$target_display_mode, "edu")
+
+  config$target_display_mode <- "poi"
+  expect_error(validate_facs_config(config), "must be 'edu' or 'poi_cdc45'")
+
+  poi <- minimal_config("poi")
+  poi$target_display_mode <- "poi_cdc45"
+  expect_error(validate_facs_config(poi), "supported only for EdU")
+})
+
 test_that("unknown and missing settings are reported together", {
   config <- minimal_config("poi")
   config$dna_channel <- NULL

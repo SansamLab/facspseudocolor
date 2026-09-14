@@ -101,6 +101,28 @@ edu_display_limits <- function(values, config) {
   as.numeric(limits)
 }
 
+#' Y-axis / title label for the EdU-mode target channel
+#'
+#' Defaults to the literal `"EdU"` label used by every existing EdU
+#' experiment. Configurations that explicitly opt into
+#' `target_display_mode: "poi_cdc45"` (the CDC45 experiment, which runs
+#' entirely through the `edu` mode pipeline -- FlowJo S-phase gate treated as
+#' EdU-positive, same background-fitting algorithm -- but is analyzing CDC45
+#' rather than actual EdU incorporation) use the configured `target_name`
+#' instead, so existing EdU reports and the separate, differently-behaved
+#' `poi` plot_type are both unaffected.
+#'
+#' @param analysis A validated `facs_analysis` object.
+#' @return A single string to use as the target-channel axis/title label.
+#' @export
+facs_report_edu_target_label <- function(analysis) {
+  if (identical(analysis$config$target_display_mode, "poi_cdc45")) {
+    analysis$config$target_name
+  } else {
+    "EdU"
+  }
+}
+
 edu_display_panel <- function(sample, manifest_row, offset_record, analysis) {
   prefix <- manifest_row$prefix[[1L]]
   identity <- paste0(
@@ -115,7 +137,7 @@ edu_display_panel <- function(sample, manifest_row, offset_record, analysis) {
                           label = paste("SUPPRESSED:", offset_record$reason_code,
                                         "\n", offset_record$reason_detail)) +
         ggplot2::labs(title = prefix, subtitle = identity,
-                      x = "DNA", y = "EdU") +
+                      x = "DNA", y = facs_report_edu_target_label(analysis)) +
         ggplot2::theme_void() + ggplot2::theme(plot.title = ggplot2::element_text(face = "bold")),
       status = offset_record$status, reason_code = offset_record$reason_code,
       displayed_event_n = 0L, display_limits = c(NA_real_, NA_real_)
@@ -176,7 +198,7 @@ edu_display_panel <- function(sample, manifest_row, offset_record, analysis) {
                                 labels = c("2N", "4N")) +
     ggplot2::coord_cartesian(xlim = as.numeric(analysis$config$x_limits), ylim = limits) +
     ggplot2::labs(title = prefix, subtitle = identity,
-                  x = "DNA", y = "EdU") +
+                  x = "DNA", y = facs_report_edu_target_label(analysis)) +
     ggplot2::theme_classic(base_size = 10) +
     ggplot2::theme(aspect.ratio = 1,
                    plot.title = ggplot2::element_text(face = "bold"))

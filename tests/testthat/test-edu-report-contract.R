@@ -1207,6 +1207,58 @@ test_that("FlowJo gating cards use explicit all-events DNA-A and DNA-H", {
   ), "not contained")
 })
 
+test_that("gating card errors name the missing population and column", {
+  analysis <- synthetic_edu_report_analysis()
+  analysis$config$gating <- list(mode = "flowjo")
+  all_events <- vector("list", length(analysis$normalized_data))
+  names(all_events) <- analysis$sample_manifest$prefix
+  for (i in seq_along(analysis$normalized_data)) {
+    sample <- analysis$normalized_data[[i]]
+    n <- nrow(sample$data)
+    sample$data$event_index <- as.character(seq_len(n))
+    sample$data[[analysis$config$dna_channel]] <- sample$data$dna_norm
+    sample$data[[analysis$config$target_channel]] <- sample$data$target_raw
+    sample$data[["DNA-H"]] <- sample$data$dna_norm * 0.9
+    sample$edu_positive[[analysis$config$dna_channel]] <-
+      sample$edu_positive$dna_norm
+    sample$edu_positive[[analysis$config$target_channel]] <-
+      sample$edu_positive$target_raw
+    sample$edu_positive$event_index <- sample$data$event_index[
+      seq_len(nrow(sample$edu_positive))
+    ]
+    sample$g1 <- sample$data[seq_len(8L), c(
+      analysis$config$dna_channel, analysis$config$target_channel,
+      "event_index"
+    ), drop = FALSE]
+    analysis$normalized_data[[i]] <- sample
+    all_events[[i]] <- sample$data
+  }
+  display_offsets <- stats::setNames(
+    rep(1000, nrow(analysis$sample_manifest)), analysis$sample_manifest$prefix
+  )
+
+  missing_single_height <- analysis
+  missing_single_height$normalized_data[[1L]]$data[["DNA-H"]] <- NULL
+  expect_error(facs_report_edu_gating_cards(
+    missing_single_height, all_events = all_events, dna_height_channel = "DNA-H",
+    display_offsets = display_offsets, max_points = 10L
+  ), "Single Cells missing column\\(s\\): DNA-H")
+
+  missing_all_events_height <- all_events
+  missing_all_events_height[[1L]][["DNA-H"]] <- NULL
+  expect_error(facs_report_edu_gating_cards(
+    analysis, all_events = missing_all_events_height, dna_height_channel = "DNA-H",
+    display_offsets = display_offsets, max_points = 10L
+  ), "missing column\\(s\\): DNA-H")
+
+  empty_g1 <- analysis
+  empty_g1$normalized_data[[1L]]$g1 <- empty_g1$normalized_data[[1L]]$g1[0L, , drop = FALSE]
+  expect_error(facs_report_edu_gating_cards(
+    empty_g1, all_events = all_events, dna_height_channel = "DNA-H",
+    display_offsets = display_offsets, max_points = 10L
+  ), "G1 has zero events")
+})
+
 test_that("S-phase cards use established regional assignments for every sample", {
   analysis <- synthetic_edu_report_analysis()
   analysis$normalized_data[[1L]]$data$target_bgsub[[13L]] <- Inf

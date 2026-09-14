@@ -24,6 +24,7 @@ Imports:
     scales,
     yaml
 Suggests:
+    knitr,
     openxlsx,
     plotgardener,
     readxl,

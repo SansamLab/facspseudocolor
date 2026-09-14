@@ -5,7 +5,10 @@
 ```text
 FlowJo workspace + FCS files
         ↓
-python/export_flowjo_populations.py
+python/export_flowjo_populations.py   (gated populations: Single Cells, G1, ...)
+python/export_flowjo_all_events.py    (all raw events, no gating; optional --
+                                        only needed for the EdU Standard v2
+                                        report's flowjo_all_events_dir card)
         ↓
 event-level CSV files
         ↓
@@ -14,7 +17,10 @@ facspseudocolor R package
 
 The installed R package neither invokes Python nor parses FlowJo workspaces.
 Python, FlowKit, pandas, and lxml are required only for the optional preprocessing
-step in `tools/flowjo-orchestration.R`.
+step in `tools/flowjo-orchestration.R`, or when running either exporter directly.
+`export_flowjo_all_events.py` has no provenance-contract dependency of its own
+(see `docs/REPORTS.md`); it is a plain, reusable replacement for
+experiment-specific ad hoc export scripts.
 
 ## Production export-operation contract
 

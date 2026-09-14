@@ -120,6 +120,15 @@ prepare_flowjo_csvs_external <- function(
     stop("FlowJo orchestration currently requires a `replicates` configuration.",
          call. = FALSE)
   }
+  # The full pH3-grade production-identity contract (contract_metadata /
+  # export_operation_id / an explicit direct-index-semantics attestation) was
+  # built for the pH3 pipeline's provenance needs and should apply only
+  # there. Every other plot_type uses the exporter's existing, lighter-weight
+  # legacy profile -- the same shape this orchestration supported before the
+  # pH3 contract was added (see docs/CONFIGURATION.md's "Optional FlowJo
+  # block").
+  strict <- identical(config$plot_type, "ph3")
+  export_profile <- if (strict) "production_direct_identity_v1" else "legacy_count_only_unverified_v1"
   data_dir <- config$data_dir
   if (!grepl("^/", data_dir)) {
     config_dir <- attr(config, "config_dir")
@@ -141,8 +150,10 @@ prepare_flowjo_csvs_external <- function(
            call. = FALSE)
     }
     required <- c("source_dir", "workspace", "dna_source_channel",
-                  "target_source_channel", "contract_metadata",
-                  "export_operation_id")
+                  "target_source_channel")
+    if (strict) {
+      required <- c(required, "contract_metadata", "export_operation_id")
+    }
     missing <- required[vapply(flowjo[required], function(x) {
       is.null(x) || !is.character(x) || length(x) != 1L || !nzchar(x)
     }, logical(1))]
@@ -153,8 +164,8 @@ prepare_flowjo_csvs_external <- function(
 
     source_dir <- flowjo$source_dir
     workspace <- file.path(source_dir, flowjo$workspace)
-    contract_metadata <- file.path(source_dir, flowjo$contract_metadata)
-    if (!isTRUE(flowjo$direct_index_semantics_verified)) {
+    contract_metadata <- if (strict) file.path(source_dir, flowjo$contract_metadata) else NULL
+    if (strict && !isTRUE(flowjo$direct_index_semantics_verified)) {
       stop("Production FlowJo orchestration requires the pinned SYNTHETIC direct-index verification.",
            call. = FALSE)
     }
@@ -180,7 +191,7 @@ prepare_flowjo_csvs_external <- function(
     }))
     if (!rebuild && all(file.exists(expected))) {
       stop(
-        "Production FlowJo orchestration cannot bypass manifest and artifact ",
+        "FlowJo orchestration cannot bypass manifest and artifact ",
         "verification with `rebuild: false`; validate the completed operation ",
         "explicitly or request a new operation ID/output directory.", call. = FALSE
       )
@@ -201,7 +212,7 @@ prepare_flowjo_csvs_external <- function(
     if (!file.exists(workspace)) {
       stop("FlowJo workspace not found: ", workspace, call. = FALSE)
     }
-    if (!file.exists(contract_metadata)) {
+    if (strict && !file.exists(contract_metadata)) {
       stop("FlowJo contract metadata not found: ", contract_metadata, call. = FALSE)
     }
     dependency_status <- suppressWarnings(system2(
@@ -221,7 +232,7 @@ prepare_flowjo_csvs_external <- function(
     dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
     populations <- unlist(population_map, use.names = FALSE)
     if (verbose) message("Running contract-aware FlowJo exporter for ", replicate$label)
-    status <- system2(python, c(
+    exporter_args <- c(
       shQuote(exporter), shQuote(workspace),
       "--fcs-dir", shQuote(source_dir),
       "--output-dir", shQuote(export_dir),
@@ -231,11 +242,17 @@ prepare_flowjo_csvs_external <- function(
         unname(unlist(config$suffixes[names(population_map)])),
         shQuote, character(1)
       ),
-      "--profile", "production_direct_identity_v1",
-      "--contract-metadata", shQuote(contract_metadata),
-      "--export-operation-id", shQuote(flowjo$export_operation_id),
-      "--direct-index-semantics-verified"
-    ))
+      "--profile", export_profile
+    )
+    if (strict) {
+      exporter_args <- c(
+        exporter_args,
+        "--contract-metadata", shQuote(contract_metadata),
+        "--export-operation-id", shQuote(flowjo$export_operation_id),
+        "--direct-index-semantics-verified"
+      )
+    }
+    status <- system2(python, exporter_args)
     if (status != 0) {
       stop("FlowJo export failed for ", replicate$label, call. = FALSE)
     }
@@ -270,8 +287,12 @@ prepare_flowjo_csvs_external <- function(
           stop("Sequential identity fallback is prohibited; required identity fields are missing.",
                call. = FALSE)
         }
-        if (any(exported$export_profile != "production_direct_identity_v1")) {
-          stop("Legacy or ambiguous FlowJo exports cannot be consumed as production.",
+        if (any(exported$export_profile != export_profile)) {
+          if (strict) {
+            stop("Legacy or ambiguous FlowJo exports cannot be consumed as production.",
+                 call. = FALSE)
+          }
+          stop("Unexpected FlowJo export profile; expected the legacy export profile.",
                call. = FALSE)
         }
         operation_artifacts <- c(operation_artifacts, artifact)

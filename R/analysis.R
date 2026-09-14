@@ -420,7 +420,8 @@ validate_edu_frozen_model_gate_manifest <- function(analysis, manifest_path) {
   }
   configured_gating <- analysis$config$gating
   configured_output <- normalizePath(configured_gating$output_dir, mustWork = TRUE)
-  if (!identical(dirname(manifest_path), configured_output)) {
+  observed_output <- normalizePath(dirname(manifest_path), mustWork = TRUE)
+  if (!identical(observed_output, configured_output)) {
     stop("Model-gating manifest directory differs from configured output_dir.",
          call. = FALSE)
   }

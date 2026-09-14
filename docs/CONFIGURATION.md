@@ -172,9 +172,36 @@ background-subtracted medians, within each biological replicate.
 ## Optional FlowJo block
 
 The package accepts but never executes `flowjo`. The repository-only launcher
-uses `source_dir`, `workspace`, `python`, `dna_source_channel`,
-`target_source_channel`, `populations`, and `rebuild`. See
-`PYTHON_INTERFACE.md`.
+(`tools/flowjo-orchestration.R`) uses `source_dir`, `workspace`, `python`,
+`dna_source_channel`, `target_source_channel`, `populations`, and `rebuild`
+for every `plot_type` except `ph3`. See `PYTHON_INTERFACE.md`.
+
+These exports use the Python exporter's default, lighter-weight
+`legacy_count_only_unverified_v1` profile: no `contract_metadata` or
+`export_operation_id` is required, and identity columns are exported blank.
+
+Only `plot_type: "ph3"` requires the full `production_direct_identity_v1`
+provenance contract, adding `contract_metadata` (a local JSON file, resolved
+relative to `source_dir`), `export_operation_id`, and
+`direct_index_semantics_verified: true` to the `flowjo` block. That contract
+records a real, owner-approved governance record (`approval.gate_owner`,
+`approver`, `approval_date`, `approval_record`, `positivity_method_id`,
+`positivity_method_version`) plus per-acquisition `source_fcs_sha256`
+binding; see `python/export_contract.py` for the exact schema. It is not
+meant to be satisfied for other plot types -- do not fabricate approval
+metadata to force a non-pH3 config through this path.
+
+`export_flowjo_populations.py`'s legacy profile writes columns named
+`raw__<PnN>` / `scaled__<PnN>` (no renaming). Setting `dna_channel` /
+`target_channel` in `config.yml` to those same `raw__<PnN>` (or
+`scaled__<PnN>`) strings avoids any experiment-specific renaming step
+entirely -- see `examples/config_ph3.yml` for a working example of that
+convention (it applies equally outside `plot_type: "ph3"`).
+
+For the EdU Standard v2 report's `flowjo_all_events_dir` (all raw events, no
+gating; see the "All-events Single Cells gating card" section of
+`REPORTS.md`), use `python/export_flowjo_all_events.py`, which follows the
+same `raw__<PnN>` naming convention by default.
 
 ## Optional EdU report block
 

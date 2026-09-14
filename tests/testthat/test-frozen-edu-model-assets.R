@@ -1,5 +1,5 @@
 test_that("frozen EdU profile bundles its approved model collection", {
-  root <- test_path("..", "..", "inst", "models")
+  root <- system.file("models", package = "facspseudocolor")
   collection <- file.path(root, "frozen_edu_models_v1")
   manifest <- jsonlite::fromJSON(
     file.path(collection, "MANIFEST.json"), simplifyVector = FALSE
@@ -25,10 +25,12 @@ test_that("frozen EdU profile bundles its approved model collection", {
   )
   for (target in names(expected)) {
     record <- manifest$models[[target]]
-    path <- normalizePath(file.path(collection, record$path), mustWork = TRUE)
+    path <- normalizePath(file.path(collection, record$path), mustWork = TRUE,
+                          winslash = "/")
     expect_true(startsWith(
       path,
-      paste0(normalizePath(root, mustWork = TRUE), .Platform$file.sep)
+      paste0(normalizePath(root, mustWork = TRUE, winslash = "/"),
+             .Platform$file.sep)
     ))
     observed <- paste0(as.character(openssl::sha256(file(path))), collapse = "")
     expect_identical(record$byte_sha256, unname(expected[[target]]))
