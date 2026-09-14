@@ -1,5 +1,5 @@
 test_that("frozen EdU profile bundles its approved model collection", {
-  root <- test_path("..", "..", "inst", "models")
+  root <- system.file("models", package = "facspseudocolor")
   collection <- file.path(root, "frozen_edu_models_v1")
   manifest <- jsonlite::fromJSON(
     file.path(collection, "MANIFEST.json"), simplifyVector = FALSE
