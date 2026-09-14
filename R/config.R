@@ -5,6 +5,7 @@
 facs_config_keys <- function() {
   c(
     "plot_type", "data_dir", "dna_channel", "target_channel", "target_name",
+    "target_display_mode",
     "suffixes", "dna_2n_value", "normalize_target", "g1_anchor",
     "g1_source", "edu_positive_source", "g1_model_manifest",
     "baseline_fit_x_range", "baseline_boundary_bins",
@@ -326,8 +327,18 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
       NULL
     }, error = function(e) conditionMessage(e))
     if (!is.null(report_error)) errors <- config_add_error(errors, report_error)
+    if (!is.null(config$target_display_mode) &&
+        !config$target_display_mode %in% c("edu", "poi_cdc45")) {
+      errors <- config_add_error(
+        errors, "`target_display_mode` must be 'edu' or 'poi_cdc45'."
+      )
+    }
   } else if (!is.null(config$report)) {
     errors <- config_add_error(errors, "`report` settings are supported only for EdU configurations.")
+  } else if (!is.null(config$target_display_mode)) {
+    errors <- config_add_error(
+      errors, "`target_display_mode` is supported only for EdU configurations."
+    )
   }
 
   if (!xor(is.null(config$samples), is.null(config$replicates))) {

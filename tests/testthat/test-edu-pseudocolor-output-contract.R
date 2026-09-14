@@ -85,6 +85,27 @@ test_that("SYNTHETIC EdU display labels retain condition replicate and technical
   expect_true(all(grepl("Condition:|Biological replicate:|Technical acquisition:", labels)))
 })
 
+test_that("SYNTHETIC target_display_mode swaps the EdU axis/title label for target_name", {
+  # Default (unset target_display_mode): every existing EdU report keeps the
+  # literal "EdU" label unchanged.
+  default_analysis <- synthetic_edu_display_analysis()
+  expect_identical(facs_report_edu_target_label(default_analysis), "EdU")
+  default_result <- build_edu_pseudocolor_output_contract(default_analysis)
+  default_labels <- vapply(default_result$panels, function(plot) plot$labels$y, character(1))
+  expect_true(all(default_labels == "EdU"))
+
+  # Opting into poi_cdc45 (e.g. the CDC45 experiment) swaps the label to the
+  # configured target_name instead, without altering anything else about the
+  # edu-mode pipeline.
+  poi_analysis <- default_analysis
+  poi_analysis$config$target_display_mode <- "poi_cdc45"
+  poi_analysis$config$target_name <- "CDC45"
+  expect_identical(facs_report_edu_target_label(poi_analysis), "CDC45")
+  poi_result <- build_edu_pseudocolor_output_contract(poi_analysis)
+  poi_labels <- vapply(poi_result$panels, function(plot) plot$labels$y, character(1))
+  expect_true(all(poi_labels == "CDC45"))
+})
+
 test_that("SYNTHETIC EdU report retains approved 2N-4N and canonical regional positivity", {
   analysis <- synthetic_edu_display_analysis()
   result <- build_edu_pseudocolor_output_contract(analysis)

@@ -470,7 +470,7 @@ facs_report_edu_all_conditions <- function(analysis, report, max_condition_colum
     ggplot2::annotate("text", .5, .43, label = label, colour = "#5f3030", size = 3) +
     ggplot2::xlim(0, 1) + ggplot2::ylim(0, 1) + ggplot2::theme_void()
   overview_panel <- function(panel) {
-    panel + ggplot2::labs(x = "DNA", y = "EdU") +
+    panel + ggplot2::labs(x = "DNA", y = facs_report_edu_target_label(analysis)) +
       ggplot2::theme(legend.position = "none")
   }
   stack <- function(rows, label) {
@@ -537,7 +537,7 @@ facs_report_edu_all_conditions <- function(analysis, report, max_condition_colum
       shared_legend_title = NULL,
       legend_source_prefix = legend_source_prefix,
       panel_legends_visible = FALSE,
-      y_axis_title = "EdU",
+      y_axis_title = facs_report_edu_target_label(analysis),
       row_header_position = "above_full_width",
       replicate_header_rel_height = .12,
       replicate_header_height_fixed = TRUE,
@@ -953,7 +953,7 @@ facs_report_edu_gating_cards <- function(analysis, all_events = NULL,
         colour = child_colour, shape = 16, size = 0.42, stroke = 0,
         alpha = 0.78
       ) +
-      ggplot2::labs(title = title, subtitle = identity, x = "DNA", y = "EdU") +
+      ggplot2::labs(title = title, subtitle = identity, x = "DNA", y = facs_report_edu_target_label(analysis)) +
       ggplot2::scale_y_log10() +
       ggplot2::theme_classic(base_size = 8) +
       ggplot2::theme(aspect.ratio = 1,
@@ -1081,9 +1081,9 @@ facs_report_edu_gating_cards <- function(analysis, all_events = NULL,
         ggplot2::geom_point(colour = "#0072B2", shape = 16,
                             size = 0.42, stroke = 0, alpha = 0.78) +
         ggplot2::labs(title = "Single Cells", subtitle = identity,
-                      x = "DNA", y = "EdU")
+                      x = "DNA", y = facs_report_edu_target_label(analysis))
       single_x_axis <- "DNA"
-      single_y_axis <- "EdU"
+      single_y_axis <- facs_report_edu_target_label(analysis)
       single_x_limits <- c(NA_real_, NA_real_)
       single_y_limits <- c(NA_real_, NA_real_)
       single_axis_coverage <- 1
@@ -1135,8 +1135,8 @@ facs_report_edu_gating_cards <- function(analysis, all_events = NULL,
         ggplot2::aes(x = .data[[analysis$config$dna_channel]], y = .data$baseline),
         colour = "#542788", linewidth = 0.55, linetype = "dashed"
       ) +
-      ggplot2::labs(title = "Raw EdU + fitted background", subtitle = identity,
-                    x = "DNA", y = "EdU") +
+      ggplot2::labs(title = paste("Raw", facs_report_edu_target_label(analysis), "+ fitted background"), subtitle = identity,
+                    x = "DNA", y = facs_report_edu_target_label(analysis)) +
       ggplot2::scale_y_log10() +
       ggplot2::theme_classic(base_size = 8) +
       ggplot2::theme(aspect.ratio = 1,
@@ -1152,8 +1152,8 @@ facs_report_edu_gating_cards <- function(analysis, all_events = NULL,
         colour = "#4D4D4D", size = 0.25, stroke = 0, alpha = 0.55
       ) +
       ggplot2::labs(
-        title = "Background-subtracted EdU + offset", subtitle = identity,
-        x = "DNA", y = "EdU"
+        title = paste("Background-subtracted", facs_report_edu_target_label(analysis), "+ offset"), subtitle = identity,
+        x = "DNA", y = facs_report_edu_target_label(analysis)
       ) +
       ggplot2::scale_y_log10() +
       ggplot2::theme_classic(base_size = 8) +
@@ -1176,7 +1176,7 @@ facs_report_edu_gating_cards <- function(analysis, all_events = NULL,
       single_cells_x_limits = single_x_limits,
       single_cells_y_limits = single_y_limits,
       single_cells_axis_coverage = single_axis_coverage,
-      overlay_x_axis = "DNA", overlay_y_axis = "EdU",
+      overlay_x_axis = "DNA", overlay_y_axis = facs_report_edu_target_label(analysis),
       background_line_source = "sample_fitted_raw_edu_baseline",
       background_display_offset = display_offset
     )
@@ -1275,7 +1275,7 @@ facs_report_edu_s_phase_cards <- function(analysis, report,
       ) +
       ggplot2::coord_cartesian(xlim = as.numeric(analysis$config$x_limits),
                                ylim = c(lower, upper)) +
-      ggplot2::labs(title = prefix, subtitle = identity, x = "DNA", y = "EdU") +
+      ggplot2::labs(title = prefix, subtitle = identity, x = "DNA", y = facs_report_edu_target_label(analysis)) +
       ggplot2::theme_classic(base_size = 9) +
       ggplot2::theme(aspect.ratio = 1, legend.position = "bottom",
                      plot.title = ggplot2::element_text(face = "bold"))
@@ -1345,7 +1345,7 @@ facs_report_edu_responsive_groups <- function(
   overview_panel <- function(panel, shared_y_limits = NULL) {
     out <- panel + ggplot2::labs(
       title = NULL, subtitle = NULL,
-      x = "DNA", y = "EdU"
+      x = "DNA", y = facs_report_edu_target_label(analysis)
     ) +
     ggplot2::theme(legend.position = "none")
     if (!is.null(shared_y_limits)) {
