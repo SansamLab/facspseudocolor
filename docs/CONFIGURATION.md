@@ -191,6 +191,18 @@ binding; see `python/export_contract.py` for the exact schema. It is not
 meant to be satisfied for other plot types -- do not fabricate approval
 metadata to force a non-pH3 config through this path.
 
+`export_flowjo_populations.py`'s legacy profile writes columns named
+`raw__<PnN>` / `scaled__<PnN>` (no renaming). Setting `dna_channel` /
+`target_channel` in `config.yml` to those same `raw__<PnN>` (or
+`scaled__<PnN>`) strings avoids any experiment-specific renaming step
+entirely -- see `examples/config_ph3.yml` for a working example of that
+convention (it applies equally outside `plot_type: "ph3"`).
+
+For the EdU Standard v2 report's `flowjo_all_events_dir` (all raw events, no
+gating; see the "All-events Single Cells gating card" section of
+`REPORTS.md`), use `python/export_flowjo_all_events.py`, which follows the
+same `raw__<PnN>` naming convention by default.
+
 ## Optional EdU report block
 
 An EdU configuration may preserve settings needed by the optimized HTML report:

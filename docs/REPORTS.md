@@ -120,6 +120,31 @@ exact population and column(s) involved (for example, `Single Cells missing
 column(s): DNA height`) rather than the generic "lacks required channels or
 events" message from earlier package versions.
 
+Generate the `<prefix>_all_events.csv` files with
+`python/export_flowjo_all_events.py`, the general-purpose counterpart to
+`export_flowjo_populations.py`:
+
+```bash
+python3 python/export_flowjo_all_events.py \
+  --fcs-dir /path/to/Exp_FCS_files \
+  --output-dir all_events_csv \
+  --sample ctrl:2_NT.fcs --sample ATRi_3h:6_ATRi_3hrs.fcs \
+  --dna-channel FL2-A --dna-height-channel FL2-H \
+  --dna-column-name "DNA content" --dna-height-column-name "DNA height"
+```
+
+`--dna-column-name` must equal the config's `dna_channel`;
+`--dna-height-column-name` must equal `flowjo_dna_height_channel`. Omit both
+to get the `raw__<PnN>` naming convention `export_flowjo_populations.py` uses
+natively (see `CONFIGURATION.md`'s "Optional FlowJo block"), which needs no
+renaming step at all if `config.yml` uses that same convention.
+
+Together with `tools/flowjo-orchestration.R`'s `prepare_flowjo_csvs_external()`
+(which now uses `export_flowjo_populations.py`'s lighter-weight legacy profile
+for every `plot_type` except `ph3`; see `CONFIGURATION.md`), this covers the
+full CSV-preparation need for FlowJo-mode EdU/POI reports without writing any
+experiment-specific export script.
+
 ## Example gallery
 
 All previews below are generated from the public POI example data by
