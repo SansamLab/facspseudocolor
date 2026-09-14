@@ -93,6 +93,33 @@ validate a FlowJo export operation. The required `flowjo_gated_csv` and
 `all_events_csv` directories must be prepared separately before the generated
 report command is run.
 
+## All-events Single Cells gating card (`flowjo_all_events_dir`)
+
+Passing `-P flowjo_all_events_dir=<dir> -P flowjo_dna_height_channel=<channel>`
+to a FlowJo-mode EdU render (or the equivalent `report:` config keys) makes
+the Single Cells gating card show real DNA-A-versus-DNA-H doublet
+discrimination instead of the config's DNA/target axes. Omitting it is valid
+and renders a labeled fallback banner instead of failing -- but the two CSV
+inputs have exact, otherwise-undocumented column requirements
+(`facs_report_edu_gating_cards()` in `inst/quarto/_report-setup.R`):
+
+- Each `<prefix>_all_events.csv` under `flowjo_all_events_dir` needs a
+  `sample_id` column (must exactly equal the configured `fcs:` basename), an
+  `event_index` column (as text), the configured `dna_channel` column, and the
+  `dna_height_channel` column.
+- The `complete`/Single-Cells per-population CSV (in the ordinary
+  `data_dir`/`flowjo_gated_csv`) must *also* carry `event_index` and the
+  `dna_height_channel` value per event, in addition to the DNA/target columns
+  every population CSV already needs -- because accepted Single Cells events
+  are overlaid directly onto the all-events background by matching
+  `event_index`. The `g1` and `edu_positive`/`s_phase` CSVs do not need
+  `dna_height_channel`.
+
+A missing column or an empty population now raises an error that names the
+exact population and column(s) involved (for example, `Single Cells missing
+column(s): DNA height`) rather than the generic "lacks required channels or
+events" message from earlier package versions.
+
 ## Example gallery
 
 All previews below are generated from the public POI example data by

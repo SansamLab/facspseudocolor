@@ -1013,18 +1013,44 @@ facs_report_edu_gating_cards <- function(analysis, all_events = NULL,
         any(!required_child %in% names(g1)) ||
         any(!required_child %in% names(positive)) ||
         !nrow(single) || !nrow(g1) || !nrow(positive)) {
+      problems <- character()
+      missing_single <- setdiff(required_single, names(single))
+      missing_g1 <- setdiff(required_child, names(g1))
+      missing_positive <- setdiff(required_child, names(positive))
+      if (length(missing_single)) problems <- c(problems, paste0(
+        "Single Cells missing column(s): ", paste(missing_single, collapse = ", ")
+      ))
+      if (length(missing_g1)) problems <- c(problems, paste0(
+        "G1 missing column(s): ", paste(missing_g1, collapse = ", ")
+      ))
+      if (length(missing_positive)) problems <- c(problems, paste0(
+        "EdU-positive missing column(s): ", paste(missing_positive, collapse = ", ")
+      ))
+      if (!nrow(single)) problems <- c(problems, "Single Cells has zero events")
+      if (!nrow(g1)) problems <- c(problems, "G1 has zero events")
+      if (!nrow(positive)) problems <- c(problems, "EdU-positive has zero events")
       stop("Gating card inputs lack required channels or events for ", prefix,
-           ".", call. = FALSE)
+           ": ", paste(problems, collapse = "; "), ".", call. = FALSE)
     }
     if (all_event_display) {
       all_data <- all_events[[prefix]]
       identity_column <- if (model_derived) "event_identity" else "event_index"
+      required_all_events <- c(analysis$config$dna_channel,
+                               sample_dna_height_channel, identity_column)
       if (!is.data.frame(all_data) ||
-          any(!c(analysis$config$dna_channel, sample_dna_height_channel,
-                 identity_column) %in%
-              names(all_data)) || !nrow(all_data)) {
+          any(!required_all_events %in% names(all_data)) || !nrow(all_data)) {
+        detail <- character()
+        if (!is.data.frame(all_data)) {
+          detail <- c(detail, "the all-events export is not a data frame")
+        } else {
+          missing_all_events <- setdiff(required_all_events, names(all_data))
+          if (length(missing_all_events)) detail <- c(detail, paste0(
+            "missing column(s): ", paste(missing_all_events, collapse = ", ")
+          ))
+          if (!nrow(all_data)) detail <- c(detail, "zero events")
+        }
         stop("Validated all-events DNA-A/DNA-H coordinates are unavailable for ",
-             prefix, ".", call. = FALSE)
+             prefix, ": ", paste(detail, collapse = "; "), ".", call. = FALSE)
       }
       single_x_limits <- robust_axis_limits(
         all_data[[analysis$config$dna_channel]]
