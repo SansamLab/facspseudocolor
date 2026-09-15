@@ -10,6 +10,11 @@ reports:
     status: current_development
     package_line: 0.2.x
     description: Enhanced EdU report with interactive reference lines, gate boxes, plot cards, gating diagnostics, and PDF downloads.
+  - id: cdc45_standard_v1
+    file: facs_cdc45_standard_v1.qmd
+    status: current_development
+    package_line: 0.2.x
+    description: CDC45 experiment report, identical to edu_standard_v2 except all reader-facing text and titles refer to CDC45 rather than EdU. Runs through the same edu-mode pipeline (plot_type edu, target_display_mode poi_cdc45).
   - id: edu_model_gated_experimental
     file: facs_edu_model_gated.qmd
     status: experimental

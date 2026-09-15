@@ -1,5 +1,5 @@
 ---
-title: "EdU experiment report — Standard v2"
+title: "CDC45 experiment report — Standard v1"
 subtitle: "Validated populations, quality checks, cell-cycle views, and quantitative results"
 format:
   html:
@@ -218,7 +218,7 @@ if (nrow(pre_results_findings)) {
 #| label: gating-status
 #| results: asis
 if (is_model_derived) {
-  cat('<div class="report-card report-alert"><strong>EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.</strong> Single Cells, G1, and EdU-positive populations use the explicitly configured <code>',
+  cat('<div class="report-card report-alert"><strong>EXPERIMENTAL MODEL-DERIVED NON-PRODUCTION.</strong> Single Cells, G1, and CDC45-positive populations use the explicitly configured <code>',
       facs_report_html_escape(model_profile),
       '</code> profile. No FlowJo gate is substituted. These outputs do not establish biological ground truth, production performance, or broad generalizability.</div>\n',
       sep = '')
@@ -397,7 +397,7 @@ if (isTRUE(params$show_apex_comparison_toggle) ||
   if (isTRUE(params$show_apex_comparison_toggle)) {
   cat('<div id="apex-values" hidden>\n')
   cat('<h3>Apex comparison values</h3>\n')
-  cat('<p>The apex is the mode of log10 positive background-subtracted EdU signal within the configured normalized-DNA window. Both values are translated by the destination panel\'s display-only offset when drawn, so the line separation remains the background-subtracted apex difference and does not alter quantitative results.</p>\n')
+  cat('<p>The apex is the mode of log10 positive background-subtracted CDC45 signal within the configured normalized-DNA window. Both values are translated by the destination panel\'s display-only offset when drawn, so the line separation remains the background-subtracted apex difference and does not alter quantitative results.</p>\n')
   cat(facs_report_compact_table(apex_comparison$apex))
   cat('</div>\n')
   }
@@ -458,7 +458,7 @@ document.addEventListener("DOMContentLoaded", function () {
 ## Quantitation overview
 
 These cards are the report's quantitative figure set. Percentages retain their
-named canonical denominators. Reference-relative EdU measurements use the
+named canonical denominators. Reference-relative CDC45 measurements use the
 completed background-subtracted values and explicitly configured matched
 reference; invalid reference values remain unavailable.
 
@@ -479,20 +479,20 @@ quant_error_alt <- if (identical(analysis$config$quant_error_bar, "none")) {
 quantitation_rows <- list(
   list(
     list(
-      title = "2N–4N EdU-positive percentage",
-      detail = "Absolute EdU-positive percentage among eligible Single Cell events in the inclusive 2N–4N interval",
-      alt = paste0("EdU-positive percentage among eligible Single Cell events in the inclusive 2N-to-4N DNA interval. ", quant_point_alt, "Bar heights are condition means. ", quant_error_alt),
-      y_label = "% EdU positive",
+      title = "2N–4N CDC45-positive percentage",
+      detail = "Absolute CDC45-positive percentage among eligible Single Cell events in the inclusive 2N–4N interval",
+      alt = paste0("CDC45-positive percentage among eligible Single Cell events in the inclusive 2N-to-4N DNA interval. ", quant_point_alt, "Bar heights are condition means. ", quant_error_alt),
+      y_label = "% CDC45 positive",
       small_legend_keys = TRUE,
       hide_single_category_x_tick = TRUE,
       hide_x_title = TRUE,
       plot = report$positivity$panels$two_to_four_n
     ),
     list(
-      title = "All computed-positive EdU intensity",
+      title = "All computed-positive CDC45 intensity",
       detail = "Established unweighted mean of technical-acquisition background-subtracted medians among all computed-positive eligible cells within each biological replicate, relative to its configured matched reference",
-      alt = paste0("EdU intensity for all computed-positive eligible cells, relative to each biological replicate's configured matched reference. ", quant_point_alt, "Horizontal marks are condition means. ", quant_error_alt),
-      y_label = "Relative EdU level",
+      alt = paste0("CDC45 intensity for all computed-positive eligible cells, relative to each biological replicate's configured matched reference. ", quant_point_alt, "Horizontal marks are condition means. ", quant_error_alt),
+      y_label = "Relative CDC45 level",
       small_legend_keys = FALSE,
       hide_single_category_x_tick = TRUE,
       hide_x_title = TRUE,
@@ -503,18 +503,18 @@ quantitation_rows <- list(
     list(
       title = "Regional S-phase percentage",
       detail = "Absolute percentage within each established Early/Mid/Late-S DNA region",
-      alt = paste0("EdU-positive percentage within the established Early, Mid, and Late S-phase DNA regions. ", quant_point_alt, "Bar heights are condition means. ", quant_error_alt),
-      y_label = "% EdU positive",
+      alt = paste0("CDC45-positive percentage within the established Early, Mid, and Late S-phase DNA regions. ", quant_point_alt, "Bar heights are condition means. ", quant_error_alt),
+      y_label = "% CDC45 positive",
       small_legend_keys = TRUE,
       hide_single_category_x_tick = FALSE,
       hide_x_title = FALSE,
       plot = report$positivity$panels$early_mid_late_s
     ),
     list(
-      title = "Regional S-phase EdU",
+      title = "Regional S-phase CDC45",
       detail = "Established unweighted mean of technical-acquisition background-subtracted medians within each biological replicate and established S-phase region, relative to its configured matched reference",
-      alt = paste0("EdU intensity within the established Early, Mid, and Late S-phase regions, relative to each biological replicate's configured matched reference. ", quant_point_alt, "Horizontal marks are condition means. ", quant_error_alt),
-      y_label = "Relative EdU level",
+      alt = paste0("CDC45 intensity within the established Early, Mid, and Late S-phase regions, relative to each biological replicate's configured matched reference. ", quant_point_alt, "Horizontal marks are condition means. ", quant_error_alt),
+      y_label = "Relative CDC45 level",
       small_legend_keys = FALSE,
       hide_single_category_x_tick = FALSE,
       hide_x_title = FALSE,
@@ -655,11 +655,11 @@ cat('<h3>Gating by sample</h3>\n')
 # always shows DNA-H versus DNA-A with Single Cells shaded over all
 # acquisition events; there is no degraded fallback display.
 if (is_frozen_profile) {
-  cat('<p>Each gating card shows selected Single Cells shaded over all acquisition events on DNA-H versus DNA-A, followed by G1 and EdU+ shaded over all retained Single Cells on raw EdU versus DNA. For model gating, EdU+ cells are excluded from G1, then the final G1 population requires raw DNA-A to be at least 35% of the median positive DNA-A among preliminary G1 candidates. Both steps occur before G1-based normalization and background calculation. Raw EdU is displayed on a log10 scale; nonpositive raw values cannot be displayed on that axis but remain unchanged in the analysis.</p>\n')
+  cat('<p>Each gating card shows selected Single Cells shaded over all acquisition events on DNA-H versus DNA-A, followed by G1 and CDC45+ shaded over all retained Single Cells on raw CDC45 versus DNA. For model gating, CDC45+ cells are excluded from G1, then the final G1 population requires raw DNA-A to be at least 35% of the median positive DNA-A among preliminary G1 candidates. Both steps occur before G1-based normalization and background calculation. Raw CDC45 is displayed on a log10 scale; nonpositive raw values cannot be displayed on that axis but remain unchanged in the analysis.</p>\n')
 } else if (is_documented_profile) {
   cat('<p>Each gating card displays the provenance-validated documented-model populations. This profile retains its own approved G1 definition and does not apply the separate 0.255/35% frozen-profile rule.</p>\n')
 } else {
-  cat('<p>Each gating card shows FlowJo-selected Single Cells shaded over all acquisition events on DNA-H versus DNA-A, followed by FlowJo G1 and EdU+ populations shaded over all retained Single Cells on raw EdU versus DNA. Raw EdU is displayed on a log10 scale; nonpositive raw values cannot be displayed on that axis but remain unchanged in the analysis.</p>\n')
+  cat('<p>Each gating card shows FlowJo-selected Single Cells shaded over all acquisition events on DNA-H versus DNA-A, followed by FlowJo G1 and CDC45+ populations shaded over all retained Single Cells on raw CDC45 versus DNA. Raw CDC45 is displayed on a log10 scale; nonpositive raw values cannot be displayed on that axis but remain unchanged in the analysis.</p>\n')
 }
 if (!is.null(model_all_events)) {
   cat('<p>These membership overlays use the provenance-validated all-events export; they do not reconstruct a geometric boundary for the multifeature frozen models.</p>\n')
@@ -667,7 +667,7 @@ if (!is.null(model_all_events)) {
   cat('<p>The Single Cells panel uses explicit raw all-events coordinates for display and the saved FlowJo membership exported for that acquisition. It does not reconstruct a new Single Cells gate.</p>\n')
 }
 cat('<p>The DNA-A/DNA-H display limits are calculated independently for each acquisition from its 0.1st and 99.9th percentiles with 3% padding. This clips only extreme display outliers; no events are removed from gates, counts, normalization, or quantitation.</p>\n')
-cat('<p><strong>Gating display key:</strong> open charcoal points are events outside the colored gate; filled blue points are accepted Single Cells or G1; filled orange points are EdU+.</p>\n')
+cat('<p><strong>Gating display key:</strong> open charcoal points are events outside the colored gate; filled blue points are accepted Single Cells or G1; filled orange points are CDC45+.</p>\n')
 cat('<p>For display size only, each layer is deterministically limited to 3,000 evenly spaced retained rows.</p>\n')
 gating_cards <- facs_report_edu_gating_cards(
   analysis,
@@ -690,7 +690,7 @@ for (gating_index in seq_along(gating_cards)) {
     gating_card$plot, width = 9, height = 3.25,
     envir = environment(), dpi = 192L,
     fig_alt = paste0(
-      "Validated Single Cells, G1, and EdU-positive population displays for ",
+      "Validated Single Cells, G1, and CDC45-positive population displays for ",
       gating_card$condition, "."
     )
   ), sep = "\n")
@@ -700,7 +700,7 @@ for (gating_index in seq_along(gating_cards)) {
       facs_report_heading_label(gating_card$prefix),
       ' · Single Cells: ', format(gating_card$single_cells_n, big.mark = ","),
       ' · G1: ', format(gating_card$g1_n, big.mark = ","),
-      ' · EdU+: ', format(gating_card$edu_positive_n, big.mark = ","),
+      ' · CDC45+: ', format(gating_card$edu_positive_n, big.mark = ","),
       '</p>\n', sep = "")
   if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
     gating_link <- facs_report_embedded_plot_pdf_link(
@@ -721,7 +721,7 @@ for (gating_index in seq_along(gating_cards)) {
 cat(':::\n')
 
 cat('<h3>Background correction by sample</h3>\n')
-cat('<p>Each card compares the same retained Single Cells before and after correction. The left plot shows raw EdU with the exact fitted sample background as a purple dashed line. The right plot shows raw EdU minus that fitted background plus the report display offset. Both use a log10 EdU axis; the offset is display-only.</p>\n')
+cat('<p>Each card compares the same retained Single Cells before and after correction. The left plot shows raw CDC45 with the exact fitted sample background as a purple dashed line. The right plot shows raw CDC45 minus that fitted background plus the report display offset. Both use a log10 CDC45 axis; the offset is display-only.</p>\n')
 cat('::: {.overview-grid .gating-card-grid style="--panel-min: 520px; --panel-max: 720px;"}\n')
 for (gating_card in gating_cards) {
   background_caption_id <- paste0("background-card-", gating_card$prefix)
@@ -731,7 +731,7 @@ for (gating_card in gating_cards) {
     gating_card$background_plot, width = 6, height = 3.25,
     envir = environment(), dpi = 192L,
     fig_alt = paste0(
-      "Raw fitted-background and background-corrected EdU comparison for ",
+      "Raw fitted-background and background-corrected CDC45 comparison for ",
       gating_card$condition, "."
     )
   ), sep = "\n")
@@ -763,7 +763,7 @@ for (gating_card in gating_cards) {
 cat(':::\n')
 
 cat('<h3>Early-, Mid-, and Late-S populations by sample</h3>\n')
-cat('<p>Colored events are computed EdU-positive cells within the established Early-, Mid-, and Late-S DNA regions; retained Single Cells outside those populations are grey. The EdU coordinate uses the same display-only offset as the pseudocolor overview and does not alter population assignment or quantitation. For display size only, each layer is deterministically limited to 3,000 evenly spaced retained rows.</p>\n')
+cat('<p>Colored events are computed CDC45-positive cells within the established Early-, Mid-, and Late-S DNA regions; retained Single Cells outside those populations are grey. The CDC45 coordinate uses the same display-only offset as the pseudocolor overview and does not alter population assignment or quantitation. For display size only, each layer is deterministically limited to 3,000 evenly spaced retained rows.</p>\n')
 s_phase_cards <- facs_report_edu_s_phase_cards(
   analysis, report, max_points = 3000L
 )
@@ -777,7 +777,7 @@ for (s_phase_index in seq_along(s_phase_cards)) {
     s_phase_card$plot, width = 3, height = 3,
     envir = environment(), dpi = 192L,
     fig_alt = paste0(
-      "Early-, Mid-, and Late-S populations on an EdU-versus-DNA plot for ",
+      "Early-, Mid-, and Late-S populations on a CDC45-versus-DNA plot for ",
       s_phase_card$condition, "."
     )
   ), sep = "\n")
@@ -813,9 +813,9 @@ cat(':::\n')
 #| label: population-overview
 #| results: asis
 population_source <- if (is_model_derived) {
-  "the validated experimental model-derived **Single Cells**, **G1**, and **EdU Positive** populations. It does not redraw gates or use or claim FlowJo populations"
+  "the validated experimental model-derived **Single Cells**, **G1**, and **CDC45 Positive** populations. It does not redraw gates or use or claim FlowJo populations"
 } else {
-  "the established FlowJo-derived **Single Cells**, **G1**, and **EdU Positive** populations. It does not redraw gates"
+  "the established FlowJo-derived **Single Cells**, **G1**, and **CDC45 Positive** populations. It does not redraw gates"
 }
 cat('<div class="report-card">This report follows the configured sample order and uses ',
     population_source,
@@ -843,15 +843,15 @@ cat(facs_report_compact_table(overview$samples))
 #| label: population-method
 #| results: asis
 if (is_model_derived) {
-  cat("- **Population inputs:** Single Cells, G1, and EdU Positive CSVs from the explicitly selected `", model_profile, "` model profile. The report validates that profile's manifest and does not redefine, combine, or substitute calls from the other model profile.\n", sep = "")
+  cat("- **Population inputs:** Single Cells, G1, and CDC45 Positive CSVs from the explicitly selected `", model_profile, "` model profile. The report validates that profile's manifest and does not redefine, combine, or substitute calls from the other model profile.\n", sep = "")
 } else {
-  cat("- **Population inputs:** configured FlowJo Single Cells, G1, and EdU Positive exports. The report does not redefine these gates.\n")
+  cat("- **Population inputs:** configured FlowJo Single Cells, G1, and CDC45 Positive exports. The report does not redefine these gates.\n")
 }
 ```
 - **DNA coordinate:** each acquisition's G1-derived anchor, calculated using
   the configured anchor method, is mapped to 2N; displayed 4N is twice that
   value.
-- **EdU correction:** an independent EdU-negative baseline slope is fitted for
+- **CDC45 correction:** an independent CDC45-negative baseline slope is fitted for
   each acquisition and combined with that acquisition's G1-derived anchor using
   the configured anchor method to form that acquisition's baseline, which is
   subtracted. The event plots add a display-only offset; quantitative medians
@@ -926,7 +926,7 @@ if (is_model_derived) {
   cat(facs_report_compact_table(share_model_gate_inputs))
   cat("\n\n")
   cat(facs_report_compact_table(attr(model_gate_inputs, "model_artifacts")))
-  cat("\n\nThe frozen thresholds are Single Cells 0.205, G1 0.255, and EdU positive 0.385. The G1 and EdU models were validated within expert-reference Single Cells; their approved experimental composition after model-derived Single Cells changes the parent distribution and is not itself established biological ground truth.\n\n")
+  cat("\n\nThe frozen thresholds are Single Cells 0.205, G1 0.255, and CDC45 positive 0.385. The G1 and CDC45 models were validated within expert-reference Single Cells; their approved experimental composition after model-derived Single Cells changes the parent distribution and is not itself established biological ground truth.\n\n")
 }
 ```
 

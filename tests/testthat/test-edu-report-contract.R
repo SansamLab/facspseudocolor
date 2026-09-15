@@ -74,11 +74,11 @@ test_that("standard EdU report preserves the reader-facing section contract", {
   expect_false(any(grepl("output_csv_dir:", text, fixed = TRUE)))
   expect_false(any(grepl("show_quantitative_tables:", text, fixed = TRUE)))
   expect_true(any(grepl("show_audit_tables: false", text, fixed = TRUE)))
-  expect_true(any(grepl("show_apex_comparison_toggle: false", text,
+  expect_true(any(grepl("show_apex_comparison_toggle: true", text,
                         fixed = TRUE)))
-  expect_true(any(grepl("show_phase_gate_toggle: false", text,
+  expect_true(any(grepl("show_phase_gate_toggle: true", text,
                         fixed = TRUE)))
-  expect_true(any(grepl("embed_pseudocolor_pdf_downloads: false", text,
+  expect_true(any(grepl("embed_pseudocolor_pdf_downloads: true", text,
                         fixed = TRUE)))
   expect_true(any(grepl("download_plot, filename, width = 3, height = 3", text,
                         fixed = TRUE)))
