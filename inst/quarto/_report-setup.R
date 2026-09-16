@@ -1505,3 +1505,294 @@ facs_report_edu_responsive_groups <- function(
     balance = facs_report_edu_balance(analysis)
   )
 }
+
+# pH3 Standard v1 report helpers -----------------------------------------
+#
+# These mirror the EdU Standard v2 report helpers above, adapted for
+# plot_type: ph3. Unlike EdU, pH3-legacy mode (ph3_positivity_method:
+# flowjo_legacy_v1) has no per-sample fitted background model and no
+# reference-relative replicate pairing (PH3 replicates have no `reference`
+# field), so these are deliberately simpler than their EdU counterparts:
+# no model_group/is_reference/shared-legend logic, and the "normalization"
+# shown is DNA-content normalization (raw -> G1-anchored, mapped to the
+# configured 2N value), not a background-subtracted target signal.
+
+facs_report_ph3_overview <- function(analysis) {
+  facspseudocolor:::validate_analysis_object(analysis)
+  if (!identical(analysis$config$plot_type, "ph3")) {
+    stop("The pH3 report overview requires a pH3 analysis.", call. = FALSE)
+  }
+  manifest <- analysis$sample_manifest
+  input <- analysis$input_report
+  target_name <- analysis$config$target_name
+  gates <- analysis$quantitation$ph3$gates
+  populations <- c("FlowJo Single Cells", "FlowJo G1", paste0("FlowJo ", target_name, "+"))
+  list(
+    summary = data.frame(
+      item = c(
+        "Samples / acquisitions", "Biological replicates", "Conditions",
+        "DNA channel", paste(target_name, "channel"), "Population sources",
+        "DNA normalization", "Phase boundaries (normalized DNA)",
+        "Positivity method", "Configuration"
+      ),
+      value = c(
+        nrow(manifest), length(unique(manifest$replicate_index)),
+        paste(unique(manifest$condition[order(manifest$condition_index)]), collapse = ", "),
+        analysis$config$dna_channel, analysis$config$target_channel,
+        paste(populations, collapse = ", "),
+        paste0("G1/2N mapped to ", analysis$config$dna_2n_value,
+               " using the configured ", analysis$config$g1_anchor, " anchor"),
+        if (is.data.frame(gates) && nrow(gates)) {
+          paste(sprintf("%s [%s–%s]", gates$gate, gates$xmin, gates$xmax), collapse = ", ")
+        } else "Not available",
+        analysis$config$ph3_positivity_method,
+        if (is.character(analysis$provenance$config_path) &&
+            length(analysis$provenance$config_path) == 1L &&
+            !is.na(analysis$provenance$config_path) &&
+            nzchar(analysis$provenance$config_path)) {
+          basename(analysis$provenance$config_path)
+        } else "Completed analysis artifact"
+      ), stringsAsFactors = FALSE
+    ),
+    samples = manifest[, intersect(c(
+      "replicate", "technical_replicate", "condition", "prefix", "is_reference"
+    ), names(manifest)), drop = FALSE],
+    inputs = input
+  )
+}
+
+#' Arrange pH3 pseudocolor panels into a replicate x condition grid
+#'
+#' Simpler than facs_report_edu_responsive_groups: pH3 replicates have no
+#' `reference`/`is_reference`/`model_group` pairing concept, so this groups
+#' purely by biological replicate, in configured condition order.
+facs_report_ph3_responsive_groups <- function(
+    analysis, panels, max_condition_columns = 4L, min_panel_width = 220L
+) {
+  manifest <- analysis$sample_manifest
+  prefixes <- as.character(manifest$prefix)
+  if (is.null(names(panels)) || !identical(names(panels), prefixes)) {
+    stop("pH3 responsive overview panels must be named in exact manifest-prefix order.", call. = FALSE)
+  }
+  condition_order <- unique(as.character(
+    manifest$condition[order(manifest$condition_index, seq_len(nrow(manifest)))]
+  ))
+  replicate_index_order <- unique(manifest$replicate_index[order(manifest$replicate_index)])
+  groups <- lapply(seq_along(replicate_index_order), function(group_index) {
+    replicate_index <- replicate_index_order[[group_index]]
+    rows <- manifest[manifest$replicate_index == replicate_index, , drop = FALSE]
+    replicate <- unique(as.character(rows$replicate))
+    if (length(replicate) != 1L) {
+      stop("Each pH3 biological replicate index must have exactly one replicate label.", call. = FALSE)
+    }
+    cards <- lapply(condition_order, function(condition) {
+      found <- rows[rows$condition == condition, , drop = FALSE]
+      if (!nrow(found)) {
+        return(list(
+          condition = condition, prefix = NA_character_, status = "missing",
+          plot = ggplot2::ggplot() +
+            ggplot2::annotate("text", .5, .5, label = "MISSING", fontface = "bold",
+                              colour = "#9b2c2c", size = 5) +
+            ggplot2::xlim(0, 1) + ggplot2::ylim(0, 1) + ggplot2::theme_void()
+        ))
+      }
+      prefix <- as.character(found$prefix[[1L]])
+      list(condition = condition, prefix = prefix, status = "available",
+           plot = panels[[prefix]])
+    })
+    list(
+      group_index = group_index, replicate = replicate[[1L]],
+      replicate_index = replicate_index, cards = cards
+    )
+  })
+  list(
+    groups = groups, condition_order = condition_order,
+    max_condition_columns = max_condition_columns, min_panel_width = min_panel_width
+  )
+}
+
+#' Single Cells / G1 / pH3+ gating cards, one three-panel card per sample
+#'
+#' Mirrors facs_report_edu_gating_cards's shape and CSS conventions, adapted
+#' for pH3: the Single Cells panel shades Single Cells over all acquisition
+#' events on raw DNA-A versus DNA-H (mandatory, same convention as EdU/
+#' CDC45 reports); the G1 and pH3+ panels shade those populations over
+#' Single Cells on normalized DNA versus target signal. Unlike EdU, event
+#' identities are not required to be unique/matched between all-events and
+#' gated exports (this dataset's legacy exports carry no event_index), so
+#' overlay points are layered on top of the full Single Cells context
+#' rather than excluded from it -- visually equivalent, since the colored
+#' overlay points are drawn on top regardless.
+facs_report_ph3_gating_cards <- function(analysis, all_events = NULL,
+                                         dna_height_channel = NULL,
+                                         max_points = 3000L) {
+  if (!inherits(analysis, "facs_analysis") ||
+      !identical(analysis$config$plot_type, "ph3") ||
+      length(analysis$normalized_data) != nrow(analysis$sample_manifest) ||
+      !is.numeric(max_points) || length(max_points) != 1L ||
+      is.na(max_points) || !is.finite(max_points) || max_points < 1 ||
+      max_points != floor(max_points)) {
+    stop("pH3 gating cards require one valid pH3 analysis and a positive point limit.",
+         call. = FALSE)
+  }
+  max_points <- as.integer(max_points)
+  prefixes <- as.character(analysis$sample_manifest$prefix)
+  if (!is.list(all_events) ||
+      !identical(names(all_events), prefixes)) {
+    stop("pH3 DNA-A/DNA-H gating displays require explicit all-events exports in exact sample order.",
+         call. = FALSE)
+  }
+  if (!is.character(dna_height_channel) || length(dna_height_channel) != 1L ||
+      is.na(dna_height_channel) || !nzchar(dna_height_channel)) {
+    stop("pH3 DNA-A/DNA-H gating displays require an explicit DNA-height channel.",
+         call. = FALSE)
+  }
+  retain_points <- function(data) {
+    if (nrow(data) <= max_points) return(data)
+    data[unique(as.integer(round(seq(1, nrow(data), length.out = max_points)))),
+         , drop = FALSE]
+  }
+  robust_axis_limits <- function(values) {
+    values <- values[is.finite(values)]
+    if (length(values) < 2L) {
+      stop("DNA-A/DNA-H display limits require at least two finite values.", call. = FALSE)
+    }
+    limits <- as.numeric(stats::quantile(values, c(0.001, 0.999), names = FALSE, type = 7))
+    span <- diff(limits)
+    if (!all(is.finite(limits)) || span <= 0) {
+      stop("DNA-A/DNA-H display limits are degenerate.", call. = FALSE)
+    }
+    limits + c(-1, 1) * span * 0.03
+  }
+  target_name <- analysis$config$target_name
+  overlay_plot <- function(parent, child, title, child_colour, identity) {
+    parent <- parent[is.finite(parent$target_norm) & parent$target_norm > 0, , drop = FALSE]
+    child <- child[is.finite(child$target_norm) & child$target_norm > 0, , drop = FALSE]
+    ggplot2::ggplot() +
+      ggplot2::geom_point(
+        data = retain_points(parent),
+        ggplot2::aes(x = dna_norm, y = target_norm),
+        colour = "#4D4D4D", shape = 1, size = 0.34, stroke = 0.25, alpha = 0.65
+      ) +
+      ggplot2::geom_point(
+        data = retain_points(child),
+        ggplot2::aes(x = dna_norm, y = target_norm),
+        colour = child_colour, shape = 16, size = 0.42, stroke = 0, alpha = 0.78
+      ) +
+      ggplot2::labs(title = title, subtitle = identity, x = "DNA", y = target_name) +
+      ggplot2::scale_y_log10() +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 1, plot.title = ggplot2::element_text(face = "bold"))
+  }
+  manifest <- analysis$sample_manifest
+  lapply(seq_len(nrow(manifest)), function(i) {
+    sample <- analysis$normalized_data[[i]]
+    prefix <- as.character(manifest$prefix[[i]])
+    condition <- as.character(manifest$condition[[i]])
+    identity <- paste0(condition, " | Sample: ", prefix)
+    single <- sample$data
+    g1 <- sample$g1
+    positive <- sample$ph3_positive
+    if (!is.data.frame(single) || !is.data.frame(g1) || !is.data.frame(positive) ||
+        !nrow(single) || !nrow(g1) || !nrow(positive)) {
+      stop("Validated Single Cells, G1, and ", target_name, "-positive inputs are required for gating card ",
+           prefix, ".", call. = FALSE)
+    }
+    all_data <- all_events[[prefix]]
+    dna_channel <- analysis$config$dna_channel
+    required_all_events <- c(dna_channel, dna_height_channel)
+    if (!is.data.frame(all_data) ||
+        any(!required_all_events %in% names(all_data)) || !nrow(all_data)) {
+      stop("Validated all-events DNA-A/DNA-H coordinates are unavailable for ", prefix, ".",
+           call. = FALSE)
+    }
+    single_x_limits <- robust_axis_limits(all_data[[dna_channel]])
+    single_y_limits <- robust_axis_limits(all_data[[dna_height_channel]])
+    single_plot <- ggplot2::ggplot() +
+      ggplot2::geom_point(
+        data = retain_points(all_data),
+        ggplot2::aes(x = .data[[dna_channel]], y = .data[[dna_height_channel]]),
+        colour = "#4D4D4D", shape = 1, size = 0.34, stroke = 0.25, alpha = 0.65
+      ) +
+      ggplot2::geom_point(
+        data = retain_points(single),
+        ggplot2::aes(x = .data[[dna_channel]], y = .data[[dna_height_channel]]),
+        colour = "#0072B2", shape = 16, size = 0.42, stroke = 0, alpha = 0.78
+      ) +
+      ggplot2::labs(title = "Single Cells", subtitle = identity, x = "DNA-A", y = "DNA-H") +
+      ggplot2::coord_cartesian(xlim = single_x_limits, ylim = single_y_limits) +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 1, plot.title = ggplot2::element_text(face = "bold"))
+    g1_plot <- overlay_plot(single, g1, "G1", "#0072B2", identity)
+    positive_plot <- overlay_plot(single, positive, paste0(target_name, "+"), "#D55E00", identity)
+    list(
+      prefix = prefix, condition = condition,
+      plot = cowplot::plot_grid(single_plot, g1_plot, positive_plot, nrow = 1L, align = "hv"),
+      single_cells_n = nrow(single), g1_n = nrow(g1), ph3_positive_n = nrow(positive),
+      displayed_point_limit = max_points
+    )
+  })
+}
+
+#' Raw versus G1-anchored-normalized DNA content, one card per sample
+#'
+#' The only real "normalization" step in pH3-legacy mode: raw DNA content
+#' is anchored to the G1 median and mapped to the configured dna_2n_value
+#' (2N). There is no background-subtracted target signal to compare in
+#' this mode (ph3_positivity_method: flowjo_legacy_v1 reuses the FlowJo
+#' pH3+ gate directly rather than fitting a background model), so unlike
+#' EdU's background-correction cards, this compares the DNA axis itself
+#' before and after normalization. Configured phase boundaries are drawn
+#' as dashed reference lines on the normalized panel.
+facs_report_ph3_normalization_cards <- function(analysis, max_points = 3000L) {
+  if (!inherits(analysis, "facs_analysis") ||
+      !identical(analysis$config$plot_type, "ph3") ||
+      length(analysis$normalized_data) != nrow(analysis$sample_manifest)) {
+    stop("pH3 normalization cards require one valid pH3 analysis.", call. = FALSE)
+  }
+  retain_points <- function(data) {
+    if (nrow(data) <= max_points) return(data)
+    data[unique(as.integer(round(seq(1, nrow(data), length.out = max_points)))),
+         , drop = FALSE]
+  }
+  gates <- analysis$quantitation$ph3$gates
+  manifest <- analysis$sample_manifest
+  dna_channel <- analysis$config$dna_channel
+  lapply(seq_len(nrow(manifest)), function(i) {
+    sample <- analysis$normalized_data[[i]]$data
+    prefix <- as.character(manifest$prefix[[i]])
+    condition <- as.character(manifest$condition[[i]])
+    identity <- paste0(condition, " | Sample: ", prefix)
+    if (!is.data.frame(sample) || !nrow(sample) ||
+        any(!c(dna_channel, "dna_norm") %in% names(sample))) {
+      stop("Single Cells raw and normalized DNA content are required for ", prefix, ".",
+           call. = FALSE)
+    }
+    raw_plot <- ggplot2::ggplot(retain_points(sample), ggplot2::aes(x = .data[[dna_channel]])) +
+      ggplot2::geom_histogram(bins = 80L, fill = "#4D4D4D", colour = NA) +
+      ggplot2::labs(title = "Raw DNA content", subtitle = identity, x = "DNA (raw)", y = "Events") +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 0.8, plot.title = ggplot2::element_text(face = "bold"))
+    normalized_plot <- ggplot2::ggplot(retain_points(sample), ggplot2::aes(x = dna_norm)) +
+      ggplot2::geom_histogram(bins = 80L, fill = "#0072B2", colour = NA) +
+      ggplot2::labs(
+        title = paste0("Normalized DNA content (2N = ", analysis$config$dna_2n_value, ")"),
+        subtitle = identity, x = "DNA (normalized)", y = "Events"
+      ) +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 0.8, plot.title = ggplot2::element_text(face = "bold"))
+    if (is.data.frame(gates) && nrow(gates)) {
+      normalized_plot <- normalized_plot +
+        ggplot2::geom_vline(
+          data = data.frame(boundary = unique(c(gates$xmin, gates$xmax))),
+          ggplot2::aes(xintercept = boundary),
+          colour = "#542788", linewidth = 0.4, linetype = "dashed"
+        )
+    }
+    list(
+      prefix = prefix, condition = condition,
+      plot = cowplot::plot_grid(raw_plot, normalized_plot, nrow = 1L, align = "hv"),
+      single_cells_n = nrow(sample)
+    )
+  })
+}
