@@ -20,6 +20,11 @@ reports:
     status: current_development
     package_line: 0.2.x
     description: pH3 experiment report matching the EdU/CDC45 Standard style -- pseudocolor cards with a toggleable pH3+ gate overlay, Single Cells DNA-A/DNA-H gating cards, DNA normalization (raw vs G1-anchored) cards, and PDF downloads. For plot_type ph3 legacy-tier analyses (ph3_input_profile legacy_count_only_unverified_v1); does not require the full production_direct_identity_v1 contract.
+  - id: poi_standard_v1
+    file: facs_poi_standard_v1.qmd
+    status: current_development
+    package_line: 0.2.x
+    description: POI experiment report matching the EdU/CDC45/pH3 Standard style -- pseudocolor cards, Single Cells DNA-A/DNA-H gating cards, raw-vs-background-corrected signal cards, and PDF downloads. No gate-overlay toggle (POI has no gate box). Intentionally omits phase/gate composition-percentage quantitation (documented denominator/y-limit inconsistency, unresolved) and hides the background_quantile cutoff line when it would be unit-mismatched with the configured pseudocolor_signal (see show_cutoff_line).
   - id: edu_model_gated_experimental
     file: facs_edu_model_gated.qmd
     status: experimental

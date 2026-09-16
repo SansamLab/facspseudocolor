@@ -1807,3 +1807,342 @@ facs_report_ph3_normalization_cards <- function(analysis, max_points = 3000L) {
     )
   })
 }
+
+# POI Standard v1 report helpers ------------------------------------------
+#
+# These mirror the EdU/pH3 Standard report helpers above, adapted for
+# plot_type: poi. Unlike EdU/pH3, POI mode has only one per-sample
+# population (`complete`/Single Cells -- there is no separate G1 or
+# positive-population file), and its background correction is a real
+# per-replicate regression against a declared `reference` (background
+# control) acquisition, closely mirroring EdU's own background-fit shape
+# (`sample$data` carries the same `baseline`/`target_bgsub`/`target_norm`
+# fields EdU uses). POI replicates DO have `is_reference`/
+# `reference_condition`, so cards mark the configured background control.
+#
+# Known, deliberately NOT auto-"fixed" scientific caveat (see
+# poi_current_implementation_audit_5de77a9.md /
+# poi_method_and_output_decision_memo_5de77a9.md in the owner's analysis
+# workspace, POI-D06): the `background_quantile` cutoff line is computed in
+# background-divided units but drawn, by default, on whatever
+# `pseudocolor_signal` is configured -- for the default
+# `background_subtracted` display this is a real unit mismatch, not a
+# validated positivity boundary. This report does not attempt a "corrected"
+# line (there is no valid constant-offset equivalent: the true conversion is
+# DNA-position-dependent, not a horizontal line, and would itself be a new
+# unapproved scientific method). Instead it surfaces `show_cutoff_line`
+# (new, additive `facs_config_keys()` entry, default `TRUE` so existing
+# configs are unaffected) so a `background_subtracted`-display config can
+# explicitly hide the mismatched line, and the report explains why whenever
+# it is hidden for that reason.
+
+facs_report_poi_overview <- function(analysis) {
+  facspseudocolor:::validate_analysis_object(analysis)
+  if (!identical(analysis$config$plot_type, "poi")) {
+    stop("The POI report overview requires a POI analysis.", call. = FALSE)
+  }
+  manifest <- analysis$sample_manifest
+  input <- analysis$input_report
+  target_name <- analysis$config$target_name
+  signal <- analysis$config$pseudocolor_signal
+  signal_label <- if (identical(signal, "background_subtracted")) {
+    "background-subtracted (raw − predicted background)"
+  } else {
+    "background-divided (1000 × raw / predicted background)"
+  }
+  reference_labels <- unique(as.character(
+    manifest$condition[manifest$is_reference %in% TRUE]
+  ))
+  list(
+    summary = data.frame(
+      item = c(
+        "Samples / acquisitions", "Biological replicates", "Conditions",
+        "DNA channel", paste(target_name, "channel"), "Background control",
+        "DNA alignment", "Canonical signal", "Background cutoff line",
+        "Configuration"
+      ),
+      value = c(
+        nrow(manifest), length(unique(manifest$replicate_index)),
+        paste(unique(manifest$condition[order(manifest$condition_index)]), collapse = ", "),
+        analysis$config$dna_channel, analysis$config$target_channel,
+        if (length(reference_labels)) paste(reference_labels, collapse = ", ") else "Not configured",
+        paste0(analysis$config$poi_dna_align, " 2N peak detection, mapped to ",
+               analysis$config$dna_2n_value),
+        signal_label,
+        if (isTRUE(analysis$config$show_cutoff_line)) {
+          "Shown (background-divided units -- see Methods)"
+        } else {
+          "Hidden: not valid on the background-subtracted display (see Methods)"
+        },
+        if (is.character(analysis$provenance$config_path) &&
+            length(analysis$provenance$config_path) == 1L &&
+            !is.na(analysis$provenance$config_path) &&
+            nzchar(analysis$provenance$config_path)) {
+          basename(analysis$provenance$config_path)
+        } else "Completed analysis artifact"
+      ), stringsAsFactors = FALSE
+    ),
+    samples = manifest[, intersect(c(
+      "replicate", "technical_replicate", "condition", "prefix", "is_reference"
+    ), names(manifest)), drop = FALSE],
+    inputs = input
+  )
+}
+
+#' Arrange POI pseudocolor panels into a replicate x condition grid
+#'
+#' Simpler than facs_report_edu_responsive_groups (no model_group/paired-
+#' acquisition or shared-legend logic), but -- unlike
+#' facs_report_ph3_responsive_groups -- marks the configured background-
+#' control (`is_reference`) card, since POI replicates carry a real
+#' reference concept.
+facs_report_poi_responsive_groups <- function(
+    analysis, panels, max_condition_columns = 4L, min_panel_width = 220L
+) {
+  manifest <- analysis$sample_manifest
+  prefixes <- as.character(manifest$prefix)
+  # plot_pseudocolor_panels() omits the reference/background-control
+  # acquisition from `panels` by default (config `show_reference_panel`;
+  # per the POI audit this setting also changes what gets quantified, so
+  # this report does not silently flip it) -- so `panels` is normally a
+  # proper subset of the manifest prefixes, not an exact match. Still
+  # require whatever names ARE present to be a subsequence in manifest
+  # order, to catch a genuine mismatch (wrong analysis object, stale cache).
+  if (is.null(names(panels)) || !all(names(panels) %in% prefixes) ||
+      !identical(names(panels), prefixes[prefixes %in% names(panels)])) {
+    stop("POI responsive overview panels must be named in manifest-prefix order.", call. = FALSE)
+  }
+  condition_order <- unique(as.character(
+    manifest$condition[order(manifest$condition_index, seq_len(nrow(manifest)))]
+  ))
+  replicate_index_order <- unique(manifest$replicate_index[order(manifest$replicate_index)])
+  groups <- lapply(seq_along(replicate_index_order), function(group_index) {
+    replicate_index <- replicate_index_order[[group_index]]
+    rows <- manifest[manifest$replicate_index == replicate_index, , drop = FALSE]
+    replicate <- unique(as.character(rows$replicate))
+    if (length(replicate) != 1L) {
+      stop("Each POI biological replicate index must have exactly one replicate label.", call. = FALSE)
+    }
+    cards <- lapply(condition_order, function(condition) {
+      found <- rows[rows$condition == condition, , drop = FALSE]
+      if (!nrow(found)) {
+        return(list(
+          condition = condition, prefix = NA_character_, status = "missing",
+          is_reference = FALSE,
+          plot = ggplot2::ggplot() +
+            ggplot2::annotate("text", .5, .5, label = "MISSING", fontface = "bold",
+                              colour = "#9b2c2c", size = 5) +
+            ggplot2::xlim(0, 1) + ggplot2::ylim(0, 1) + ggplot2::theme_void()
+        ))
+      }
+      prefix <- as.character(found$prefix[[1L]])
+      is_reference <- found$is_reference[[1L]] %in% TRUE
+      if (!prefix %in% names(panels)) {
+        # Intentionally omitted (the reference/background-control
+        # acquisition, when show_reference_panel is not enabled) -- not an
+        # error, so this is explicitly labeled rather than styled as MISSING.
+        return(list(
+          condition = condition, prefix = prefix, status = "not_plotted",
+          is_reference = is_reference,
+          plot = ggplot2::ggplot() +
+            ggplot2::annotate("text", .5, .58, label = "Not plotted", fontface = "bold",
+                              colour = "#46565c", size = 4.5) +
+            ggplot2::annotate("text", .5, .42,
+                              label = "background control\n(show_reference_panel: false)",
+                              colour = "#46565c", size = 3) +
+            ggplot2::xlim(0, 1) + ggplot2::ylim(0, 1) + ggplot2::theme_void()
+        ))
+      }
+      list(condition = condition, prefix = prefix, status = "available",
+           is_reference = is_reference, plot = panels[[prefix]])
+    })
+    is_ref <- vapply(cards, `[[`, logical(1), "is_reference")
+    cards <- c(cards[is_ref], cards[!is_ref])
+    list(
+      group_index = group_index, replicate = replicate[[1L]],
+      replicate_index = replicate_index, cards = cards
+    )
+  })
+  list(
+    groups = groups, condition_order = condition_order,
+    max_condition_columns = max_condition_columns, min_panel_width = min_panel_width
+  )
+}
+
+#' Single Cells gating card, one per sample
+#'
+#' POI has only one population per sample (no G1/positive files), so unlike
+#' the EdU/pH3 gating cards this is a single panel: Single Cells shaded over
+#' all acquisition events on raw DNA-A versus DNA-H (mandatory, same
+#' convention as the EdU/CDC45/pH3 reports).
+facs_report_poi_gating_cards <- function(analysis, all_events = NULL,
+                                         dna_height_channel = NULL,
+                                         max_points = 3000L) {
+  if (!inherits(analysis, "facs_analysis") ||
+      !identical(analysis$config$plot_type, "poi") ||
+      length(analysis$normalized_data) != nrow(analysis$sample_manifest) ||
+      !is.numeric(max_points) || length(max_points) != 1L ||
+      is.na(max_points) || !is.finite(max_points) || max_points < 1 ||
+      max_points != floor(max_points)) {
+    stop("POI gating cards require one valid POI analysis and a positive point limit.",
+         call. = FALSE)
+  }
+  max_points <- as.integer(max_points)
+  prefixes <- as.character(analysis$sample_manifest$prefix)
+  if (!is.list(all_events) || !identical(names(all_events), prefixes)) {
+    stop("POI DNA-A/DNA-H gating displays require explicit all-events exports in exact sample order.",
+         call. = FALSE)
+  }
+  if (!is.character(dna_height_channel) || length(dna_height_channel) != 1L ||
+      is.na(dna_height_channel) || !nzchar(dna_height_channel)) {
+    stop("POI DNA-A/DNA-H gating displays require an explicit DNA-height channel.",
+         call. = FALSE)
+  }
+  retain_points <- function(data) {
+    if (nrow(data) <= max_points) return(data)
+    data[unique(as.integer(round(seq(1, nrow(data), length.out = max_points)))),
+         , drop = FALSE]
+  }
+  robust_axis_limits <- function(values) {
+    values <- values[is.finite(values)]
+    if (length(values) < 2L) {
+      stop("DNA-A/DNA-H display limits require at least two finite values.", call. = FALSE)
+    }
+    limits <- as.numeric(stats::quantile(values, c(0.001, 0.999), names = FALSE, type = 7))
+    span <- diff(limits)
+    if (!all(is.finite(limits)) || span <= 0) {
+      stop("DNA-A/DNA-H display limits are degenerate.", call. = FALSE)
+    }
+    limits + c(-1, 1) * span * 0.03
+  }
+  manifest <- analysis$sample_manifest
+  dna_channel <- analysis$config$dna_channel
+  lapply(seq_len(nrow(manifest)), function(i) {
+    sample <- analysis$normalized_data[[i]]
+    prefix <- as.character(manifest$prefix[[i]])
+    condition <- as.character(manifest$condition[[i]])
+    identity <- paste0(condition, " | Sample: ", prefix)
+    single <- sample$data
+    if (!is.data.frame(single) || !nrow(single)) {
+      stop("Validated Single Cells input is required for gating card ", prefix, ".", call. = FALSE)
+    }
+    all_data <- all_events[[prefix]]
+    required_all_events <- c(dna_channel, dna_height_channel)
+    if (!is.data.frame(all_data) ||
+        any(!required_all_events %in% names(all_data)) || !nrow(all_data)) {
+      stop("Validated all-events DNA-A/DNA-H coordinates are unavailable for ", prefix, ".", call. = FALSE)
+    }
+    single_x_limits <- robust_axis_limits(all_data[[dna_channel]])
+    single_y_limits <- robust_axis_limits(all_data[[dna_height_channel]])
+    single_plot <- ggplot2::ggplot() +
+      ggplot2::geom_point(
+        data = retain_points(all_data),
+        ggplot2::aes(x = .data[[dna_channel]], y = .data[[dna_height_channel]]),
+        colour = "#4D4D4D", shape = 1, size = 0.34, stroke = 0.25, alpha = 0.65
+      ) +
+      ggplot2::geom_point(
+        data = retain_points(single),
+        ggplot2::aes(x = .data[[dna_channel]], y = .data[[dna_height_channel]]),
+        colour = "#0072B2", shape = 16, size = 0.42, stroke = 0, alpha = 0.78
+      ) +
+      ggplot2::labs(title = "Single Cells", subtitle = identity, x = "DNA-A", y = "DNA-H") +
+      ggplot2::coord_cartesian(xlim = single_x_limits, ylim = single_y_limits) +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 1, plot.title = ggplot2::element_text(face = "bold"))
+    list(prefix = prefix, condition = condition, plot = single_plot, single_cells_n = nrow(single))
+  })
+}
+
+#' Raw-plus-fitted-background versus background-corrected signal cards
+#'
+#' Mirrors facs_report_edu_gating_cards's background-comparison panel pair
+#' exactly (same `baseline`/`target_bgsub` fields, same layout), relabeled
+#' for POI's target and corrected-signal terminology. The left plot always
+#' shows raw target with the fitted background line; the right plot shows
+#' whichever `pseudocolor_signal` is configured -- background-subtracted
+#' (default, `target_bgsub` + display offset) or background-divided
+#' (`1000 * target_raw / background_fitted`), explicitly labeled either way.
+facs_report_poi_background_cards <- function(analysis, max_points = 3000L) {
+  if (!inherits(analysis, "facs_analysis") ||
+      !identical(analysis$config$plot_type, "poi") ||
+      length(analysis$normalized_data) != nrow(analysis$sample_manifest)) {
+    stop("POI background-correction cards require one valid POI analysis.", call. = FALSE)
+  }
+  retain_points <- function(data) {
+    if (nrow(data) <= max_points) return(data)
+    data[unique(as.integer(round(seq(1, nrow(data), length.out = max_points)))),
+         , drop = FALSE]
+  }
+  manifest <- analysis$sample_manifest
+  dna_channel <- analysis$config$dna_channel
+  target_name <- analysis$config$target_name
+  dna_2n_value <- analysis$config$dna_2n_value
+  divided <- !identical(analysis$config$pseudocolor_signal, "background_subtracted")
+  lapply(seq_len(nrow(manifest)), function(i) {
+    sample <- analysis$normalized_data[[i]]
+    single <- sample$data
+    prefix <- as.character(manifest$prefix[[i]])
+    condition <- as.character(manifest$condition[[i]])
+    identity <- paste0(condition, " | Sample: ", prefix)
+    if (!is.data.frame(single) ||
+        any(!c("dna_norm", "target_raw", "baseline") %in% names(single))) {
+      stop("Fitted background coordinates are required for ", prefix, ".", call. = FALSE)
+    }
+    background_curve <- single[
+      is.finite(single$dna_norm) & is.finite(single$baseline) & single$baseline > 0,
+      c("dna_norm", "baseline"), drop = FALSE
+    ]
+    background_curve <- background_curve[order(background_curve$dna_norm), , drop = FALSE]
+    if (nrow(background_curve) < 2L) {
+      stop("Fitted background coordinates are unavailable for ", prefix, ".", call. = FALSE)
+    }
+    raw_plot <- ggplot2::ggplot() +
+      ggplot2::geom_point(
+        data = retain_points(single[is.finite(single$dna_norm) & is.finite(single$target_raw) &
+                                     single$target_raw > 0, , drop = FALSE]),
+        ggplot2::aes(x = dna_norm, y = target_raw),
+        colour = "#000000", size = 0.25, stroke = 0, alpha = 0.45
+      ) +
+      ggplot2::geom_line(
+        data = background_curve, ggplot2::aes(x = dna_norm, y = baseline),
+        colour = "#542788", linewidth = 0.55, linetype = "dashed"
+      ) +
+      ggplot2::labs(title = paste("Raw", target_name, "+ fitted background"), subtitle = identity,
+                    x = "DNA", y = target_name) +
+      ggplot2::scale_y_log10() +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 1, plot.title = ggplot2::element_text(face = "bold"))
+    if (divided) {
+      corrected <- single[is.finite(single$dna_norm) & is.finite(single$baseline) &
+                            single$baseline > 0 & is.finite(single$target_raw), , drop = FALSE]
+      corrected$displayed_signal <- dna_2n_value * corrected$target_raw / corrected$baseline
+      corrected_title <- paste("Background-divided", target_name)
+    } else {
+      corrected <- single[is.finite(single$dna_norm) & is.finite(single$target_bgsub), , drop = FALSE]
+      corrected$displayed_signal <- corrected$target_bgsub
+      corrected_title <- paste("Background-subtracted", target_name)
+    }
+    if (nrow(corrected) < 2L) {
+      stop("Too few finite corrected-signal events for ", prefix, ".", call. = FALSE)
+    }
+    corrected_plot <- ggplot2::ggplot(
+      retain_points(corrected), ggplot2::aes(x = dna_norm, y = displayed_signal)
+    ) +
+      ggplot2::geom_point(colour = "#4D4D4D", size = 0.25, stroke = 0, alpha = 0.55) +
+      ggplot2::labs(title = corrected_title, subtitle = identity, x = "DNA", y = target_name) +
+      ggplot2::theme_classic(base_size = 8) +
+      ggplot2::theme(aspect.ratio = 1, plot.title = ggplot2::element_text(face = "bold"))
+    if (!divided) {
+      corrected_plot <- corrected_plot +
+        ggplot2::scale_y_continuous() +
+        ggplot2::labs(caption = "Finite negative values are real (background-subtracted); a symmetric linear axis is used, not log10.")
+    } else {
+      corrected_plot <- corrected_plot + ggplot2::scale_y_log10()
+    }
+    list(
+      prefix = prefix, condition = condition,
+      plot = cowplot::plot_grid(raw_plot, corrected_plot, nrow = 1L, align = "hv"),
+      single_cells_n = nrow(single)
+    )
+  })
+}
