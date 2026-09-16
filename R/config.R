@@ -89,7 +89,16 @@ facs_config_defaults <- function(plot_type) {
     y_limit_upper_quantile = 0.999,
     palette = "refined",
     y_log10 = TRUE,
-    pseudocolor_signal = "background_subtracted",
+    # PH3-legacy mode (ph3_positivity_method: flowjo_legacy_v1) fits no
+    # background model -- target_bgsub is always identical to target_raw --
+    # so "background_subtracted" display has no real background to
+    # subtract and only adds a display offset that the exact FlowJo gate
+    # geometry (plotted from unshifted raw/y_raw coordinates; see
+    # read_ph3_gate_geometry()) does not share, making the gate box appear
+    # displaced from the data it is meant to outline. "normalized" (offset
+    # always 0) is the correct default for ph3; edu/poi keep the prior
+    # default unchanged.
+    pseudocolor_signal = if (identical(plot_type, "ph3")) "normalized" else "background_subtracted",
     background_subtracted_offset = "auto",
     x_limits = c(700, 2250),
     point_size = 0.3,

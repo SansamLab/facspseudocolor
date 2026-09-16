@@ -101,12 +101,12 @@ overview <- facs_report_ph3_overview(analysis)
 panels_off <- plot_pseudocolor_panels(analysis)
 panels_on <- plot_ph3_4n_gate_panels(analysis, geometry)
 all_conditions_off <- facs_report_ph3_responsive_groups(
-  analysis, panels_off$panels, params$max_condition_columns, params$min_panel_width
+  analysis, panels_off$decorated_plots, params$max_condition_columns, params$min_panel_width
 )
 all_conditions_on <- NULL
 if (isTRUE(params$show_gate_toggle)) {
   all_conditions_on <- facs_report_ph3_responsive_groups(
-    analysis, panels_on$panels, params$max_condition_columns, params$min_panel_width
+    analysis, panels_on$decorated_plots, params$max_condition_columns, params$min_panel_width
   )
 }
 gating_cards <- facs_report_ph3_gating_cards(
@@ -136,9 +136,9 @@ embedded_pdf_total_bytes <- 0
 embedded_pdf_max_total_bytes <- 64 * 1024^2
 all_canvas_pdf_links <- NULL
 if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
-  canvas_reports <- list(plain = list(panels = panels_off$panels))
+  canvas_reports <- list(plain = list(panels = panels_off$decorated_plots))
   if (isTRUE(params$show_gate_toggle)) {
-    canvas_reports$gated <- list(panels = panels_on$panels)
+    canvas_reports$gated <- list(panels = panels_on$decorated_plots)
   }
   canvas_filenames <- c(
     plain = "all-pseudocolor-plots.pdf",

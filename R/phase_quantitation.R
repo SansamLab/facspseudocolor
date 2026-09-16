@@ -129,17 +129,30 @@ make_rectangular_phase_gates <- function(
 
 # Add the rectangular gates (and optional labels) to a ggplot panel. Works for
 # both the decorated plot and the naked plotgardener panel.
+#
+# Adjacent gates are contiguous (each gate's xmax is the next gate's xmin),
+# so their shared edges coincide exactly. With fill = NA (the historical
+# behavior) that makes a row of gates read as one indistinguishable cluster
+# of dashed lines rather than separate regions. Filling each gate with a
+# distinct, low-alpha color from the same qualitative palette used
+# elsewhere in the package (facs_named_palette) makes adjacent regions
+# visually distinguishable without needing labels, while the shared
+# `color`/`linetype`/`linewidth` outline still marks every boundary.
 add_phase_gates_to_plot <- function(
     plot, gate_rectangles, color = "black", linetype = "dashed",
-    linewidth = 0.5, show_labels = FALSE, label_size = 2.2, y_log10 = TRUE
+    linewidth = 0.5, show_labels = FALSE, label_size = 2.2, y_log10 = TRUE,
+    fill_alpha = 0.16
 ) {
   gr <- gate_rectangles
+  gr$fill_color <- facs_named_palette("colorblind", nrow(gr))[gr$gate_index]
   plot <- plot + ggplot2::geom_rect(
     data = gr,
-    ggplot2::aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
-    inherit.aes = FALSE, fill = NA, color = color,
-    linetype = linetype, linewidth = linewidth
-  )
+    ggplot2::aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax,
+                fill = fill_color),
+    inherit.aes = FALSE, alpha = fill_alpha, color = color,
+    linetype = linetype, linewidth = linewidth, show.legend = FALSE
+  ) +
+    ggplot2::scale_fill_identity()
   if (show_labels) {
     gr$label_x <- (gr$xmin + gr$xmax) / 2
     gr$label_y <- if (y_log10) sqrt(gr$ymin * gr$ymax) else (gr$ymin + gr$ymax) / 2

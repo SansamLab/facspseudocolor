@@ -1773,7 +1773,26 @@ facs_report_ph3_normalization_cards <- function(analysis, max_points = 3000L) {
       ggplot2::labs(title = "Raw DNA content", subtitle = identity, x = "DNA (raw)", y = "Events") +
       ggplot2::theme_classic(base_size = 8) +
       ggplot2::theme(aspect.ratio = 0.8, plot.title = ggplot2::element_text(face = "bold"))
-    normalized_plot <- ggplot2::ggplot(retain_points(sample), ggplot2::aes(x = dna_norm)) +
+    normalized_plot <- ggplot2::ggplot(retain_points(sample), ggplot2::aes(x = dna_norm))
+    if (is.data.frame(gates) && nrow(gates)) {
+      # Contiguous phase regions (each gate's xmax is the next gate's xmin)
+      # share edges, so plain boundary lines are indistinguishable from one
+      # another. Shade each region with a distinct, low-alpha color from
+      # the same qualitative palette used for the pseudocolor phase-gate
+      # overlay (add_phase_gates_to_plot()) instead, drawn first so the
+      # histogram sits on top of it.
+      shading <- gates
+      shading$fill_color <- facspseudocolor:::facs_named_palette("colorblind", nrow(shading))[
+        shading$gate_index %||% seq_len(nrow(shading))
+      ]
+      normalized_plot <- normalized_plot + ggplot2::geom_rect(
+        data = shading,
+        ggplot2::aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf,
+                    fill = fill_color),
+        inherit.aes = FALSE, alpha = 0.16, show.legend = FALSE
+      ) + ggplot2::scale_fill_identity()
+    }
+    normalized_plot <- normalized_plot +
       ggplot2::geom_histogram(bins = 80L, fill = "#0072B2", colour = NA) +
       ggplot2::labs(
         title = paste0("Normalized DNA content (2N = ", analysis$config$dna_2n_value, ")"),
@@ -1781,14 +1800,6 @@ facs_report_ph3_normalization_cards <- function(analysis, max_points = 3000L) {
       ) +
       ggplot2::theme_classic(base_size = 8) +
       ggplot2::theme(aspect.ratio = 0.8, plot.title = ggplot2::element_text(face = "bold"))
-    if (is.data.frame(gates) && nrow(gates)) {
-      normalized_plot <- normalized_plot +
-        ggplot2::geom_vline(
-          data = data.frame(boundary = unique(c(gates$xmin, gates$xmax))),
-          ggplot2::aes(xintercept = boundary),
-          colour = "#542788", linewidth = 0.4, linetype = "dashed"
-        )
-    }
     list(
       prefix = prefix, condition = condition,
       plot = cowplot::plot_grid(raw_plot, normalized_plot, nrow = 1L, align = "hv"),
