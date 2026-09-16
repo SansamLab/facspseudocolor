@@ -1,0 +1,400 @@
+---
+title: "POI experiment report — Standard v1"
+subtitle: "Validated populations, quality checks, and quantitative results"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: false
+    embed-resources: true
+    code-fold: false
+    code-tools: false
+execute: { warning: false, message: false, echo: false }
+params:
+  config: null
+  analysis_rds: null
+  flowjo_all_events_dir: null
+  flowjo_dna_height_channel: null
+  show_audit_tables: false
+  embed_pseudocolor_pdf_downloads: true
+  max_condition_columns: 4
+  min_panel_width: 220
+---
+
+```{css}
+.quarto-title-block { margin-bottom: 2rem; }
+h2 { margin-top: 2.4rem; padding-top: .45rem; border-top: 2px solid #dce5e8; }
+h3 { margin-top: 1.7rem; }
+.report-card { border-left: .35rem solid #287c8e; background: #f5f9fa; padding: 1rem 1.2rem; margin: 1rem 0; }
+.report-alert { border-left-color: #b54708; background: #fff7ed; }
+.report-ok { border-left-color: #27864b; background: #f0f9f3; }
+.report-table { width: 100%; font-size: .9rem; }
+.report-table th { background: #eaf1f3; }
+.figure-caption, figcaption { color: #46565c; font-size: .9rem; }
+.overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--panel-min)), 1fr)); gap: 1rem; max-width: var(--panel-max); }
+.overview-card { min-width: 0; border: 1px solid #dce5e8; border-radius: .35rem; padding: .55rem; background: #fff; }
+.overview-card img { width: 100%; height: auto; }
+.overview-card h4 { margin: .5rem 0 .15rem; font-size: .95rem; }
+.overview-card .sample-caption { margin: 0; color: #46565c; font-size: .82rem; overflow-wrap: anywhere; }
+.overview-group { margin: 1.5rem 0 2.2rem; }
+.plot-pdf-download { display: inline-block; margin-top: .45rem; border: 1px solid #287c8e; border-radius: .25rem; padding: .3rem .55rem; color: #185d6b; background: #f5f9fa; font-size: .82rem; font-weight: 600; text-decoration: none; }
+.plot-pdf-download:hover { background: #e5f1f3; }
+.plot-pdf-download:focus-visible { outline: 3px solid #f0b429; outline-offset: 2px; }
+.quantitation-download-all { margin: 0 0 1rem; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+```
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
+analysis <- facs_report_input(params$config, params$analysis_rds)
+if (!identical(analysis$config$plot_type, "poi")) {
+  stop("facs_poi_standard_v1.qmd requires a plot_type: poi configuration.")
+}
+target_name <- analysis$config$target_name
+if (is.null(params$flowjo_all_events_dir)) {
+  stop("`flowjo_all_events_dir` is required: the Single Cells gating card must ",
+       "show DNA-H versus DNA-A with Single Cells shaded over all acquisition ",
+       "events, which requires an explicit all-events export (see ",
+       "`python/export_flowjo_all_events.py` and the `flowjo_dna_height_channel` parameter).")
+}
+if (!is.character(params$flowjo_dna_height_channel) ||
+    length(params$flowjo_dna_height_channel) != 1L ||
+    is.na(params$flowjo_dna_height_channel) ||
+    !nzchar(params$flowjo_dna_height_channel)) {
+  stop("`flowjo_dna_height_channel` is required with `flowjo_all_events_dir`.")
+}
+prefixes <- as.character(analysis$sample_manifest$prefix)
+paths <- file.path(params$flowjo_all_events_dir, paste0(prefixes, "_all_events.csv"))
+missing_paths <- paths[!file.exists(paths)]
+if (length(missing_paths)) {
+  stop("Missing explicit FlowJo all-events display file(s): ",
+       paste(basename(missing_paths), collapse = ", "))
+}
+root <- normalizePath(params$flowjo_all_events_dir, mustWork = TRUE)
+path_info <- file.info(paths)
+if (any(!file_test("-f", paths)) || any(path_info$isdir) ||
+    any(nzchar(Sys.readlink(paths))) ||
+    any(path_info$size > 512 * 1024^2) ||
+    any(dirname(normalizePath(paths, mustWork = TRUE)) != root)) {
+  stop("FlowJo all-events display files must be confined regular files no larger than 512 MiB.")
+}
+flowjo_all_events <- lapply(paths, utils::read.csv, check.names = FALSE)
+names(flowjo_all_events) <- prefixes
+
+overview <- facs_report_poi_overview(analysis)
+panels <- plot_pseudocolor_panels(analysis)
+all_conditions <- facs_report_poi_responsive_groups(
+  analysis, panels$panels, params$max_condition_columns, params$min_panel_width
+)
+gating_cards <- facs_report_poi_gating_cards(
+  analysis, all_events = flowjo_all_events,
+  dna_height_channel = params$flowjo_dna_height_channel, max_points = 3000L
+)
+background_cards <- facs_report_poi_background_cards(analysis, max_points = 3000L)
+quant_whole_plot <- plot_facs_whole_signal(analysis)
+quant_phase_plot <- plot_facs_phase_signal(analysis, geometry = "bar")
+```
+
+```{r}
+#| label: pre-results-qc
+#| results: asis
+cat('<div class="report-card report-ok"><strong>FlowJo workspace gates re-evaluated by FlowKit.</strong> The saved FlowJo gate definitions supply population membership, but the export is not necessarily event-identical to a native FlowJo CSV export. Human inspection of every acquisition is still required before interpretation.</div>\n')
+if (!isTRUE(analysis$config$show_cutoff_line)) {
+  cat('<div class="report-card report-alert"><strong>Background cutoff line hidden.</strong> The configured <code>background_quantile</code> cutoff is computed in background-divided units. On this report\'s ', if (identical(analysis$config$pseudocolor_signal, "background_subtracted")) "background-subtracted" else "background-divided", ' display, that value ', if (identical(analysis$config$pseudocolor_signal, "background_subtracted")) "would not be on the same scale as the plotted signal" else "is on the same scale as the plotted signal, but is still QC/display metadata, not a validated positivity boundary", '. See Methods.</div>\n', sep = "")
+}
+if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+  cat('<div class="report-card report-alert"><strong>Embedded vector-PDF downloads enabled.</strong> These downloads increase the HTML file size and preserve plotted event coordinates at higher fidelity than the overview images. Share this report only where that experimental-data detail is approved.</div>\n')
+}
+```
+
+## All-condition visual overview
+
+```{r}
+#| label: all-condition-matrix
+#| results: asis
+embedded_pdf_total_bytes <- 0
+embedded_pdf_max_total_bytes <- 64 * 1024^2
+all_canvas_pdf_link <- NULL
+if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+  n_cols <- min(params$max_condition_columns, length(panels$panels))
+  n_rows <- ceiling(length(panels$panels) / params$max_condition_columns)
+  canvas <- cowplot::plot_grid(plotlist = panels$panels, ncol = n_cols)
+  all_canvas_pdf_link <- facs_report_embedded_plot_pdf_link(
+    canvas, "all-pseudocolor-plots.pdf", width = 3 * n_cols, height = 3 * n_rows,
+    label = "Download all PDF", maximum_bytes = 32 * 1024^2
+  )
+  embedded_pdf_total_bytes <- embedded_pdf_total_bytes + attr(all_canvas_pdf_link, "pdf_bytes")
+  if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+    stop("Embedded overview PDFs exceed the configured total safety limit.")
+  }
+}
+if (!is.null(all_canvas_pdf_link)) {
+  cat('<div class="quantitation-download-all">', all_canvas_pdf_link, '</div>\n', sep = "")
+}
+for (group in all_conditions$groups) {
+  cat('\n\n::: {.overview-group}\n')
+  cat("<h3>", facs_report_heading_label(group$replicate), "</h3>\n", sep = "")
+  maximum_width <- all_conditions$max_condition_columns *
+    all_conditions$min_panel_width + 16 * (all_conditions$max_condition_columns - 1L)
+  cat(sprintf(
+    '::: {.overview-grid style="--panel-min: %.0fpx; --panel-max: %.0fpx;"}\n',
+    all_conditions$min_panel_width, maximum_width
+  ))
+  for (card_index in seq_along(group$cards)) {
+    card <- group$cards[[card_index]]
+    caption_id <- paste0("overview-card-", group$group_index, "-", card_index)
+    cat('::: {.overview-card role="group" aria-labelledby="', caption_id, '"}\n', sep = "")
+    cat(facs_report_knit_plot(
+      card$plot, width = 2.3, height = 2.15, envir = environment(), dpi = 192L
+    ), sep = "\n")
+    card_title <- if (isTRUE(card$is_reference)) {
+      paste0(card$condition, " — configured background control")
+    } else card$condition
+    cat('<h4 id="', caption_id, '">', facs_report_heading_label(card_title), '</h4>\n', sep = "")
+    if (!is.na(card$prefix)) {
+      cat('<p class="sample-caption">Sample: ', facs_report_heading_label(card$prefix), '</p>\n', sep = "")
+      if (identical(card$status, "available") && isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+        filename <- paste(card$prefix, "pseudocolor.pdf", sep = "-")
+        pdf_link <- facs_report_embedded_plot_pdf_link(
+          card$plot, filename, width = 3, height = 3,
+          label = paste("Download", card$prefix, "PDF")
+        )
+        embedded_pdf_total_bytes <<- embedded_pdf_total_bytes + attr(pdf_link, "pdf_bytes")
+        if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+          stop("Embedded overview PDFs exceed the configured total safety limit.")
+        }
+        cat(pdf_link, "\n", sep = "")
+      }
+    }
+    cat(':::\n')
+  }
+  cat(':::\n')
+  cat(':::\n')
+}
+```
+
+## Quantitation overview
+
+```{r}
+#| label: quantitation-overview
+#| results: asis
+signal_label <- if (identical(analysis$config$pseudocolor_signal, "background_subtracted")) {
+  "background-subtracted"
+} else {
+  "background-divided"
+}
+quantitation_cards <- list(
+  list(title = paste("Whole-population", target_name, "signal"),
+       detail = paste0("Median ", signal_label, " ", target_name, " signal across all Single Cell events"),
+       plot = quant_whole_plot),
+  list(title = paste("Regional", target_name, "signal"),
+       detail = paste0("Median ", signal_label, " ", target_name, " signal within each configured normalized-DNA region"),
+       plot = quant_phase_plot)
+)
+if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+  quantitation_canvas <- cowplot::plot_grid(
+    plotlist = lapply(quantitation_cards, `[[`, "plot"), ncol = 2L, align = "hv"
+  )
+  quantitation_all_link <- facs_report_embedded_plot_pdf_link(
+    quantitation_canvas, "all-quantitation-plots.pdf",
+    width = 12, height = 5, label = "Download all PDF", maximum_bytes = 32 * 1024^2
+  )
+  embedded_pdf_total_bytes <- embedded_pdf_total_bytes + attr(quantitation_all_link, "pdf_bytes")
+  if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+    stop("Embedded report PDFs exceed the configured total safety limit.")
+  }
+  cat('<div class="quantitation-download-all">', quantitation_all_link, '</div>\n', sep = "")
+}
+quantitation_card_ids <- facs_report_card_ids("quantitation-card", length(quantitation_cards))
+cat('::: {.overview-grid .quantitation-row style="--panel-min: 360px; --panel-max: 760px;"}\n')
+for (card_index in seq_along(quantitation_cards)) {
+  card <- quantitation_cards[[card_index]]
+  caption_id <- quantitation_card_ids[[card_index]]
+  cat('::: {.overview-card role="group" aria-labelledby="', caption_id, '"}\n', sep = "")
+  cat(facs_report_knit_plot(card$plot, width = 5, height = 3.6, envir = environment(), dpi = 192L), sep = "\n")
+  cat('<h4 id="', caption_id, '">', facs_report_heading_label(card$title), '</h4>\n', sep = "")
+  cat('<p class="sample-caption">', facs_report_heading_label(card$detail), '</p>\n', sep = "")
+  if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+    quantitation_link <- facs_report_embedded_plot_pdf_link(
+      card$plot, paste0(caption_id, ".pdf"), width = 5, height = 3.6,
+      label = paste("Download", card$title, "PDF")
+    )
+    embedded_pdf_total_bytes <- embedded_pdf_total_bytes + attr(quantitation_link, "pdf_bytes")
+    if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+      stop("Embedded report PDFs exceed the configured total safety limit.")
+    }
+    cat(quantitation_link, "\n", sep = "")
+  }
+  cat(':::\n')
+}
+cat(':::\n')
+cat('<div class="report-card">Phase/gate <em>composition percentage</em> plots are intentionally not included in this report. The current package-wide phase-percentage gate system has a documented denominator/y-limit inconsistency (see Methods) that has not been scientifically approved; only the median-signal quantitation above is shown.</div>\n')
+
+cat('<h3>Gating by sample</h3>\n')
+cat('<p>Each gating card shows FlowJo-selected Single Cells shaded over all acquisition events on DNA-A versus DNA-H. POI mode uses only a single (Single Cells) population per sample -- there is no separate G1 or positive-population gate to overlay.</p>\n')
+cat('<p>The DNA-A/DNA-H display limits are calculated independently for each acquisition from its 0.1st and 99.9th percentiles with 3% padding. This clips only extreme display outliers; no events are removed from gates, counts, normalization, or quantitation.</p>\n')
+cat('<p><strong>Gating display key:</strong> open charcoal points are all acquisition events; filled blue points are accepted Single Cells.</p>\n')
+cat('::: {.overview-grid .gating-card-grid style="--panel-min: 320px; --panel-max: 480px;"}\n')
+for (gating_index in seq_along(gating_cards)) {
+  gating_card <- gating_cards[[gating_index]]
+  gating_caption_id <- paste0("gating-card-", gating_index)
+  cat('::: {.overview-card role="group" aria-labelledby="', gating_caption_id, '"}\n', sep = "")
+  cat(facs_report_knit_plot(
+    gating_card$plot, width = 3, height = 3, envir = environment(), dpi = 192L,
+    fig_alt = paste0("Validated Single Cells population display for ", gating_card$condition, ".")
+  ), sep = "\n")
+  cat('<h4 id="', gating_caption_id, '">', facs_report_heading_label(gating_card$condition), '</h4>\n', sep = "")
+  cat('<p class="sample-caption">Sample: ', facs_report_heading_label(gating_card$prefix),
+      ' · Single Cells: ', format(gating_card$single_cells_n, big.mark = ","), '</p>\n', sep = "")
+  if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+    gating_link <- facs_report_embedded_plot_pdf_link(
+      gating_card$plot, paste0(gating_card$prefix, "-gating.pdf"),
+      width = 3, height = 3, label = paste("Download", gating_card$prefix, "gating PDF")
+    )
+    embedded_pdf_total_bytes <- embedded_pdf_total_bytes + attr(gating_link, "pdf_bytes")
+    if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+      stop("Embedded report PDFs exceed the configured total safety limit.")
+    }
+    cat(gating_link, "\n", sep = "")
+  }
+  cat(':::\n')
+}
+cat(':::\n')
+
+cat('<h3>Background correction by sample</h3>\n')
+cat('<p>Each card compares the same retained Single Cells before and after background correction. The left plot shows raw ', target_name, ' with the fitted background-vs-DNA regression, from the biological replicate\'s configured background control, as a purple dashed line. The right plot shows the ', signal_label, ' signal.</p>\n', sep = "")
+cat('::: {.overview-grid .gating-card-grid style="--panel-min: 520px; --panel-max: 720px;"}\n')
+for (background_card in background_cards) {
+  background_caption_id <- paste0("background-card-", background_card$prefix)
+  cat('::: {.overview-card role="group" aria-labelledby="', background_caption_id, '"}\n', sep = "")
+  cat(facs_report_knit_plot(
+    background_card$plot, width = 6, height = 3.25, envir = environment(), dpi = 192L,
+    fig_alt = paste0("Raw fitted-background and background-corrected ", target_name,
+                     " comparison for ", background_card$condition, ".")
+  ), sep = "\n")
+  cat('<h4 id="', background_caption_id, '">', facs_report_heading_label(background_card$condition), '</h4>\n', sep = "")
+  cat('<p class="sample-caption">Sample: ', facs_report_heading_label(background_card$prefix), '</p>\n', sep = "")
+  if (isTRUE(params$embed_pseudocolor_pdf_downloads)) {
+    background_link <- facs_report_embedded_plot_pdf_link(
+      background_card$plot, paste0(background_card$prefix, "-background-comparison.pdf"),
+      width = 6, height = 3.25, label = paste("Download", background_card$prefix, "background comparison PDF"),
+      maximum_bytes = 16 * 1024^2
+    )
+    embedded_pdf_total_bytes <- embedded_pdf_total_bytes + attr(background_link, "pdf_bytes")
+    if (embedded_pdf_total_bytes > embedded_pdf_max_total_bytes) {
+      stop("Embedded report PDFs exceed the configured total safety limit.")
+    }
+    cat(background_link, "\n", sep = "")
+  }
+  cat(':::\n')
+}
+cat(':::\n')
+```
+
+## Experiment overview
+
+```{r}
+#| label: population-overview
+#| results: asis
+cat('<div class="report-card">This report follows the configured sample order and uses the established FlowJo-derived **Single Cells** population and the configured background control. It does not redraw gates or recalculate the background regression. The opening galleries provide rapid orientation; use this experiment summary and the pre-results QC status before interpreting the detailed results.</div>\n')
+```
+
+```{r}
+#| label: overview-summary
+#| results: asis
+cat(facs_report_compact_table(overview$summary))
+```
+
+### Samples and replicate structure
+
+```{r}
+#| label: overview-samples
+#| results: asis
+cat(facs_report_compact_table(overview$samples))
+```
+
+## Methods
+
+- **Population input:** configured FlowJo Single Cells exports. The report
+  does not redefine this gate.
+- **DNA coordinate:** each acquisition's own detected 2N peak (`r
+  analysis$config$poi_dna_align`) is mapped to the configured 2N value;
+  displayed 4N is twice that value.
+- **Background correction:** one linear regression of raw `r target_name`
+  signal on normalized DNA is fit from the biological replicate's declared
+  background-control acquisition and applied to every acquisition in that
+  replicate (background-reference regression). Two corrected forms are
+  retained: background-subtracted (`raw − predicted`, this report's
+  canonical signal unless configured otherwise) and background-divided
+  (`r analysis$config$dna_2n_value` × `raw / predicted`).
+- **Background cutoff line:** `background_quantile` (currently `r
+  analysis$config$background_quantile`) is computed from the
+  background-*divided* signal distribution in the background control. It is
+  QC/display metadata, not a validated positivity boundary. On a
+  background-*subtracted* display the two are not on the same scale, so
+  `show_cutoff_line: false` is used to hide a mismatched line rather than
+  show a misleading one; there is no valid constant-offset conversion
+  between the two (the correct conversion is DNA-position-dependent, not a
+  horizontal line). See `poi_current_implementation_audit_5de77a9.md` /
+  `poi_method_and_output_decision_memo_5de77a9.md` (decision `POI-D06`,
+  unresolved as of this report) for the source finding.
+- **Phase/gate composition percentages:** intentionally not shown in this
+  report (see Quantitation overview) pending resolution of the documented
+  denominator/y-limit inconsistency in the package-wide phase-percentage
+  gate system.
+- **Replicates:** technical acquisitions, where present, are combined by
+  the established unweighted mean within biological replicate.
+
+## Provenance
+
+### Share-ready provenance
+
+This summary uses file names and configured identities only; it intentionally
+omits directory paths.
+
+```{r}
+#| label: share-provenance
+#| results: asis
+share_inputs <- unique(data.frame(
+  `Input file` = basename(as.character(overview$inputs$path)),
+  Population = as.character(overview$inputs$population),
+  check.names = FALSE, stringsAsFactors = FALSE
+))
+share_summary <- data.frame(
+  Item = c("Configuration", "Acquisitions", "Biological replicates", "Conditions", "Input files represented"),
+  Value = c(
+    overview$summary$value[overview$summary$item == "Configuration"],
+    nrow(analysis$sample_manifest), length(unique(analysis$sample_manifest$replicate_index)),
+    length(unique(analysis$sample_manifest$condition)), nrow(share_inputs)
+  ), stringsAsFactors = FALSE
+)
+cat(facs_report_compact_table(share_summary))
+cat("\n\n<details><summary>Named input files (paths omitted)</summary>\n\n")
+cat(facs_report_compact_table(share_inputs))
+cat("\n\n</details>")
+```
+
+```{r}
+#| label: provenance
+#| results: asis
+if (isTRUE(params$show_audit_tables)) {
+  cat("**Path disclosure enabled:** full validated input paths are shown because `show_audit_tables: true` was explicitly requested. Review the report before sharing it.\n\n")
+  cat("### Named input files\n\n")
+  cat(facs_report_compact_table(overview$inputs))
+} else {
+  cat("Detailed audit tables are hidden by report configuration; they remain in the completed analysis artifact.")
+}
+```
+
+### Software used
+
+This report was rendered with Quarto. The versions below identify the analysis
+and report-rendering software used for this report.
+
+```{r}
+facs_report_software_used()
+```
