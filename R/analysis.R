@@ -28,6 +28,7 @@ analysis_settings <- function(config) {
     baseline_minimum_events_per_bin = config$baseline_minimum_events_per_bin,
     baseline_minimum_negative_events = config$baseline_minimum_negative_events,
     background_quantile = config$background_quantile,
+    show_cutoff_line = config$show_cutoff_line,
     poi_dna_align = config$poi_dna_align,
     poi_peak_failure = config$poi_peak_failure,
     y_limit_lower_quantile = config$y_limit_lower_quantile,
