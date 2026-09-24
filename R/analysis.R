@@ -8,6 +8,8 @@ analysis_settings <- function(config) {
       "reference_negative_regression"
     } else if (config$plot_type == "ph3") {
       "g1_dna_only"
+    } else if (config$plot_type == "synchronized") {
+      "synchronized_dna_only"
     } else {
       "background_reference_regression"
     },
@@ -89,6 +91,10 @@ new_facs_analysis <- function(
   if (ph3_mode) {
     provenance$ph3_containment <- containment
     provenance$ph3_export_manifests <- export_manifests
+  }
+  if (identical(config$plot_type, "synchronized")) {
+    provenance$synchronized_g1_containment <-
+      attr(input_report, "synchronized_g1_containment")
   }
   structure(
     list(
@@ -203,6 +209,85 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
         background_model = model
       )
     })
+  } else if (config$plot_type == "synchronized") {
+    read_population <- function(prefix, population, label, minimum) {
+      read_facs_sample(
+        file.path(directory, paste0(prefix, config$suffixes[[population]])),
+        config$dna_channel, config$target_channel,
+        paste(label, population), minimum
+      )
+    }
+    complete <- lapply(seq_len(nrow(manifest)), function(i) {
+      read_population(manifest$prefix[[i]], "complete",
+                      manifest$condition[[i]], 10L)
+    })
+    names(complete) <- manifest$prefix
+    if (identical(config$synchronized_dna_strategy, "shared_asynchronous_g1")) {
+      reference_prefix <- config$synchronized_reference_prefix
+      reference_index <- match(reference_prefix, manifest$prefix)
+      g1 <- read_population(
+        reference_prefix, "g1", manifest$condition[[reference_index]],
+        as.integer(config$synchronized_minimum_g1_events)
+      )
+      containment <- synchronized_validate_g1_containment(
+        complete[[reference_prefix]], g1,
+        manifest$condition[[reference_index]],
+        as.integer(config$synchronized_minimum_g1_events),
+        required_columns = synchronized_identity_columns()
+      )
+      anchor <- stats::median(g1[[config$dna_channel]], na.rm = TRUE)
+      if (!is.finite(anchor) || anchor <= 0) {
+        stop("Invalid asynchronous-reference G1 DNA anchor.", call. = FALSE)
+      }
+      anchors <- rep(anchor, nrow(manifest))
+      containments <- rep(list(containment), nrow(manifest))
+    } else {
+      reference_prefix <- NA_character_
+      g1_tables <- lapply(seq_len(nrow(manifest)), function(i) {
+        read_population(manifest$prefix[[i]], "g1", manifest$condition[[i]],
+                        as.integer(config$synchronized_minimum_g1_events))
+      })
+      containments <- lapply(seq_len(nrow(manifest)), function(i) {
+        synchronized_validate_g1_containment(
+          complete[[i]], g1_tables[[i]], manifest$condition[[i]],
+          as.integer(config$synchronized_minimum_g1_events),
+          required_columns = synchronized_identity_columns()
+        )
+      })
+      anchors <- vapply(g1_tables, function(g1) {
+        stats::median(g1[[config$dna_channel]], na.rm = TRUE)
+      }, numeric(1))
+      if (any(!is.finite(anchors) | anchors <= 0)) {
+        stop("Invalid per-sample G1 DNA anchor.", call. = FALSE)
+      }
+    }
+    normalized_data <- lapply(seq_len(nrow(manifest)), function(i) {
+      list(
+        data = synchronized_normalize_table(
+          complete[[i]], config$dna_channel, config$target_channel,
+          anchors[[i]], config$dna_2n_value
+        ),
+        g1_median_dna = anchors[[i]],
+        normalization_method = "synchronized_dna_only",
+        normalization_strategy = config$synchronized_dna_strategy,
+        reference_prefix = reference_prefix,
+        containment = containments[[i]]
+      )
+    })
+    models <- lapply(seq_len(nrow(manifest)), function(i) {
+      list(
+        normalization_method = "synchronized_dna_only",
+        normalization_strategy = config$synchronized_dna_strategy,
+        reference_prefix = reference_prefix,
+        reference_g1_anchor = if (identical(config$synchronized_dna_strategy,
+                                             "shared_asynchronous_g1")) anchors[[i]] else NA_real_,
+        applied_dna_anchor = anchors[[i]],
+        applied_dna_factor = config$dna_2n_value / anchors[[i]],
+        target_transformation = "none",
+        containment = containments[[i]]
+      )
+    })
+    names(models) <- manifest$prefix
   } else {
     ph3_containment <- attr(input_report, "ph3_containment")
     ph3_export_manifests <- attr(input_report, "ph3_export_manifests")
@@ -299,6 +384,8 @@ analyze_facs_experiment <- function(config, data_dir = NULL) {
     ph3_build_legacy_csv_pilot(analysis)
   } else if (config$plot_type == "ph3") {
     quantify_ph3(analysis)
+  } else if (config$plot_type == "synchronized") {
+    analysis
   } else {
     quantify_cell_cycle(
       analysis,

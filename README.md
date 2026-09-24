@@ -70,6 +70,8 @@ quarto render pseudocolor_plots.qmd -P config:config_poi.yml
   experimental interface.
 - `examples/appearance/` — optional presentation-only YAML examples.
 - `R/` — the `facspseudocolor` package implementation.
+- [`docs/SYNCHRONIZED_MODE.md`](docs/SYNCHRONIZED_MODE.md) — reusable
+  G1-DNA normalization for explicitly exported synchronized samples.
 - `python/export_flowjo_populations.py` — the optional contract-aware event exporter.
 - pH3 production exports use an immutable local operation manifest and
   acquisition-scoped direct event identities. Direct-index semantics remain
