@@ -13,7 +13,7 @@ PYTHON_DIR = Path(__file__).resolve().parents[2] / "python"
 sys.path.insert(0, str(PYTHON_DIR))
 
 from export_contract import (  # noqa: E402
-    LEGACY_PROFILE, PRODUCTION_PROFILE, _atomic_write, artifact_record,
+    LEGACY_PROFILE, MINIMAL_PROFILE, PRODUCTION_PROFILE, SCHEMA_VERSION, _atomic_write, artifact_record,
     event_identity_fields,
     canonical_manifest_bytes, finalize_geometry_supplement, finalize_manifest,
     manifest_binding_digest, new_manifest, resolve_production_fcs_files,
@@ -27,6 +27,7 @@ from export_contract import (  # noqa: E402
 def synthetic_metadata() -> dict:
     return {
         "software": {"supported_flowkit_version": "SYNTHETIC-PINNED"},
+        "analysis_mapping": {"dna_channel": "SYNTHETIC_DNA", "target_channel": "SYNTHETIC_TARGET"},
         "approval": {
             "gate_owner": "SYNTHETIC OWNER", "approver": "SYNTHETIC APPROVER",
             "approval_date": "2026-08-24",
@@ -41,6 +42,15 @@ def synthetic_metadata() -> dict:
             "prefix": "SYNTHETIC_A", "source_fcs_reference": "SYNTHETIC-A.fcs",
             "source_fcs_sha256": "0" * 64,
         }],
+    }
+
+
+def minimal_metadata() -> dict:
+    metadata = synthetic_metadata()
+    return {
+        "software": metadata["software"],
+        "analysis_mapping": metadata["analysis_mapping"],
+        "acquisitions": metadata["acquisitions"],
     }
 
 
@@ -92,6 +102,30 @@ class ExportContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
                 resolve_production_fcs_files(root, metadata, {"SYNTHETIC-A.fcs"})
 
+    def test_explicit_operation_plan_can_exclude_stale_workspace_samples(self):
+        with tempfile.TemporaryDirectory(prefix="SYNTHETIC_contract_") as directory:
+            root = Path(directory)
+            selected = root / "SYNTHETIC-SELECTED.fcs"
+            selected.write_bytes(b"SYNTHETIC SELECTED FCS BYTES")
+            selected_record = {
+                "acquisition_id": "SYNTHETIC-SELECTED",
+                "sample_id": selected.name,
+                "prefix": "SYNTHETIC_SELECTED",
+                "source_fcs_reference": selected.name,
+                "source_fcs_sha256": hashlib.sha256(selected.read_bytes()).hexdigest(),
+            }
+            # The operation passes only its explicit selected metadata to the
+            # resolver; a stale workspace sample is neither consumed nor
+            # permitted to stand in for a missing selected sample.
+            self.assertEqual(resolve_production_fcs_files(
+                root, [selected_record], {selected.name}
+            ), [selected.resolve()])
+            with self.assertRaisesRegex(ValueError, "exactly cover"):
+                resolve_production_fcs_files(
+                    root, [selected_record],
+                    {selected.name, "SYNTHETIC-STALE.fcs"}
+                )
+
     def test_production_is_conditional_and_required_metadata_is_fail_closed(self):
         with tempfile.TemporaryDirectory(prefix="SYNTHETIC_contract_") as directory:
             workspace = Path(directory) / "SYNTHETIC.wsp"
@@ -101,6 +135,39 @@ class ExportContractTests(unittest.TestCase):
                              workspace=workspace, flowkit_version="SYNTHETIC-PINNED",
                              metadata=synthetic_metadata(),
                              direct_index_semantics_verified=False)
+
+    def test_minimal_contract_needs_only_hash_mapping_and_flowkit_version(self):
+        with tempfile.TemporaryDirectory(prefix="SYNTHETIC_contract_") as directory:
+            workspace = Path(directory) / "SYNTHETIC.wsp"
+            workspace.write_text("SYNTHETIC WORKSPACE", encoding="utf-8")
+            manifest = new_manifest(
+                operation_id=None, profile=MINIMAL_PROFILE, workspace=workspace,
+                flowkit_version="SYNTHETIC-PINNED", metadata=minimal_metadata(),
+                direct_index_semantics_verified=False, requested_populations=["complete"],
+            )
+            self.assertTrue(manifest["export_operation_id"].startswith("flowjo-"))
+            self.assertEqual(manifest["analysis_mapping"]["dna_channel"], "SYNTHETIC_DNA")
+            self.assertFalse(manifest["identity_method"]["verified"])
+
+    def test_minimal_contract_rejects_missing_channel_mapping(self):
+        with tempfile.TemporaryDirectory(prefix="SYNTHETIC_contract_") as directory:
+            workspace = Path(directory) / "SYNTHETIC.wsp"
+            workspace.write_text("SYNTHETIC WORKSPACE", encoding="utf-8")
+            metadata = minimal_metadata()
+            del metadata["analysis_mapping"]["target_channel"]
+            with self.assertRaisesRegex(ValueError, "analysis_mapping"):
+                new_manifest(operation_id=None, profile=MINIMAL_PROFILE,
+                             workspace=workspace, flowkit_version="SYNTHETIC-PINNED",
+                             metadata=metadata, direct_index_semantics_verified=False)
+
+    def test_minimal_contract_rejects_manual_operation_id(self):
+        with tempfile.TemporaryDirectory(prefix="SYNTHETIC_contract_") as directory:
+            workspace = Path(directory) / "SYNTHETIC.wsp"
+            workspace.write_text("SYNTHETIC WORKSPACE", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "automatically"):
+                new_manifest(operation_id="SYNTHETIC-MANUAL", profile=MINIMAL_PROFILE,
+                             workspace=workspace, flowkit_version="SYNTHETIC-PINNED",
+                             metadata=minimal_metadata(), direct_index_semantics_verified=False)
 
     def test_metadata_allowlist_rejects_credentials_and_unknown_fields(self):
         with tempfile.TemporaryDirectory(prefix="SYNTHETIC_contract_") as directory:
@@ -289,7 +356,7 @@ class ExportContractTests(unittest.TestCase):
             manifest["manifest_schema"]["version"] = "WRONG"
             with self.assertRaisesRegex(ValueError, "schema mismatch"):
                 finalize_manifest(manifest, root)
-            manifest["manifest_schema"]["version"] = "1.0.0"
+            manifest["manifest_schema"]["version"] = SCHEMA_VERSION
             manifest["artifacts"].append({
                 "path": "../escape.csv", "export_operation_id": "SYNTHETIC-OP",
                 "sha256": "0" * 64, "role": "population_events", "byte_size": 1,

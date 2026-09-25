@@ -1,0 +1,65 @@
+# Template for poi_flowjo_export_report.qmd. Replace every ALL-CAPS value with
+# documented experimental metadata before rendering. This template never edits
+# the source FCS files or the FlowJo workspace. Render with:
+# sh tools/render-poi-flowjo-report.sh path/to/config.yml path/to/external/html-output
+plot_type: "poi"
+
+# REQUIRED: a directory outside this repository and the FCS source directory.
+# Relative paths are resolved from this configuration file. Export artifacts are
+# written below it in .flowjo_export/. Do not reuse an operation directory;
+# the exporter refuses nonempty operation directories.
+data_dir: "../analysis-output/event-exports"
+
+# Raw FCS detector names. Confirm these from the acquisition/staining record.
+dna_channel: "REPLACE_WITH_DNA_DETECTOR"
+target_channel: "REPLACE_WITH_POI_DETECTOR"
+target_name: "REPLACE_WITH_TARGET_NAME"
+
+suffixes:
+  complete: "_single_cells.csv"
+
+dna_2n_value: 1000
+background_quantile: 0.95
+poi_peak_failure: "error"
+# Optional approved background-subtracted target-signal cutoff used only by
+# poi_flowjo_cutoff_report.qmd to label events below versus at/above cutoff.
+poi_signal_cutoff: 5000
+palette: "refined"
+y_log10: true
+
+# REQUIRED: output paths outside this repository and the FCS source directory.
+# Relative paths are resolved from this configuration file.
+output_pdf: "../analysis-output/REPLACE_WITH_EXPERIMENT_poi_panels.pdf"
+output_png: "../analysis-output/REPLACE_WITH_EXPERIMENT_poi_panels.png"
+
+flowjo:
+  # The workspace and every listed FCS file must be in this one local directory.
+  # Relative paths are resolved from this configuration file. `workspace` is
+  # resolved from `source_dir`, so it may intentionally use `..`.
+  source_dir: "../REPLACE_WITH_FCS_DIRECTORY"
+  workspace: "REPLACE_WITH_WORKSPACE.wsp"
+  # A bare command is found on PATH; a path containing / is config-relative.
+  python: "python3"
+  populations:
+    complete: "Single Cells"
+  dna_source_channel: "REPLACE_WITH_DNA_DETECTOR"
+  target_source_channel: "REPLACE_WITH_POI_DETECTOR"
+  # Minimal provenance contract for this exact acquisition/sample mapping.
+  # It records source/workspace hashes, sample/gate/channel mappings, FlowKit
+  # version, and hashes every generated export artifact. The exporter assigns
+  # a new operation ID automatically.
+  contract_metadata: "REPLACE_WITH_EXPORT_CONTRACT_METADATA.json"
+  rebuild: true
+
+# This report deliberately permits one biological replicate/export operation.
+# `reference` is the explicit appropriate background-control sample.
+replicates:
+  - label: "REPLACE_WITH_BIOLOGICAL_REPLICATE"
+    reference: "REPLACE_WITH_BACKGROUND_LABEL"
+    samples:
+      - label: "REPLACE_WITH_BACKGROUND_LABEL"
+        prefix: "background"
+        fcs: "REPLACE_WITH_BACKGROUND.fcs"
+      - label: "REPLACE_WITH_CONDITION_LABEL"
+        prefix: "condition"
+        fcs: "REPLACE_WITH_CONDITION.fcs"

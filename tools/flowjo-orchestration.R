@@ -12,6 +12,126 @@ flowjo_safe_name <- function(value) {
   if (nzchar(value)) value else "replicate"
 }
 
+flowjo_physical_candidate_path <- function(path) {
+  # First collapse lexical `.`/`..`; then resolve the nearest existing ancestor
+  # physically so a symlink in that ancestor cannot evade containment checks.
+  path <- normalizePath(path.expand(path), mustWork = FALSE)
+  tail <- character()
+  candidate <- path
+  while (!file.exists(candidate)) {
+    parent <- dirname(candidate)
+    if (identical(parent, candidate)) {
+      stop("Cannot resolve an existing ancestor for path: ", path, call. = FALSE)
+    }
+    tail <- c(basename(candidate), tail)
+    candidate <- parent
+  }
+  # Destinations may be either directories (for exported event tables) or
+  # files (for the configured panel PDF/PNG).  An existing output file is a
+  # valid leaf: resolve it physically for the containment check rather than
+  # treating it as an invalid ancestor.
+  if (!dir.exists(candidate)) {
+    if (!length(tail)) return(normalizePath(candidate, mustWork = TRUE))
+    stop("Path has a non-directory existing ancestor: ", candidate, call. = FALSE)
+  }
+  do.call(file.path, c(list(normalizePath(candidate, mustWork = TRUE)), as.list(tail)))
+}
+
+flowjo_path_is_within <- function(path, parent) {
+  path <- flowjo_physical_candidate_path(path)
+  parent <- normalizePath(path.expand(parent), mustWork = TRUE)
+  identical(path, parent) || startsWith(path, paste0(parent, .Platform$file.sep))
+}
+
+flowjo_config_path <- function(path, config, label, allow_command = FALSE) {
+  if (!is.character(path) || length(path) != 1L || !nzchar(path)) {
+    stop(label, " must be one nonempty path.", call. = FALSE)
+  }
+  if (allow_command && !grepl("[/\\\\]", path)) {
+    resolved <- Sys.which(path)
+    if (!nzchar(resolved)) {
+      stop("Python interpreter not found on PATH: ", path, call. = FALSE)
+    }
+    return(normalizePath(resolved, mustWork = TRUE))
+  }
+  path <- path.expand(path)
+  if (grepl("^(/|[A-Za-z]:[/\\\\])", path)) return(path)
+  config_dir <- attr(config, "config_dir")
+  if (!is.character(config_dir) || length(config_dir) != 1L || !nzchar(config_dir)) {
+    stop("Relative ", label, " requires a file-backed configuration.", call. = FALSE)
+  }
+  file.path(config_dir, path)
+}
+
+resolve_poi_flowjo_config_paths <- function(config) {
+  if (!inherits(config, "facs_config")) {
+    config <- facspseudocolor::validate_facs_config(config)
+  }
+  config$data_dir <- flowjo_config_path(config$data_dir, config, "`data_dir`")
+  config$output_pdf <- flowjo_config_path(config$output_pdf, config, "`output_pdf`")
+  config$output_png <- flowjo_config_path(config$output_png, config, "`output_png`")
+  resolve_flowjo <- function(flowjo) {
+    if (!length(flowjo)) return(flowjo)
+    if (!is.null(flowjo$source_dir)) {
+      flowjo$source_dir <- flowjo_config_path(flowjo$source_dir, config, "FlowJo `source_dir`")
+    }
+    if (!is.null(flowjo$python)) {
+      flowjo$python <- flowjo_config_path(flowjo$python, config, "FlowJo `python`", allow_command = TRUE)
+    }
+    flowjo
+  }
+  config$flowjo <- resolve_flowjo(flowjo_or(config$flowjo, list()))
+  if (!is.null(config$replicates)) {
+    for (index in seq_along(config$replicates)) {
+      config$replicates[[index]]$flowjo <- resolve_flowjo(
+        flowjo_or(config$replicates[[index]]$flowjo, list())
+      )
+    }
+  }
+  config
+}
+
+flowjo_require_external_destination <- function(path, label, source_dir, package_root) {
+  if (!is.character(path) || length(path) != 1L || !grepl("^/", path)) {
+    stop(label, " must be one explicit absolute path outside the source and package directories.",
+         call. = FALSE)
+  }
+  if (flowjo_path_is_within(path, source_dir) ||
+      flowjo_path_is_within(path, package_root)) {
+    stop(label, " must be outside the FlowJo source directory and package repository.",
+         call. = FALSE)
+  }
+  invisible(normalizePath(path.expand(path), mustWork = FALSE))
+}
+
+preflight_poi_flowjo_destinations_external <- function(config,
+                                                        exporter = "python/export_flowjo_populations.py") {
+  if (!inherits(config, "facs_config")) {
+    config <- facspseudocolor::validate_facs_config(config)
+  }
+  config <- resolve_poi_flowjo_config_paths(config)
+  if (!identical(config$plot_type, "poi") || is.null(config$replicates) ||
+      length(config$replicates) != 1L) {
+    stop("POI FlowJo destination preflight requires exactly one POI replicate.",
+         call. = FALSE)
+  }
+  if (!file.exists(exporter)) {
+    stop("Python exporter not found: ", exporter, call. = FALSE)
+  }
+  flowjo <- utils::modifyList(
+    flowjo_or(config$flowjo, list()), flowjo_or(config$replicates[[1L]]$flowjo, list())
+  )
+  source_dir <- flowjo$source_dir
+  if (!is.character(source_dir) || length(source_dir) != 1L || !dir.exists(source_dir)) {
+    stop("FlowJo `source_dir` must be one existing local directory.", call. = FALSE)
+  }
+  package_root <- normalizePath(file.path(dirname(exporter), ".."), mustWork = TRUE)
+  flowjo_require_external_destination(config$data_dir, "`data_dir`", source_dir, package_root)
+  flowjo_require_external_destination(config$output_pdf, "`output_pdf`", source_dir, package_root)
+  flowjo_require_external_destination(config$output_png, "`output_png`", source_dir, package_root)
+  invisible(TRUE)
+}
+
 flowjo_export_column <- function(column_names, channel, source = "raw") {
   exact <- paste0(source, "__", channel)
   if (exact %in% column_names) return(exact)
@@ -115,6 +235,7 @@ prepare_flowjo_csvs_external <- function(
   if (!inherits(config, "facs_config")) {
     config <- facspseudocolor::validate_facs_config(config)
   }
+  config <- resolve_poi_flowjo_config_paths(config)
   replicates <- config$replicates
   if (is.null(replicates)) {
     stop("FlowJo orchestration currently requires a `replicates` configuration.",
@@ -130,15 +251,6 @@ prepare_flowjo_csvs_external <- function(
   strict <- identical(config$plot_type, "ph3")
   export_profile <- if (strict) "production_direct_identity_v1" else "legacy_count_only_unverified_v1"
   data_dir <- config$data_dir
-  if (!grepl("^/", data_dir)) {
-    config_dir <- attr(config, "config_dir")
-    if (is.null(config_dir)) {
-      stop("Relative data paths require a file-backed configuration.",
-           call. = FALSE)
-    }
-    data_dir <- file.path(config_dir, data_dir)
-  }
-  dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
   operation_artifacts <- character()
 
   for (replicate in replicates) {
@@ -149,10 +261,14 @@ prepare_flowjo_csvs_external <- function(
       stop("A top-level or per-replicate `flowjo` block is required.",
            call. = FALSE)
     }
+    minimal <- !strict && is.character(flowjo$contract_metadata) &&
+      length(flowjo$contract_metadata) == 1L && nzchar(flowjo$contract_metadata)
     required <- c("source_dir", "workspace", "dna_source_channel",
                   "target_source_channel")
     if (strict) {
       required <- c(required, "contract_metadata", "export_operation_id")
+    } else if (minimal) {
+      required <- c(required, "contract_metadata")
     }
     missing <- required[vapply(flowjo[required], function(x) {
       is.null(x) || !is.character(x) || length(x) != 1L || !nzchar(x)
@@ -162,9 +278,19 @@ prepare_flowjo_csvs_external <- function(
            paste(missing, collapse = ", "), call. = FALSE)
     }
 
+    if (minimal && (!identical(flowjo$dna_source_channel, config$dna_channel) ||
+        !identical(flowjo$target_source_channel, config$target_channel))) {
+      stop("Minimal FlowJo export raw detector channels must exactly match `dna_channel` and `target_channel`.", call. = FALSE)
+    }
     source_dir <- flowjo$source_dir
     workspace <- file.path(source_dir, flowjo$workspace)
-    contract_metadata <- if (strict) file.path(source_dir, flowjo$contract_metadata) else NULL
+    contract_metadata <- if (strict) {
+      file.path(source_dir, flowjo$contract_metadata)
+    } else if (minimal) {
+      flowjo_config_path(flowjo$contract_metadata, config, "FlowJo `contract_metadata`")
+    } else {
+      NULL
+    }
     if (strict && !isTRUE(flowjo$direct_index_semantics_verified)) {
       stop("Production FlowJo orchestration requires the pinned SYNTHETIC direct-index verification.",
            call. = FALSE)
@@ -186,10 +312,23 @@ prepare_flowjo_csvs_external <- function(
     }
 
     prefixes <- vapply(replicate$samples, `[[`, character(1), "prefix")
+    if (minimal) {
+      fcs_files <- vapply(replicate$samples, `[[`, character(1), "fcs")
+      if (any(!grepl("^[^/\\\\]+\\\\.fcs$", fcs_files, ignore.case = TRUE)) || anyDuplicated(fcs_files)) {
+        stop("Minimal FlowJo export requires unique basename-only `.fcs` sample names.", call. = FALSE)
+      }
+      sample_population_plan <- stats::setNames(rep(list(names(population_map)), length(fcs_files)), fcs_files)
+      plan_file <- tempfile("flowjo_sample_population_plan_", fileext = ".json")
+      on.exit(unlink(plan_file), add = TRUE)
+      jsonlite::write_json(sample_population_plan, plan_file, auto_unbox = FALSE, pretty = TRUE)
+    }
     expected <- unlist(lapply(names(population_map), function(key) {
       file.path(data_dir, paste0(prefixes, config$suffixes[[key]]))
     }))
-    if (!rebuild && all(file.exists(expected))) {
+    if (minimal && !rebuild) {
+      stop("Minimal FlowJo orchestration always creates a new immutable operation; `rebuild: false` is unsupported.", call. = FALSE)
+    }
+    if (!minimal && !rebuild && all(file.exists(expected))) {
       stop(
         "FlowJo orchestration cannot bypass manifest and artifact ",
         "verification with `rebuild: false`; validate the completed operation ",
@@ -212,7 +351,7 @@ prepare_flowjo_csvs_external <- function(
     if (!file.exists(workspace)) {
       stop("FlowJo workspace not found: ", workspace, call. = FALSE)
     }
-    if (strict && !file.exists(contract_metadata)) {
+    if ((strict || minimal) && !file.exists(contract_metadata)) {
       stop("FlowJo contract metadata not found: ", contract_metadata, call. = FALSE)
     }
     dependency_status <- suppressWarnings(system2(
@@ -226,10 +365,10 @@ prepare_flowjo_csvs_external <- function(
       )
     }
 
-    export_dir <- file.path(
-      data_dir, ".flowjo_export", flowjo_safe_name(replicate$label)
-    )
-    dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
+    package_root <- normalizePath(file.path(dirname(exporter), ".."), mustWork = TRUE)
+    if (minimal) flowjo_require_external_destination(data_dir, "`data_dir`", source_dir, package_root)
+    export_dir <- if (minimal) file.path(data_dir, ".flowjo_export") else file.path(data_dir, ".flowjo_export", flowjo_safe_name(replicate$label))
+    if (!minimal) dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
     populations <- unlist(population_map, use.names = FALSE)
     if (verbose) message("Running contract-aware FlowJo exporter for ", replicate$label)
     exporter_args <- c(
@@ -242,9 +381,13 @@ prepare_flowjo_csvs_external <- function(
         unname(unlist(config$suffixes[names(population_map)])),
         shQuote, character(1)
       ),
-      "--profile", export_profile
+      "--profile", if (minimal) "minimal_provenance_v1" else export_profile
     )
-    if (strict) {
+    if (minimal) {
+      exporter_args <- c(exporter_args, "--sample-population-plan", shQuote(plan_file),
+                         "--raw-compatible-columns", "--contract-metadata", shQuote(contract_metadata),
+                         "--analysis-channels", shQuote(flowjo$dna_source_channel), shQuote(flowjo$target_source_channel))
+    } else if (strict) {
       exporter_args <- c(
         exporter_args,
         "--contract-metadata", shQuote(contract_metadata),
@@ -252,9 +395,19 @@ prepare_flowjo_csvs_external <- function(
         "--direct-index-semantics-verified"
       )
     }
-    status <- system2(python, exporter_args)
+    exporter_output <- if (minimal) system2(python, exporter_args, stdout = TRUE, stderr = TRUE) else system2(python, exporter_args)
+    status <- if (minimal) flowjo_or(attr(exporter_output, "status"), 0L) else exporter_output
     if (status != 0) {
       stop("FlowJo export failed for ", replicate$label, call. = FALSE)
+    }
+    if (minimal) {
+      operation_lines <- grep("^FLOWJO_OPERATION_DIR=", exporter_output, value = TRUE)
+      if (length(operation_lines) != 1L) stop("FlowJo exporter did not return exactly one finalized operation directory.", call. = FALSE)
+      export_dir <- sub("^FLOWJO_OPERATION_DIR=", "", operation_lines[[1L]])
+      if (!grepl("^/", export_dir) || !flowjo_path_is_within(export_dir, file.path(data_dir, ".flowjo_export"))) {
+        stop("FlowJo exporter returned an operation directory outside the approved export root.", call. = FALSE)
+      }
+      export_dir <- normalizePath(export_dir, mustWork = TRUE)
     }
     counts_file <- file.path(export_dir, "population_counts.csv")
     if (!file.exists(counts_file)) {
@@ -287,7 +440,8 @@ prepare_flowjo_csvs_external <- function(
           stop("Sequential identity fallback is prohibited; required identity fields are missing.",
                call. = FALSE)
         }
-        if (any(exported$export_profile != export_profile)) {
+        expected_profile <- if (minimal) "minimal_provenance_v1" else export_profile
+        if (any(exported$export_profile != expected_profile)) {
           if (strict) {
             stop("Legacy or ambiguous FlowJo exports cannot be consumed as production.",
                  call. = FALSE)
@@ -310,6 +464,53 @@ prepare_flowjo_csvs_external <- function(
     }
   }
   invisible(normalizePath(operation_artifacts, mustWork = TRUE))
+}
+
+# Point a one-replicate POI analysis at the immutable, verified population
+# artifacts just created by `prepare_flowjo_csvs_external()`.  The config is
+# copied only in memory; it neither moves/copies artifacts nor changes the
+# source config, FCS files, or FlowJo workspace.
+prepare_poi_flowjo_analysis_config_external <- function(config, artifacts) {
+  if (!inherits(config, "facs_config")) {
+    config <- facspseudocolor::validate_facs_config(config)
+  }
+  if (!identical(config$plot_type, "poi")) {
+    stop("The FlowJo POI report requires `plot_type: poi`.", call. = FALSE)
+  }
+  if (is.null(config$replicates) || length(config$replicates) != 1L) {
+    stop(
+      "The FlowJo POI report supports exactly one configured replicate/export ",
+      "operation. Split multiple biological replicates into separate, explicit ",
+      "configurations and reports.", call. = FALSE
+    )
+  }
+  artifacts <- normalizePath(artifacts, mustWork = TRUE)
+  expected <- file.path(
+    dirname(artifacts[[1L]]),
+    paste0(
+      vapply(config$replicates[[1L]]$samples, `[[`, character(1), "prefix"),
+      config$suffixes$complete
+    )
+  )
+  expected <- normalizePath(expected, mustWork = FALSE)
+  if (length(artifacts) != length(expected) ||
+      !setequal(artifacts, expected)) {
+    stop(
+      "FlowJo export artifacts do not exactly match the configured POI Single ",
+      "Cells inputs; refusing to select a partial or substituted operation.",
+      call. = FALSE
+    )
+  }
+  operation_dir <- dirname(artifacts[[1L]])
+  if (!all(dirname(artifacts) == operation_dir) ||
+      !file.exists(file.path(operation_dir, "export-manifest.json")) ||
+      !file.exists(file.path(operation_dir, "export-manifest.sha256"))) {
+    stop("Verified FlowJo operation artifacts must share one finalized operation directory.",
+         call. = FALSE)
+  }
+  analysis_config <- config
+  analysis_config$data_dir <- operation_dir
+  analysis_config
 }
 
 # Export exact FlowJo gate vertices to one experiment-level sidecar. This calls
