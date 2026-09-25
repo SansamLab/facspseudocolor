@@ -927,12 +927,13 @@ facs_report_edu_gating_cards <- function(analysis, all_events = NULL,
   overlay_plot <- function(parent, child, title, child_colour, identity,
                            dna_channel, target_channel) {
     identity_column <- if (model_derived) "event_identity" else "event_index"
-    if (identity_column %in% names(parent) && identity_column %in% names(child)) {
-      if (anyDuplicated(parent[[identity_column]]) ||
-          anyDuplicated(child[[identity_column]])) {
-        stop("Exclusive gating overlays require unique event identities.",
-             call. = FALSE)
-      }
+    has_direct_identity <- identity_column %in% names(parent) &&
+      identity_column %in% names(child) &&
+      !anyDuplicated(parent[[identity_column]]) &&
+      !anyDuplicated(child[[identity_column]]) &&
+      all(!is.na(parent[[identity_column]]) & nzchar(parent[[identity_column]])) &&
+      all(!is.na(child[[identity_column]]) & nzchar(child[[identity_column]]))
+    if (has_direct_identity) {
       parent <- parent[
         !parent[[identity_column]] %in% child[[identity_column]], , drop = FALSE
       ]
