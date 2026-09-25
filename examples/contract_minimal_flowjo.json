@@ -1,0 +1,18 @@
+{
+  "software": {
+    "supported_flowkit_version": "REPLACE_WITH_EXACT_FLOWKIT_VERSION"
+  },
+  "analysis_mapping": {
+    "dna_channel": "REPLACE_WITH_DNA_DETECTOR",
+    "target_channel": "REPLACE_WITH_TARGET_DETECTOR"
+  },
+  "acquisitions": [
+    {
+      "acquisition_id": "REPLACE_WITH_UNIQUE_ACQUISITION_ID",
+      "sample_id": "REPLACE_WITH_EXACT_WORKSPACE_SAMPLE_ID.fcs",
+      "prefix": "REPLACE_WITH_CONFIG_SAMPLE_PREFIX",
+      "source_fcs_reference": "REPLACE_WITH_FCS_BASENAME.fcs",
+      "source_fcs_sha256": "REPLACE_WITH_LOWERCASE_SHA256"
+    }
+  ]
+}
