@@ -48,6 +48,15 @@ resolve_facs_directory <- function(config, data_dir = NULL) {
 
 required_population_keys <- function(config, manifest) {
   if (identical(config$plot_type, "poi")) return("complete")
+  if (identical(config$plot_type, "synchronized")) {
+    if (identical(config$synchronized_dna_strategy, "per_sample_g1")) {
+      return(c("complete", "g1"))
+    }
+    return(list(
+      common = "complete",
+      g1_rows = which(manifest$prefix == config$synchronized_reference_prefix)
+    ))
+  }
   if (identical(config$plot_type, "ph3")) {
     if (identical(config$ph3_input_profile, "legacy_csv_pilot_v1")) {
       return(c("complete", "g1"))
@@ -81,6 +90,14 @@ facs_input_files <- function(config, data_dir = NULL) {
 
   if (identical(config$plot_type, "poi")) {
     rows <- lapply(seq_len(nrow(manifest)), add_row, key = "complete")
+  } else if (identical(config$plot_type, "synchronized")) {
+    required <- required_population_keys(config, manifest)
+    for (i in seq_len(nrow(manifest))) {
+      rows[[length(rows) + 1L]] <- add_row(i, "complete")
+      if (is.character(required) || i %in% required$g1_rows) {
+        rows[[length(rows) + 1L]] <- add_row(i, "g1")
+      }
+    }
   } else if (identical(config$plot_type, "ph3")) {
     for (i in seq_len(nrow(manifest))) {
       rows[[length(rows) + 1L]] <- add_row(i, "complete")
@@ -231,6 +248,9 @@ validate_facs_inputs <- function(config, data_dir = NULL) {
       10L
     } else if (files$population[[i]] == "ph3_positive") {
       0L
+    } else if (identical(config$plot_type, "synchronized") &&
+               files$population[[i]] == "g1") {
+      as.integer(config$synchronized_minimum_g1_events)
     } else {
       2L
     }
@@ -244,6 +264,22 @@ validate_facs_inputs <- function(config, data_dir = NULL) {
     files$event_n[[i]] <- info$event_n
     files$finite_event_n[[i]] <- info$finite_event_n
     files$nonfinite_event_n[[i]] <- info$nonfinite_event_n
+  }
+  if (identical(config$plot_type, "synchronized")) {
+    g1_rows <- which(files$population == "g1")
+    containment <- lapply(g1_rows, function(g1_row) {
+      complete_row <- which(files$prefix == files$prefix[[g1_row]] &
+                              files$population == "complete")
+      complete <- utils::read.csv(files$path[[complete_row]], check.names = FALSE)
+      g1 <- utils::read.csv(files$path[[g1_row]], check.names = FALSE)
+      c(list(prefix = files$prefix[[g1_row]]),
+        synchronized_validate_g1_containment(
+          complete, g1, files$condition[[g1_row]],
+          as.integer(config$synchronized_minimum_g1_events),
+          required_columns = synchronized_identity_columns()
+        ))
+    })
+    attr(files, "synchronized_g1_containment") <- containment
   }
   if (identical(config$plot_type, "ph3")) {
     if (identical(config$ph3_input_profile, "legacy_csv_pilot_v1")) {

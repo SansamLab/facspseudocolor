@@ -29,7 +29,8 @@ facs_config_keys <- function() {
     "pdf_height_per_row", "output_pdf", "output_png", "samples",
     "replicates", "flowjo", "gating", "report", "ph3_input_profile", "ph3_export_operation_dirs",
     "ph3_positivity_method",
-    "ph3_output_contract", "ph3_pilot"
+    "ph3_output_contract", "ph3_pilot", "synchronized_dna_strategy",
+    "synchronized_reference_prefix", "synchronized_minimum_g1_events"
   )
 }
 
@@ -64,6 +65,8 @@ facs_config_defaults <- function(plot_type) {
     suffixes = if (identical(plot_type, "edu")) {
       list(complete = "_single_cells.csv", g1 = "_g1.csv",
            edu_positive = "_edu_positive.csv")
+    } else if (identical(plot_type, "synchronized")) {
+      list(complete = "_single_cells.csv", g1 = "_g1.csv")
     } else if (identical(plot_type, "ph3")) {
       list(complete = "_single_cells.csv", g1 = "_g1.csv",
            ph3_positive = "_ph3_positive.csv")
@@ -71,8 +74,11 @@ facs_config_defaults <- function(plot_type) {
       list(complete = "_single_cells.csv")
     },
     dna_2n_value = 1000,
-    normalize_target = TRUE,
+    normalize_target = !identical(plot_type, "synchronized"),
     g1_anchor = "median",
+    synchronized_dna_strategy = "per_sample_g1",
+    synchronized_reference_prefix = NULL,
+    synchronized_minimum_g1_events = 100,
     baseline_fit_x_range = c(1000, 2000),
     baseline_boundary_bins = 20,
     baseline_minimum_events_per_bin = 20,
@@ -273,13 +279,13 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
 
   plot_type <- config$plot_type
   if (config_scalar_string(plot_type) &&
-      !plot_type %in% c("edu", "poi", "ph3")) {
+      !plot_type %in% c("edu", "poi", "ph3", "synchronized")) {
     errors <- config_add_error(
-      errors, "`plot_type` must be 'edu', 'poi', or 'ph3'."
+      errors, "`plot_type` must be 'edu', 'poi', 'ph3', or 'synchronized'."
     )
   }
   if (!config_scalar_string(plot_type) ||
-      !plot_type %in% c("edu", "poi", "ph3")) {
+      !plot_type %in% c("edu", "poi", "ph3", "synchronized")) {
     plot_type <- "edu"
   }
 
@@ -349,6 +355,44 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
     errors <- config_add_error(
       errors, "`target_display_mode` is supported only for EdU configurations."
     )
+  }
+
+  if (identical(plot_type, "synchronized")) {
+    if (!identical(config$normalize_target, FALSE)) {
+      errors <- config_add_error(
+        errors, "Synchronized mode requires `normalize_target: false`; target values are not transformed."
+      )
+    }
+    if (!config_scalar_string(config$synchronized_dna_strategy) ||
+        !config$synchronized_dna_strategy %in%
+          c("per_sample_g1", "shared_asynchronous_g1")) {
+      errors <- config_add_error(
+        errors, "`synchronized_dna_strategy` must be 'per_sample_g1' or 'shared_asynchronous_g1'."
+      )
+    }
+    if (!config_scalar_number(config$synchronized_minimum_g1_events) ||
+        config$synchronized_minimum_g1_events < 2 ||
+        config$synchronized_minimum_g1_events %% 1 != 0) {
+      errors <- config_add_error(
+        errors, "`synchronized_minimum_g1_events` must be an integer of at least 2."
+      )
+    }
+    if (identical(config$synchronized_dna_strategy, "shared_asynchronous_g1")) {
+      if (!config_scalar_string(config$synchronized_reference_prefix)) {
+        errors <- config_add_error(
+          errors, "Shared-asynchronous normalization requires an explicit `synchronized_reference_prefix`."
+        )
+      } else if (!is.null(config$replicates)) {
+        prefixes <- unlist(lapply(config$replicates, function(rep) {
+          vapply(rep$samples, `[[`, character(1), "prefix")
+        }), use.names = FALSE)
+        if (sum(prefixes == config$synchronized_reference_prefix) != 1L) {
+          errors <- config_add_error(
+            errors, "`synchronized_reference_prefix` must identify exactly one configured sample."
+          )
+        }
+      }
+    }
   }
 
   if (!xor(is.null(config$samples), is.null(config$replicates))) {
@@ -601,6 +645,8 @@ validate_facs_config <- function(config, config_path = attr(config, "config_path
 
   required_suffixes <- if (plot_type == "edu") {
     c("complete", "g1", "edu_positive")
+  } else if (plot_type == "synchronized") {
+    c("complete", "g1")
   } else if (plot_type == "ph3") {
     if (identical(config$ph3_input_profile, "legacy_csv_pilot_v1")) {
       c("complete", "g1")
