@@ -88,7 +88,10 @@ names(flowjo_all_events) <- prefixes
 overview <- facs_report_poi_overview(analysis)
 panels <- plot_pseudocolor_panels(analysis)
 all_conditions <- facs_report_poi_responsive_groups(
-  analysis, panels$panels, params$max_condition_columns, params$min_panel_width
+  # Use the decorated plots here, as in the EdU report.  `panels$panels`
+  # intentionally contains decoration-free plotgardener panels and therefore
+  # has no axes, axis labels, or tick labels.
+  analysis, panels$decorated_plots, params$max_condition_columns, params$min_panel_width
 )
 gating_cards <- facs_report_poi_gating_cards(
   analysis, all_events = flowjo_all_events,

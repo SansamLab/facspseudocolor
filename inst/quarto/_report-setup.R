@@ -1916,6 +1916,25 @@ facs_report_poi_responsive_groups <- function(
   condition_order <- unique(as.character(
     manifest$condition[order(manifest$condition_index, seq_len(nrow(manifest)))]
   ))
+  # POI overview cards use the same decorated ggplot panels as the EdU
+  # overview.  This deliberately keeps the scientific display coordinates
+  # unchanged while restoring the axis titles, tick marks, and tick labels
+  # that are absent from decoration-free plotgardener panels.
+  overview_panel <- function(panel) {
+    panel +
+      ggplot2::labs(
+        title = NULL,
+        subtitle = NULL,
+        x = "DNA",
+        y = analysis$config$target_name
+      ) +
+      ggplot2::theme(
+        legend.position = "none",
+        axis.title = ggplot2::element_text(),
+        axis.text = ggplot2::element_text(),
+        axis.ticks = ggplot2::element_line()
+      )
+  }
   replicate_index_order <- unique(manifest$replicate_index[order(manifest$replicate_index)])
   groups <- lapply(seq_along(replicate_index_order), function(group_index) {
     replicate_index <- replicate_index_order[[group_index]]
@@ -1955,7 +1974,7 @@ facs_report_poi_responsive_groups <- function(
         ))
       }
       list(condition = condition, prefix = prefix, status = "available",
-           is_reference = is_reference, plot = panels[[prefix]])
+           is_reference = is_reference, plot = overview_panel(panels[[prefix]]))
     })
     is_ref <- vapply(cards, `[[`, logical(1), "is_reference")
     cards <- c(cards[is_ref], cards[!is_ref])
