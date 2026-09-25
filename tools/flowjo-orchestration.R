@@ -314,7 +314,7 @@ prepare_flowjo_csvs_external <- function(
     prefixes <- vapply(replicate$samples, `[[`, character(1), "prefix")
     if (minimal) {
       fcs_files <- vapply(replicate$samples, `[[`, character(1), "fcs")
-      if (any(!grepl("^[^/\\\\]+\\\\.fcs$", fcs_files, ignore.case = TRUE)) || anyDuplicated(fcs_files)) {
+      if (any(!grepl("^[^/\\\\]+\\.fcs$", fcs_files, ignore.case = TRUE)) || anyDuplicated(fcs_files)) {
         stop("Minimal FlowJo export requires unique basename-only `.fcs` sample names.", call. = FALSE)
       }
       sample_population_plan <- stats::setNames(rep(list(names(population_map)), length(fcs_files)), fcs_files)
