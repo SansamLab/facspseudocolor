@@ -1065,19 +1065,19 @@ facs_report_edu_gating_cards <- function(analysis, all_events = NULL,
           all_data[[sample_dna_height_channel]] >= single_y_limits[[1L]] &
           all_data[[sample_dna_height_channel]] <= single_y_limits[[2L]]
       )
-      if (!identity_column %in% names(single) ||
-          anyDuplicated(all_data[[identity_column]]) ||
-          anyDuplicated(single[[identity_column]])) {
-        stop("Single Cells display requires unique direct event identities for ",
-             prefix, ".", call. = FALSE)
-      }
-      if (any(!single[[identity_column]] %in% all_data[[identity_column]])) {
+      has_direct_identity <- identity_column %in% names(single) &&
+        !anyDuplicated(all_data[[identity_column]]) &&
+        !anyDuplicated(single[[identity_column]]) &&
+        all(!is.na(single[[identity_column]]) & nzchar(single[[identity_column]]))
+      if (has_direct_identity && any(!single[[identity_column]] %in% all_data[[identity_column]])) {
         stop("Single Cells event identities are not contained in the explicit all-events acquisition for ",
              prefix, ".", call. = FALSE)
       }
-      all_context <- all_data[
+      # Without exported direct identities, this is deliberately an overlay,
+      # not an identity-subtracted all-events background.
+      all_context <- if (has_direct_identity) all_data[
         !all_data[[identity_column]] %in% single[[identity_column]], , drop = FALSE
-      ]
+      ] else all_data
       single_plot <- ggplot2::ggplot() +
         ggplot2::geom_point(
           data = retain_points(all_context),
