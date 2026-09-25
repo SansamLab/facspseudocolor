@@ -1890,6 +1890,141 @@ facs_report_poi_overview <- function(analysis) {
   )
 }
 
+#' Build a display-only CCNA2-positive event-level violin plot
+#'
+#' The positivity call is an explicit report parameter applied to the
+#' background-corrected target signal.  It is intentionally separate from the
+#' established POI background model and from FlowJo population membership.
+#' The plotted percentile limits are a Cartesian viewport only; all finite
+#' retained Single Cell events remain in the data used for the violins and
+#' boxplots.
+facs_report_poi_positive_signal <- function(
+    analysis, positive_cutoff, display_quantiles = c(0.01, 0.99)
+) {
+  facspseudocolor:::validate_analysis_object(analysis)
+  if (!identical(analysis$config$plot_type, "poi")) {
+    stop("The CCNA2-positive signal report requires a POI analysis.", call. = FALSE)
+  }
+  if (!is.numeric(positive_cutoff) || length(positive_cutoff) != 1L ||
+      is.na(positive_cutoff) || !is.finite(positive_cutoff)) {
+    stop("`positive_cutoff` must be one finite numeric background-corrected signal value.",
+         call. = FALSE)
+  }
+  if (!is.numeric(display_quantiles) || length(display_quantiles) != 2L ||
+      any(!is.finite(display_quantiles)) || any(display_quantiles < 0) ||
+      any(display_quantiles > 1) || display_quantiles[[1L]] >= display_quantiles[[2L]]) {
+    stop("`display_quantiles` must be two increasing probabilities in [0, 1].",
+         call. = FALSE)
+  }
+  manifest <- analysis$sample_manifest
+  required_manifest <- c("prefix", "condition", "condition_index", "replicate")
+  missing_manifest <- setdiff(required_manifest, names(manifest))
+  if (length(missing_manifest)) {
+    stop("CCNA2-positive signal report requires manifest fields: ",
+         paste(missing_manifest, collapse = ", "), ".", call. = FALSE)
+  }
+  event_rows <- lapply(seq_len(nrow(manifest)), function(i) {
+    data <- analysis$normalized_data[[i]]$data
+    if (!is.data.frame(data) || !"target_bgsub" %in% names(data)) {
+      stop("Background-corrected target values are unavailable for ",
+           as.character(manifest$prefix[[i]]), ".", call. = FALSE)
+    }
+    values <- data$target_bgsub
+    keep <- is.finite(values)
+    if (!any(keep)) {
+      stop("No finite background-corrected target values are available for ",
+           as.character(manifest$prefix[[i]]), ".", call. = FALSE)
+    }
+    base <- data.frame(
+      prefix = as.character(manifest$prefix[[i]]),
+      condition = as.character(manifest$condition[[i]]),
+      condition_index = manifest$condition_index[[i]],
+      replicate = as.character(manifest$replicate[[i]]),
+      target_bgsub = values[keep],
+      stringsAsFactors = FALSE
+    )
+    rbind(
+      transform(base, population = "All Single Cells"),
+      transform(base[base$target_bgsub >= positive_cutoff, , drop = FALSE],
+                population = paste0(analysis$config$target_name, "+"))
+    )
+  })
+  events <- do.call(rbind, event_rows)
+  events$condition <- factor(
+    events$condition,
+    levels = unique(as.character(manifest$condition[order(manifest$condition_index)]))
+  )
+  events$population <- factor(
+    events$population,
+    levels = c("All Single Cells", paste0(analysis$config$target_name, "+"))
+  )
+  all_values <- events$target_bgsub[events$population == "All Single Cells"]
+  display_limits <- as.numeric(stats::quantile(
+    all_values, probs = display_quantiles, names = FALSE, type = 7
+  ))
+  if (any(!is.finite(display_limits)) || display_limits[[1L]] >= display_limits[[2L]]) {
+    stop("The requested display quantiles do not define an increasing finite y-axis range.",
+         call. = FALSE)
+  }
+  sample_summary <- do.call(rbind, lapply(seq_len(nrow(manifest)), function(i) {
+    values <- analysis$normalized_data[[i]]$data$target_bgsub
+    values <- values[is.finite(values)]
+    positive <- values[values >= positive_cutoff]
+    data.frame(
+      prefix = as.character(manifest$prefix[[i]]),
+      condition = as.character(manifest$condition[[i]]),
+      replicate = as.character(manifest$replicate[[i]]),
+      finite_single_cells = length(values),
+      ccna2_positive_cells = length(positive),
+      ccna2_positive_percent = 100 * length(positive) / length(values),
+      ccna2_positive_median_bgsub = if (length(positive)) stats::median(positive) else NA_real_,
+      stringsAsFactors = FALSE
+    )
+  }))
+  target_name <- analysis$config$target_name
+  plot <- ggplot2::ggplot(
+    events,
+    ggplot2::aes(x = condition, y = target_bgsub, fill = population)
+  ) +
+    ggplot2::geom_violin(
+      position = ggplot2::position_dodge(width = 0.82), alpha = 0.65,
+      colour = "#3f4a4e", linewidth = 0.25, trim = FALSE
+    ) +
+    ggplot2::geom_boxplot(
+      position = ggplot2::position_dodge(width = 0.82), width = 0.18,
+      alpha = 0.35, outlier.shape = NA, colour = "#1e292d", linewidth = 0.35
+    ) +
+    ggplot2::geom_hline(
+      yintercept = positive_cutoff, colour = "#b54708", linetype = "dashed", linewidth = 0.5
+    ) +
+    ggplot2::coord_cartesian(ylim = display_limits) +
+    ggplot2::scale_fill_manual(values = c("All Single Cells" = "#80b1d3", paste0(target_name, "+") = "#fb8072")) +
+    ggplot2::labs(
+      x = NULL,
+      y = paste0("Background-corrected ", target_name, " (raw − predicted background)"),
+      fill = "Events",
+      caption = paste0(
+        target_name, "+ = background-corrected ", target_name, " ≥ ",
+        format(positive_cutoff, scientific = TRUE),
+        "; viewport = ", display_quantiles[[1L]] * 100, "th–",
+        display_quantiles[[2L]] * 100, "th percentiles of all Single Cells."
+      )
+    ) +
+    ggplot2::theme_classic(base_size = 11) +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 25, hjust = 1),
+      legend.position = "top"
+    )
+  list(
+    plot = plot,
+    sample_summary = sample_summary,
+    display_limits = display_limits,
+    positive_cutoff = positive_cutoff,
+    display_quantiles = display_quantiles,
+    event_count = nrow(events)
+  )
+}
+
 #' Arrange POI pseudocolor panels into a replicate x condition grid
 #'
 #' Simpler than facs_report_edu_responsive_groups (no model_group/paired-

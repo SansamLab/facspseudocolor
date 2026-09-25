@@ -1,0 +1,71 @@
+---
+title: "CCNA2-positive signal report — v1"
+subtitle: "Background-corrected CCNA2 distributions in retained Single Cells"
+format:
+  html:
+    toc: true
+    toc-location: left
+    embed-resources: true
+    code-fold: false
+execute: { warning: false, message: false, echo: false }
+params:
+  config: null
+  analysis_rds: null
+  positive_cutoff: 100000
+  display_quantiles: [0.01, 0.99]
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(facspseudocolor)
+source(system.file("quarto", "_report-setup.R", package = "facspseudocolor"), local = TRUE)
+analysis <- facs_report_input(params$config, params$analysis_rds)
+report <- facs_report_poi_positive_signal(
+  analysis,
+  positive_cutoff = params$positive_cutoff,
+  display_quantiles = unlist(params$display_quantiles, use.names = FALSE)
+)
+target_name <- analysis$config$target_name
+```
+
+## Definition and display scope
+
+```{r}
+#| results: asis
+cat('<div class="callout-note"><p><strong>CCNA2-positive definition:</strong> retained Single Cell events with background-corrected ',
+    target_name, ' at or above <code>', format(report$positive_cutoff, scientific = TRUE),
+    '</code>. This is a report-specific threshold; it does not alter the saved FlowJo populations, the background model, or the existing POI report.</p></div>\n', sep = '')
+cat('<div class="callout-note"><p><strong>Display range:</strong> the y-axis viewport is the ',
+    report$display_quantiles[[1L]] * 100, 'th through ', report$display_quantiles[[2L]] * 100,
+    'th percentile of all finite retained Single Cell values (',
+    format(report$display_limits[[1L]], big.mark = ','), ' to ',
+    format(report$display_limits[[2L]], big.mark = ','),
+    '). Values outside the viewport remain included in the violin and boxplot calculations.</p></div>\n', sep = '')
+```
+
+## Event-level CCNA2 distributions
+
+```{r}
+#| fig-width: 10
+#| fig-height: 5.8
+#| fig-alt: "Background-corrected CCNA2 violins and transparent boxplots for all retained Single Cells and CCNA2-positive cells, grouped by condition."
+print(report$plot)
+```
+
+## Per-sample CCNA2-positive summary
+
+```{r}
+knitr::kable(
+  report$sample_summary,
+  digits = c(0, 0, 0, 0, 0, 2, 0),
+  caption = "Finite retained Single Cells and report-defined CCNA2-positive events by sample."
+)
+```
+
+## Methods
+
+- **Signal:** background-corrected `r target_name` (`target_bgsub`), calculated by the existing POI analysis.
+- **Positive threshold:** `r format(report$positive_cutoff, scientific = TRUE)` on the background-corrected signal.
+- **Event distributions:** violins and transparent boxplots use all finite retained Single Cell event values; the positive group is the subset at or above the threshold.
+- **Display bounds:** `r report$display_quantiles[[1L]] * 100`th–`r report$display_quantiles[[2L]] * 100`th percentiles are a coordinate viewport only and do not exclude observations from the plotted distribution statistics.
